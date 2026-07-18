@@ -26,7 +26,7 @@ The source repository is public for product evaluation and pilot transparency. I
 - Observe mode that reports the real decision and evidence without blocking merge or dispatching a repair.
 - A bounded repair contract and inactive controlled-canary template for lab validation only. No production repair adapter or dispatch path is enabled.
 
-The ship verdict is deliberately narrow: **ready for one-repository observe pilots only after the GitHub connector, server environment, hosting eligibility, external rate limit, and release-checklist gates are verified; not ready for production enforcement.** Vercel Hobby is a controlled non-commercial canary path, not commercial hosting. It cannot connect a Hobby project to a GitHub organization-owned repository; use a personal disposable repository or an approved paid host for that canary.
+The ship verdict is deliberately narrow: **ready for one-repository observe canaries only after the GitHub connector, server environment, hosting eligibility, external rate limit, and release-checklist gates are verified; not ready for production enforcement.** Vercel Hobby is an owner-controlled, non-commercial canary path, not public startup early access or commercial hosting. Upgrade this same project to Vercel Pro before accepting an external GitHub App installation, a design partner, or payment.
 
 ## Self-serve GitHub setup
 

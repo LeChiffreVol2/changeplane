@@ -36,6 +36,7 @@ const ROUTE_METHODS = new Map([
   ["session", ["GET"]],
   ["readiness", ["GET"]],
   ["login", ["GET"]],
+  ["authorize", ["GET"]],
   ["installation", ["GET"]],
   ["callback", ["GET"]],
   ["repos", ["GET"]],
@@ -947,6 +948,33 @@ async function login(req, res) {
   redirect(res, url.toString(), [cookie(OAUTH_COOKIE, stateCookie, OAUTH_TTL_MS / 1000)]);
 }
 
+async function authorizeExisting(req, res) {
+  const configuration = oauthConfiguration(req);
+  if (configuration.authMode !== "github_app") {
+    throw new HttpError(404, "GitHub App authorization is not configured.");
+  }
+  const state = randomBytes(32).toString("base64url");
+  const { verifier, challenge } = oauthChallenge();
+  const stateCookie = seal({
+    kind: "oauth",
+    state,
+    redirectUri: configuration.redirectUri,
+    authMode: "github_app",
+    existingInstallation: true,
+    verifier,
+  }, sessionSecret(), {
+    ttlMs: OAUTH_TTL_MS,
+    purpose: "oauth",
+  });
+  const url = authorizeUrl({
+    clientId: configuration.clientId,
+    redirectUri: configuration.redirectUri,
+    state,
+    challenge,
+  });
+  redirect(res, url.toString(), [cookie(OAUTH_COOKIE, stateCookie, OAUTH_TTL_MS / 1000)]);
+}
+
 async function installation(req, res) {
   const configuration = oauthConfiguration(req);
   if (configuration.authMode !== "github_app") throw new HttpError(404, "GitHub App installation is not configured.");
@@ -1047,10 +1075,21 @@ async function callback(req, res) {
   const user = await github("/user", exchange.access_token);
   if (typeof user?.login !== "string" || !user.login) throw new HttpError(502, "GitHub returned an invalid user profile.");
   let byokSecretWrite = configuration.authMode !== "github_app";
+  let installationId = saved.installationId;
   if (configuration.authMode === "github_app") {
-    if (typeof saved.installationId !== "string") throw new HttpError(400, "GitHub App installation is missing.");
     const installations = await userInstallations(exchange.access_token);
-    const installation = installations.find(({ id }) => String(id) === saved.installationId);
+    if (saved.existingInstallation === true && typeof installationId !== "string") {
+      const matching = installations.filter(({ app_slug: appSlug }) => appSlug === configuration.appSlug);
+      if (matching.length === 0) {
+        throw new HttpError(404, "No existing ChangePlane installation is available to this GitHub user. Install the GitHub App first.");
+      }
+      if (matching.length > 1) {
+        throw new HttpError(409, "More than one ChangePlane installation is available. Re-open the installer and choose the GitHub account you want to connect.");
+      }
+      installationId = String(matching[0].id);
+    }
+    if (typeof installationId !== "string") throw new HttpError(400, "GitHub App installation is missing.");
+    const installation = installations.find(({ id }) => String(id) === installationId);
     if (!installation) {
       throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
@@ -1072,7 +1111,7 @@ async function callback(req, res) {
     login: user.login,
     csrf: randomBytes(32).toString("base64url"),
     authMode: configuration.authMode,
-    ...(configuration.authMode === "github_app" ? { installationId: saved.installationId, byokSecretWrite } : {}),
+    ...(configuration.authMode === "github_app" ? { installationId, byokSecretWrite } : {}),
   }, sessionSecret(), { ttlMs });
   redirect(res, `${configuredOrigin(req)}/?github=connected`, [
     clearCookie(OAUTH_COOKIE),
@@ -1361,6 +1400,7 @@ export default async function handler(req, res) {
       return;
     }
     if (method === "GET" && action === "login") return await login(req, res);
+    if (method === "GET" && action === "authorize") return await authorizeExisting(req, res);
     if (method === "GET" && action === "installation") return await installation(req, res);
     if (method === "GET" && action === "callback") return await callback(req, res);
     if (method === "GET" && action === "repos") return await repositories(req, res);

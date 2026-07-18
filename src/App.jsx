@@ -252,7 +252,7 @@ function sessionFor(login, csrf, authMode = "oauth") {
   };
 }
 
-function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onSignIn, onExplore }) {
+function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onSignIn, onAuthorize, onExplore }) {
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const exampleOnly = configured === false && !checking;
@@ -279,7 +279,7 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">
             <div className="auth-signal-heading">
-              <span><i /> Automatic on every pull request update</span>
+              <span><i /> Automatic on every pull request update in that project</span>
               <time>No per-PR handoff</time>
             </div>
             <div className="auth-signal-row">
@@ -302,7 +302,7 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
             <h2 id="sign-in-title">{exampleOnly ? "See the target repair loop." : "Connect once. Then stay in GitHub."}</h2>
             <p>{exampleOnly
               ? "Run a fictional checkout failure from detection through re-check. Today's connected pilot observes real pull requests and posts receipts; it does not dispatch repair or block merges."
-              : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update triggers ChangePlane automatically."}</p>
+              : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update in that project triggers ChangePlane automatically."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
@@ -326,6 +326,12 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
                 )}
                 <span>{isSigningIn ? "Opening GitHub…" : buttonLabel}</span>
                 {!isSigningIn && !checking && canConnect && <ArrowRight size={18} aria-hidden="true" />}
+              </button>
+            )}
+
+            {!exampleOnly && authMode === "github_app" && canConnect && (
+              <button className="github-existing" type="button" onClick={onAuthorize} disabled={isSigningIn}>
+                Already installed? Sign in with GitHub
               </button>
             )}
 
@@ -571,7 +577,7 @@ function GitHubSetup({
           <aside className="setup-context">
             <p className="setup-context-kicker">One-time installation</p>
             <h1>Connect once. Then close this tab.</h1>
-            <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update. Developers keep working in their coding agent and GitHub.</p>
+            <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update in that repository. Developers keep working in their coding agent and GitHub.</p>
             <SetupProgress complete={complete} isPreview={session.isPreview} repositorySelected={Boolean(selected)} />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
@@ -1644,6 +1650,12 @@ export function App() {
     window.location.assign("/api/github?action=login");
   }
 
+  function authorizeExisting() {
+    if (isSigningIn || githubConfigured !== true || githubAuthMode !== "github_app") return;
+    setIsSigningIn(true);
+    window.location.assign("/api/github?action=authorize");
+  }
+
   function exploreProduct() {
     if ((githubConfigured !== false && !PREVIEW_MODE) || isSigningIn) return;
     setIsSigningIn(true);
@@ -1904,6 +1916,7 @@ export function App() {
         error={authError}
         isSigningIn={isSigningIn}
         onSignIn={signIn}
+        onAuthorize={authorizeExisting}
         onExplore={exploreProduct}
       />
     );

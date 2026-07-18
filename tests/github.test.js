@@ -1113,6 +1113,127 @@ test("GitHub App onboarding installs first, then verifies the installation throu
   });
 });
 
+test("returning GitHub App users authorize without reopening installation settings", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    assert.equal(authorizeResponse.statusCode, 302);
+    const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+    assert.equal(authorizeUrl.pathname, "/login/oauth/authorize");
+    assert.equal(authorizeUrl.searchParams.get("scope"), null);
+    assert.equal(authorizeUrl.searchParams.get("code_challenge_method"), "S256");
+    const oauthState = authorizeUrl.searchParams.get("state");
+    const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      const requestUrl = new URL(String(url));
+      if (requestUrl.origin === "https://github.com") {
+        const body = JSON.parse(options.body);
+        assert.match(body.code_verifier, /^[A-Za-z0-9_-]{64}$/u);
+        return {
+          ok: true,
+          status: 200,
+          async json() { return { access_token: "ghu_returning_token", expires_in: 28_800, scope: "" }; },
+        };
+      }
+      if (requestUrl.pathname === "/user") {
+        return { ok: true, status: 200, async json() { return { login: "returning-user" }; } };
+      }
+      if (requestUrl.pathname === "/user/installations") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              installations: [{
+                id: 98765,
+                app_slug: "changeplane-test",
+                permissions: {
+                  contents: "write",
+                  pull_requests: "write",
+                  workflows: "write",
+                },
+              }],
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=valid-code-456&state=${oauthState}`,
+        headers: { cookie: oauthCookie },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 302);
+      const sessionCookie = callbackResponse.getHeader("set-cookie")[1].split(";", 1)[0];
+      const sessionResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=session",
+        headers: { cookie: sessionCookie },
+      }, sessionResponse);
+      const session = JSON.parse(sessionResponse.body);
+      assert.equal(session.authenticated, true);
+      assert.equal(session.login, "returning-user");
+      assert.equal(session.authMode, "github_app");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("returning authorization fails closed when the GitHub App installation is ambiguous", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+    const oauthState = authorizeUrl.searchParams.get("state");
+    const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      if (requestUrl.origin === "https://github.com") {
+        return { ok: true, status: 200, async json() { return { access_token: "ghu_returning_token", expires_in: 28_800, scope: "" }; } };
+      }
+      if (requestUrl.pathname === "/user") {
+        return { ok: true, status: 200, async json() { return { login: "returning-user" }; } };
+      }
+      if (requestUrl.pathname === "/user/installations") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              installations: [
+                { id: 1, app_slug: "changeplane-test", permissions: {} },
+                { id: 2, app_slug: "changeplane-test", permissions: {} },
+              ],
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=valid-code-789&state=${oauthState}`,
+        headers: { cookie: oauthCookie },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 409);
+      assert.match(JSON.parse(callbackResponse.body).error, /More than one ChangePlane installation/u);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 test("GitHub App repository picker is limited to the verified installation", async () => {
   await withGitHubAppEnvironment(async () => {
     const session = seal({
