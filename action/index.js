@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
+import { pathToFileURL } from "node:url";
 import {
   AUTONOMOUS_DECISION,
   DECISION,
@@ -1238,6 +1239,8 @@ export async function reportFailure(error) {
   if (shouldFailAction(error, mode, fallbackPublished)) process.exitCode = 1;
 }
 
-if (process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_PATH) {
+const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainModule && process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_PATH) {
   run().catch(reportFailure);
 }
