@@ -1,0 +1,37 @@
+# Reference workflow for manual evaluation. The self-serve installer generates its own trusted workflow.
+name: ChangePlane
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+  pull_request_review:
+    types: [submitted, dismissed]
+  deployment_status:
+
+permissions:
+  checks: write
+  contents: read
+  deployments: read
+  pull-requests: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      # One lane per PR: a new head cancels stale evaluation instead of consuming CI in parallel.
+      group: changeplane-pr-${{ github.event.pull_request.number || github.event.deployment.sha || github.run_id }}
+      cancel-in-progress: true
+    steps:
+      # actions/checkout v4.2.2; keep the trusted checkout immutable.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          # Never execute code from the untrusted pull-request head with a write token.
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+      - uses: ./
+        with:
+          token: ${{ github.token }}
+          mode: observe
+          agent_dispatch: none
+          max_remediation_attempts: "2"

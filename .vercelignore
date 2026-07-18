@@ -1,0 +1,14 @@
+.audit/
+.github/
+.npm-cache/
+.playwright-cli/
+audit-blueprint/
+docs/
+examples/
+output/
+tests/
+*.docx
+design-qa.md
+qa-*
+action/*.test.js
+src/**/*.test.js

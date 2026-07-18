@@ -1,0 +1,268 @@
+# Controlled assurance canary only. Enforce remains disabled in the installed observe pilot.
+name: ChangePlane repair adapter (controlled canary)
+
+on:
+  repository_dispatch:
+    types: [changeplane_repair]
+
+concurrency:
+  group: changeplane-repair-${{ github.event.client_payload.change.pullRequestNumber }}
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Validate the bound repair request
+        # actions/github-script v7.0.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const request = context.payload.client_payload;
+            const change = request?.change;
+            const instructions = request?.instructions;
+            const validPath = path => {
+              if (typeof path !== 'string' || path.length === 0 || path.length > 300 || path.startsWith('/') || path.includes('\\')) return false;
+              if ([...path].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return false;
+              const segments = path.split('/');
+              return !segments.includes('..') && !segments.includes('') && segments[0] !== '.git';
+            };
+            const validRule = rule => {
+              if (typeof rule !== 'string') return false;
+              const base = rule.endsWith('/**') ? rule.slice(0, -3) : rule;
+              return validPath(base) && !base.includes('*');
+            };
+            if (request?.schemaVersion !== 1 || !/^[a-f0-9]{64}$/.test(request?.idempotencyKey ?? '')) {
+              core.setFailed('Invalid ChangePlane repair request.'); return;
+            }
+            if (change?.repository !== `${context.repo.owner}/${context.repo.repo}` || change?.headRepository !== change.repository) {
+              core.setFailed('Cross-repository repairs are not supported.'); return;
+            }
+            if (!Number.isSafeInteger(change?.pullRequestNumber) || change.pullRequestNumber < 1
+              || !/^[a-f0-9]{40}$/.test(change?.baseSha ?? '') || !/^[a-f0-9]{40}$/.test(change?.headSha ?? '')
+              || typeof change?.headRef !== 'string' || !['scope', 'evidence'].includes(request?.repairKind)
+              || !Array.isArray(instructions) || instructions.length === 0 || instructions.length > 50
+              || !Array.isArray(request?.allowedPaths) || request.allowedPaths.length === 0 || request.allowedPaths.length > 50
+              || request.allowedPaths.some(rule => !validRule(rule)) || new Set(request.allowedPaths).size !== request.allowedPaths.length) {
+              core.setFailed('The repair request is missing a bound revision or allowed paths.'); return;
+            }
+            if (request.repairKind === 'scope' && instructions.some(item => item?.action !== 'REVERT_OR_MOVE_INTO_DECLARED_SCOPE' || !validPath(item?.path))) {
+              core.setFailed('Invalid scope-repair instructions.'); return;
+            }
+            if (request.repairKind === 'evidence' && instructions.some(item => item?.action !== 'RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE' || !/^check:[^\s]{1,200}$/.test(item?.path ?? ''))) {
+              core.setFailed('Invalid evidence-repair instructions.'); return;
+            }
+            const expiresAt = Date.parse(request.expiresAt);
+            if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || ![1, 2].includes(request.attempt)) {
+              core.setFailed('The repair request is expired or exceeds the attempt budget.'); return;
+            }
+            const {data: pull} = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: change.pullRequestNumber,
+            });
+            if (pull.state !== 'open' || pull.base.sha !== change.baseSha || pull.head.sha !== change.headSha
+              || pull.head.ref !== change.headRef || pull.head.repo?.full_name !== change.repository) {
+              core.setFailed('The pull-request revision no longer matches this repair request.'); return;
+            }
+
+      - name: Check out the trusted controller from the base revision
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.client_payload.change.baseSha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out the untrusted candidate workspace
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.client_payload.change.headSha }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind the trusted merge base
+        id: baseline
+        working-directory: workspace
+        env:
+          CHANGEPLANE_BASE_SHA: ${{ github.event.client_payload.change.baseSha }}
+          CHANGEPLANE_HEAD_SHA: ${{ github.event.client_payload.change.headSha }}
+        run: |
+          /usr/bin/node -e '
+            const {execFileSync} = require("node:child_process");
+            const {appendFileSync} = require("node:fs");
+            const mergeBase = execFileSync("/usr/bin/git", ["merge-base", process.env.CHANGEPLANE_BASE_SHA, process.env.CHANGEPLANE_HEAD_SHA]).toString().trim();
+            appendFileSync(process.env.GITHUB_OUTPUT, `merge-base=${mergeBase}\n`);
+          '
+
+      - name: Build a deterministic scope-restoration patch
+        if: github.event.client_payload.repairKind == 'scope'
+        working-directory: workspace
+        env:
+          CHANGEPLANE_HEAD_SHA: ${{ github.event.client_payload.change.headSha }}
+          CHANGEPLANE_MERGE_BASE: ${{ steps.baseline.outputs.merge-base }}
+          CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
+        run: |
+          /usr/bin/node -e '
+            const {execFileSync} = require("node:child_process");
+            const {readFileSync, writeFileSync} = require("node:fs");
+            const request = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")).client_payload;
+            const driftPaths = request.instructions.map(item => item.path);
+            const patch = execFileSync("/usr/bin/git", ["diff", "--no-ext-diff", "--no-textconv", "--binary", "--full-index", "--no-renames", process.env.CHANGEPLANE_HEAD_SHA, process.env.CHANGEPLANE_MERGE_BASE, "--", ...driftPaths], {maxBuffer: 262144});
+            if (!patch.length) throw new Error("Scope restoration produced no patch");
+            writeFileSync(process.env.CHANGEPLANE_PATCH, patch, {mode: 0o600});
+          '
+
+      - name: Ask DeepSeek V4 Flash for a patch proposal
+        if: github.event.client_payload.repairKind == 'evidence'
+        working-directory: workspace
+        env:
+          CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
+          CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: /usr/bin/node ../trusted/examples/changeplane-proposal.js propose
+
+      - name: Validate and package the candidate patch
+        working-directory: workspace
+        env:
+          CHANGEPLANE_ALLOWED: ${{ toJson(github.event.client_payload.allowedPaths) }}
+          CHANGEPLANE_REPAIR_KIND: ${{ github.event.client_payload.repairKind }}
+          CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
+          BASH_ENV: /dev/null
+          GIT_CONFIG_COUNT: "0"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+          GIT_NO_REPLACE_OBJECTS: "1"
+          LD_PRELOAD: ""
+          NODE_OPTIONS: ""
+        run: |
+          if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
+            /usr/bin/node ../trusted/examples/changeplane-proposal.js validate
+          fi
+          /usr/bin/git apply --check --whitespace=error "$CHANGEPLANE_PATCH"
+
+      # actions/upload-artifact v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: changeplane-${{ github.event.client_payload.idempotencyKey }}
+          path: ${{ runner.temp }}/changeplane.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  apply:
+    needs: repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Re-check the exact pull-request head
+        id: current
+        # actions/github-script v7.0.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const request = context.payload.client_payload;
+            const {data: pull} = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: request.change.pullRequestNumber,
+            });
+            if (Date.parse(request.expiresAt) <= Date.now()) {
+              core.setFailed('Repair request expired before apply.'); return;
+            }
+            if (pull.state !== 'open' || pull.base.sha !== request.change.baseSha || pull.head.sha !== request.change.headSha
+              || pull.head.ref !== request.change.headRef || pull.head.repo?.full_name !== request.change.repository) {
+              core.setFailed('The pull-request head changed; refusing to apply a stale patch.'); return;
+            }
+            core.setOutput('head-ref', pull.head.ref);
+
+      - name: Check out the trusted controller from the base revision
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.client_payload.change.baseSha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out the exact candidate head for the clean apply
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.client_payload.change.headSha }}
+          path: workspace
+          fetch-depth: 0
+
+      # actions/download-artifact v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: changeplane-${{ github.event.client_payload.idempotencyKey }}
+          path: ${{ runner.temp }}
+
+      - name: Apply and independently validate only the granted paths
+        id: push
+        working-directory: workspace
+        env:
+          CHANGEPLANE_ALLOWED: ${{ toJson(github.event.client_payload.allowedPaths) }}
+          CHANGEPLANE_BASE_SHA: ${{ github.event.client_payload.change.baseSha }}
+          CHANGEPLANE_HEAD_REF: ${{ steps.current.outputs.head-ref }}
+          CHANGEPLANE_HEAD_SHA: ${{ github.event.client_payload.change.headSha }}
+          CHANGEPLANE_INSTRUCTIONS: ${{ toJson(github.event.client_payload.instructions) }}
+          CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
+          CHANGEPLANE_REPAIR_KIND: ${{ github.event.client_payload.repairKind }}
+        run: |
+          if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
+            /usr/bin/node ../trusted/examples/changeplane-proposal.js validate
+          fi
+          /usr/bin/git apply --check --index --whitespace=error "$CHANGEPLANE_PATCH"
+          /usr/bin/git apply --index --whitespace=error "$CHANGEPLANE_PATCH"
+          /usr/bin/node -e '
+            const {execFileSync} = require("node:child_process");
+            const allowedPaths = JSON.parse(process.env.CHANGEPLANE_ALLOWED);
+            const matches = (path, rule) => rule.endsWith("/**")
+              ? path === rule.slice(0, -3) || path.startsWith(`${rule.slice(0, -3)}/`)
+              : path === rule;
+            const currentHead = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"]).toString().trim();
+            if (currentHead !== process.env.CHANGEPLANE_HEAD_SHA) throw new Error("Checked-out head changed before clean validation");
+            const mergeBase = execFileSync("/usr/bin/git", ["merge-base", process.env.CHANGEPLANE_BASE_SHA, process.env.CHANGEPLANE_HEAD_SHA]).toString().trim();
+            const changed = execFileSync("/usr/bin/git", ["diff", "--cached", "--no-renames", "--name-only", "-z"]).toString().split("\0").filter(Boolean);
+            const unexpected = changed.filter(path => !allowedPaths.some(rule => matches(path, rule)));
+            if (!changed.length || unexpected.length) throw new Error(`Unsafe patch paths: ${unexpected.join(", ") || "none"}`);
+            if (process.env.CHANGEPLANE_REPAIR_KIND === "scope") {
+              const driftPaths = JSON.parse(process.env.CHANGEPLANE_INSTRUCTIONS).map(item => item.path);
+              const remaining = execFileSync("/usr/bin/git", ["diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", mergeBase, "--", ...driftPaths]).toString().split("\0").filter(Boolean);
+              if (remaining.length) throw new Error(`Clean apply did not restore granted paths to the trusted merge base: ${remaining.join(", ")}`);
+            }
+          '
+          /usr/bin/git config user.name "changeplane[bot]"
+          /usr/bin/git config user.email "changeplane[bot]@users.noreply.github.com"
+          /usr/bin/git -c core.hooksPath=/dev/null commit -m "chore: apply bounded ChangePlane repair"
+          /usr/bin/git -c core.hooksPath=/dev/null push \
+            --force-with-lease="refs/heads/$CHANGEPLANE_HEAD_REF:$CHANGEPLANE_HEAD_SHA" \
+            origin "HEAD:refs/heads/$CHANGEPLANE_HEAD_REF"
+          echo "new-head=$(/usr/bin/git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Request a fresh exact-head ChangePlane evaluation
+        # actions/github-script v7.0.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          CHANGEPLANE_NEW_HEAD: ${{ steps.push.outputs.new-head }}
+          CHANGEPLANE_PULL_REQUEST: ${{ github.event.client_payload.change.pullRequestNumber }}
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'changeplane_recheck',
+              client_payload: {
+                pullRequestNumber: Number(process.env.CHANGEPLANE_PULL_REQUEST),
+                headSha: process.env.CHANGEPLANE_NEW_HEAD,
+              },
+            });

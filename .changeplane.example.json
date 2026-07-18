@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "protectedPaths": {
+    "requireApproval": [
+      ".github/workflows/**",
+      "infra/**",
+      "migrations/**"
+    ],
+    "block": [
+      "secrets/**"
+    ]
+  },
+  "evidence": {
+    "requiredChecks": [],
+    "timeoutSeconds": 0
+  }
+}
