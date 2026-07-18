@@ -1,5 +1,5 @@
-name: ChangePlane Guard
-description: Keep agent-authored pull requests inside their declared scope.
+name: ChangePlane Guard — observe pilot
+description: Bind exact pull request revision and publish a neutral scope and policy receipt. Observe only; no enforcement or repair.
 inputs:
   token:
     description: GitHub token used to read pull requests, deployments, and reviewer permissions.
@@ -8,31 +8,11 @@ inputs:
     description: Policy file read from the pull request base SHA.
     required: false
     default: .changeplane.json
-  mode:
-    description: Observe reports decisions without blocking or remediation; enforce applies the decision.
-    required: false
-    default: observe
-  agent_dispatch:
-    description: none, webhook, or repository. Repository dispatches the bundled changeplane_repair workflow without a separate service.
-    required: false
-    default: none
-  agent_webhook_url:
-    description: Optional HTTPS endpoint for the existing coding-agent harness. When set, fixable scope drift is remediated without human review.
-    required: false
-  agent_webhook_token:
-    description: Bearer token for the agent webhook. Required when agent_webhook_url is set; pass it from a GitHub Actions secret.
-    required: false
-  max_remediation_attempts:
-    description: Maximum automatic remediation requests per pull request before a human exception is required.
-    required: false
-    default: "2"
 outputs:
   mode:
-    description: The active observe or enforce mode.
+    description: Always observe in this pilot.
   decision:
-    description: PASS, REMEDIATION_REQUIRED, REVIEW_REQUIRED, BLOCKED, INDETERMINATE, or SKIPPED.
-  remediation:
-    description: One-line JSON remediation contract when decision is REMEDIATION_REQUIRED.
+    description: Evaluator result shown in the receipt. PASS is not approval and the Check remains neutral and non-blocking.
   receipt:
     description: Canonical one-line JSON receipt bound to the exact revision and policy digest.
   actual_files:

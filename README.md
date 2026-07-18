@@ -4,6 +4,8 @@ Connect GitHub, choose a writable repository, and create one atomic setup pull r
 
 ChangePlane is a GitHub-native exact-head assurance layer for AI-written code. It does not replace the forge, coding-agent runtime, or human merge authority, and it never lets a model approve its own work. The protocol is designed to remain runtime-independent; this pilot supports GitHub.com only.
 
+**Current production boundary:** observe only. The installed Action rejects `mode: enforce`. It may report that a finding is repairable, but it cannot dispatch or apply a repair.
+
 ## What works now
 
 - A GitHub App-first install and authorization flow that verifies the returned installation against the signed-in user, then lists writable repositories only from that installation. A broad OAuth App connector remains available only as an observe-pilot fallback.
@@ -20,7 +22,7 @@ ChangePlane is a GitHub-native exact-head assurance layer for AI-written code. I
 - A best-effort concurrent-change advisory that uses one bounded GitHub GraphQL query to surface up to five open pull requests touching the same files. It never auto-merges changes or alters the decision.
 - The latest successful GitHub Deployment preview for that exact head, refreshed automatically by `deployment_status`. Missing preview metadata is advisory and never changes the decision.
 - Observe mode that reports the real decision and evidence without blocking merge or dispatching a repair.
-- Optional webhook and repository-dispatch repair adapters. The bounded contract supports either reverting exact scope drift or repairing a failed deterministic check inside the declared scope. The inactive controlled-canary adapter pins `deepseek-v4-flash` for patch proposals in a job without forge write permission, then re-validates and applies the patch in a separate write job.
+- A bounded repair contract and inactive controlled-canary template for lab validation only. No production repair adapter or dispatch path is enabled.
 
 The ship verdict is deliberately narrow: **ready for one-repository observe pilots only after the GitHub connector, server environment, hosting eligibility, external rate limit, and release-checklist gates are verified; not ready for production enforcement.** Vercel Hobby is a controlled non-commercial canary path, not commercial hosting. It cannot connect a Hobby project to a GitHub organization-owned repository; use a personal disposable repository or an approved paid host for that canary.
 
@@ -157,7 +159,7 @@ Only after the enforcement gates above are met:
 4. Validate it in a disposable repository.
 5. Only after the GitHub App gates are complete, grant the trusted controller `contents: write` for repository dispatch and set `agent_dispatch: repository` in an enforce workflow.
 
-The HTTPS adapter remains available for customer-owned agent harnesses by mapping server-side URL/token secrets into the Action's `agent_webhook_url` and `agent_webhook_token` inputs and setting `agent_dispatch: webhook`.
+The HTTPS adapter code is retained for future customer-harness validation, but this pilot does not expose or dispatch it.
 
 [Grok Build](https://github.com/xai-org/grok-build) should use the same bounded repair contract later. It is intentionally not in the production pilot while the open-source release is early beta and its sandbox is off by default; add it only after a strict-sandbox canary passes the same path, expiry, and stale-head tests.
 

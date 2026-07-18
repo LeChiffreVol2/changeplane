@@ -32,6 +32,3 @@ jobs:
       - uses: ./
         with:
           token: ${{ github.token }}
-          mode: observe
-          agent_dispatch: none
-          max_remediation_attempts: "2"

@@ -148,8 +148,7 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.match(workflow, /deployment_status:/u);
   assert.match(workflow, /repository_dispatch:\n    types: \[changeplane_recheck\]/u);
   assert.match(workflow, /uses: \.\/changeplane/u);
-  assert.match(workflow, /mode: observe/u);
-  assert.match(workflow, /agent_dispatch: none/u);
+  assert.doesNotMatch(workflow, /mode:|agent_dispatch:|max_remediation_attempts:/u);
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/u);
   assert.match(workflow, /checks: write/u);
   assert.match(workflow, /pull-requests: write/u);
@@ -158,7 +157,11 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.match(workflow, /group: changeplane-pr-\$\{\{ github\.event\.pull_request\.number \|\| github\.event\.client_payload\.pullRequestNumber \|\| github\.event\.deployment\.sha \|\| github\.run_id \}\}/u);
   assert.match(workflow, /actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683/u);
   assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.repository\.default_branch \}\}/u);
-  assert.equal(files.get("changeplane/action.yml").includes("default: observe"), true);
+  const actionMetadata = files.get("changeplane/action.yml");
+  const actionInputs = actionMetadata.match(/inputs:\n([\s\S]*?)outputs:/u)?.[1] ?? "";
+  assert.match(actionMetadata, /name: ChangePlane Guard — observe pilot/u);
+  assert.match(actionMetadata, /Observe only; no enforcement or repair\./u);
+  assert.doesNotMatch(actionInputs, /^  (mode|agent_dispatch|agent_webhook_url|agent_webhook_token|max_remediation_attempts):/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   assert.match(installerSource, /\*\*Behavior checks: none configured\*\*/u);
   assert.match(installerSource, /receipts prove revision and scope only/u);

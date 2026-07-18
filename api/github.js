@@ -522,8 +522,6 @@ jobs:
         uses: ./changeplane
         with:
           token: \${{ github.token }}
-          mode: observe
-          agent_dispatch: none
 `;
   const policy = {
     version: 1,
