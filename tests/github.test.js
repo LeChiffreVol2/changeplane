@@ -35,6 +35,7 @@ async function withOAuthEnvironment(callback) {
     "GITHUB_APP_SLUG",
     "CHANGEPLANE_SESSION_SECRET",
     "CHANGEPLANE_APP_ORIGIN",
+    "CHANGEPLANE_CANARY_REPOSITORY",
     "VERCEL",
     "VERCEL_GIT_COMMIT_SHA",
     "VERCEL_DEPLOYMENT_ID",
@@ -50,6 +51,7 @@ async function withOAuthEnvironment(callback) {
   delete process.env.VERCEL;
   delete process.env.VERCEL_GIT_COMMIT_SHA;
   delete process.env.VERCEL_DEPLOYMENT_ID;
+  delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
   try {
     return await callback();
   } finally {
@@ -154,6 +156,7 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.match(workflow, /pull-requests: write/u);
   assert.match(workflow, /contents: read/u);
   assert.match(workflow, /deployments: read/u);
+  assert.match(workflow, /statuses: read/u);
   assert.match(workflow, /group: changeplane-pr-\$\{\{ github\.event\.pull_request\.number \|\| github\.event\.client_payload\.pullRequestNumber \|\| github\.event\.deployment\.sha \|\| github\.run_id \}\}/u);
   assert.match(workflow, /actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683/u);
   assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.repository\.default_branch \}\}/u);
@@ -413,6 +416,7 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         sessionSecret: true,
         appOrigin: true,
         sourceProvenance: false,
+        canaryRepository: true,
       },
       authMode: "oauth",
       release: "dpl_test_release_identifier",
@@ -441,6 +445,7 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         sessionSecret: true,
         appOrigin: true,
         sourceProvenance: true,
+        canaryRepository: true,
       },
       authMode: "oauth",
       release: "aaaaaaaaaaaa",
@@ -544,6 +549,99 @@ test("repository picker uses only the signed-in user's token and returns writabl
       assert.equal(calls.length, 1);
       assert.equal(calls[0].authorization, "Bearer alice-token");
       assert.match(calls[0].url, /^https:\/\/api\.github\.com\/user\/repos\?/u);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary mode lists and authorizes only the exact disposable repository", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    let calls = 0;
+    const paths = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      calls += 1;
+      paths.push(new URL(url).pathname);
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            full_name: "alice/disposable-canary",
+            private: true,
+            default_branch: "main",
+            permissions: { push: true, admin: true },
+          };
+        },
+      };
+    };
+    try {
+      const listResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=repos",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, listResponse);
+      assert.equal(listResponse.statusCode, 200);
+      assert.deepEqual(JSON.parse(listResponse.body).repositories.map(({ fullName }) => fullName), ["alice/disposable-canary"]);
+      assert.equal(calls, 1);
+      assert.deepEqual(paths, ["/repos/alice/disposable-canary"]);
+
+      const rejectedResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fbusiness-repository",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, rejectedResponse);
+      assert.equal(rejectedResponse.statusCode, 403);
+      assert.match(JSON.parse(rejectedResponse.body).error, /access only its approved test repository/u);
+      assert.equal(calls, 1);
+      assert.deepEqual(paths, ["/repos/alice/disposable-canary"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("invalid controlled canary configuration disables the connector before GitHub access", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "not-a-repository";
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { calls += 1; throw new Error("GitHub must not be called"); };
+    try {
+      const readinessResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+      assert.equal(readinessResponse.statusCode, 503);
+      assert.equal(JSON.parse(readinessResponse.body).checks.canaryRepository, false);
+
+      const sessionResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+      assert.equal(JSON.parse(sessionResponse.body).configured, false);
+
+      const preflightResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fdisposable-canary",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, preflightResponse);
+      assert.equal(preflightResponse.statusCode, 503);
+      assert.match(JSON.parse(preflightResponse.body).error, /No GitHub request was made/u);
+      assert.equal(calls, 0);
     } finally {
       globalThis.fetch = originalFetch;
     }

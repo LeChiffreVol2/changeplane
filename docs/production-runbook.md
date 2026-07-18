@@ -27,6 +27,7 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 | `GITHUB_APP_SLUG` | Vercel Production and trusted Preview | No | Connector owner; unset means the explicitly limited OAuth observe fallback. |
 | `CHANGEPLANE_SESSION_SECRET` | Vercel Production; independent value per environment | Yes | ChangePlane owner; rotation invalidates every session in that environment. |
 | `CHANGEPLANE_APP_ORIGIN` | Vercel Production; exact HTTPS origin, no path or trailing slash | No | ChangePlane owner; update with domain or callback changes. |
+| `CHANGEPLANE_CANARY_REPOSITORY` | Vercel Production during controlled rollout; exact `owner/repository` | No | Release owner; hides and rejects every other repository before GitHub access. Remove only for an approved broader rollout. |
 | `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` | Vercel Production only, private canary only | Yes | Provider owner; omit unless the private verification canary is approved. Never copy to a repository. |
 | `CHANGEPLANE_LOG_REQUESTS` | Vercel environment configuration | No | ChangePlane owner; `true` enables structured, redacted request metadata. |
 | `DEEPSEEK_API_KEY` | Customer repository Actions Secret | Yes | Customer repository owner; Enterprise BYOK only. ChangePlane sends it once to GitHub's encrypted-secret API. |

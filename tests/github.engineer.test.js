@@ -10,6 +10,7 @@ const ENVIRONMENT_NAMES = [
   "GITHUB_APP_SLUG",
   "CHANGEPLANE_SESSION_SECRET",
   "CHANGEPLANE_APP_ORIGIN",
+  "CHANGEPLANE_CANARY_REPOSITORY",
 ];
 
 function responseRecorder() {
@@ -33,6 +34,7 @@ async function withEnvironment(values, callback) {
     ...values,
   });
   if (values.GITHUB_APP_SLUG == null) delete process.env.GITHUB_APP_SLUG;
+  if (values.CHANGEPLANE_CANARY_REPOSITORY == null) delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
   try {
     return await callback();
   } finally {
@@ -77,6 +79,54 @@ test("GitHub App repository routes reject targets outside the verified installat
       await handler({
         method: "GET",
         url: "/api/github?action=preflight&repository=alice%2Foutside-service",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+      assert.equal(response.statusCode, 404);
+      assert.equal(JSON.parse(response.body).error, "Repository not found.");
+      assert.deepEqual(calls, ["/user/installations/12345/repositories"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary remains bound to the verified GitHub App installation", async () => {
+  await withEnvironment({
+    GITHUB_APP_SLUG: "changeplane-test",
+    CHANGEPLANE_CANARY_REPOSITORY: "alice/disposable-canary",
+  }, async () => {
+    const session = seal({
+      kind: "session",
+      token: "ghu-user-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "github_app",
+      installationId: "12345",
+    }, SECRET);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      calls.push(url.pathname);
+      assert.equal(url.pathname, "/user/installations/12345/repositories");
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            repositories: [{
+              full_name: "alice/other-installed-repository",
+              permissions: { push: true, admin: false },
+            }],
+          };
+        },
+      };
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=repos",
         headers: { cookie: `__Host-changeplane_session=${session}` },
       }, response);
       assert.equal(response.statusCode, 404);

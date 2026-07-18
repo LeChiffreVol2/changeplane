@@ -21,7 +21,8 @@
 
 ## Configuration and secrets
 
-- [ ] Inventory `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, optional `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
+- [ ] Inventory `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, controlled-rollout `CHANGEPLANE_CANARY_REPOSITORY`, optional `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
+- [ ] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` server-side and absent unless the private canary is explicitly approved.
@@ -37,11 +38,13 @@
 - [ ] On a trusted Preview, confirm `/api/github?action=readiness` returns `200`, `ready: true`, the expected connector mode, no secret values, and a release matching the Preview source SHA.
 - [ ] Smoke the trusted Preview root and confirm security headers and API `Cache-Control: no-store` are present.
 - [ ] Install into one disposable repository whose GitHub plan supports the required branch protection (public on GitHub Free, or private on an eligible paid plan) and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite.
-  - Live evidence captured 2026-07-19: the authenticated production installer created unmerged PR `LeChiffreVol2/routethai-demo#8` on `changeplane/observe-setup`. It adds six files only, leaves the default branch untouched, passed the repository's existing CI, and has no deployment or repair dispatch. Because this is a live business repository rather than a disposable repository, the disposable-repository install gate remains open.
-- [ ] Confirm the atomic setup pull request uses `observe`, `agent_dispatch: none`, least-privilege permissions, and no active repair workflow.
-  - Superseded evidence: `LeChiffreVol2/routethai-demo#8` remains open and unmerged, but production release `dpl_J8ZqQbBazuLnavwfyseEm2Y7DBQD` correctly rejects its older payload and links to the safe cleanup action. Close PR #8 and delete `changeplane/observe-setup`; capture this gate again from a fresh disposable-repository canary.
-- [ ] Configure at least one meaningful deterministic check in `.changeplane.json`; the self-serve starter intentionally leaves `requiredChecks` empty and must not be presented as behavioral assurance until this is done.
-- [ ] Verify one exact-head receipt and neutral `ChangePlane / guard` Check Run in observe mode.
+  - Observe install evidence passed in private disposable repository `LeChiffreVol2/changeplane-disposable-canary-20260719`: setup [PR #1](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/1) changed six reserved files only and merged at `82c0f3f91f8c6f516c55e11c4e69491803430db7`. Branch-protection eligibility remains an open hosting-plan gate.
+- [x] Confirm the atomic setup pull request exposes observe-only Action metadata, least-privilege permissions, no repair inputs, and no active repair workflow.
+  - PR #1 installed a trusted-base workflow with read-only contents/deployments/statuses access plus Check/comment publication only. The installed Action exposes no enforce or repair-dispatch input.
+- [x] Configure at least one meaningful deterministic check in `.changeplane.json`; the self-serve starter intentionally leaves `requiredChecks` empty and must not be presented as behavioral assurance until this is done.
+  - [PR #3](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/3) bound required check `test` to source `github-actions` with a 120-second wait. The live canary exposed and fixed missing `statuses: read` through [PR #4](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/4).
+- [x] Verify one exact-head receipt and neutral `ChangePlane / guard` Check Run in observe mode.
+  - [PR #2](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/2) has one idempotently updated receipt on final head `bab424f625052aad5d0038de5bccb04e71b06053`; `test` and `ChangePlane observe` succeeded, `ChangePlane / guard` concluded neutral, and the receipt bound the successful `github-actions` evidence to that exact head.
 - [ ] If Enterprise BYOK will be offered in this rollout, verify create, rotate, disconnect, provider-key revocation, and fail-closed DeepSeek model discovery without retaining plaintext. Otherwise keep provider funding out of the onboarding path and leave the managed key unset.
 
 ## Release and rollback

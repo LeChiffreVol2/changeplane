@@ -13,6 +13,7 @@ permissions:
   contents: read
   deployments: read
   pull-requests: write
+  statuses: read
 
 jobs:
   guard:

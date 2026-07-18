@@ -105,6 +105,20 @@ function hasSourceProvenance() {
   return process.env.VERCEL !== "1" || /^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "");
 }
 
+function configuredCanaryRepository() {
+  const value = process.env.CHANGEPLANE_CANARY_REPOSITORY;
+  if (value == null || value === "") return null;
+  try {
+    return validateRepository(value);
+  } catch {
+    return null;
+  }
+}
+
+function hasValidCanaryRepository() {
+  return !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
+}
+
 function readiness() {
   const appSlug = githubAppSlug();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
@@ -117,6 +131,7 @@ function readiness() {
       && process.env.CHANGEPLANE_SESSION_SECRET.length >= 32,
     appOrigin: Boolean(configuredAppOrigin()),
     sourceProvenance,
+    canaryRepository: hasValidCanaryRepository(),
   };
   return {
     ready: Object.values(checks).every(Boolean),
@@ -321,6 +336,7 @@ function oauthIsConfigured() {
     && process.env.CHANGEPLANE_SESSION_SECRET.length >= 32
     && configuredAppOrigin()
     && (process.env.GITHUB_APP_SLUG == null || githubAppSlug())
+    && hasValidCanaryRepository()
   );
 }
 
@@ -448,6 +464,13 @@ async function installationRepositories(session) {
 }
 
 async function requireWritableRepository(repository, session) {
+  const canaryRepository = configuredCanaryRepository();
+  if (process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
+    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
+  }
+  if (canaryRepository && repository.toLowerCase() !== canaryRepository.toLowerCase()) {
+    throw new HttpError(403, "This release can access only its approved test repository. Choose the repository shown in the installer or ask the release owner to update CHANGEPLANE_CANARY_REPOSITORY. Nothing was changed.");
+  }
   const encodedRepository = encodeRepository(repository);
   const repo = session.authMode === "github_app"
     ? (await installationRepositories(session)).find((candidate) => candidate?.full_name?.toLowerCase() === repository.toLowerCase())
@@ -501,6 +524,7 @@ permissions:
   pull-requests: write
   contents: read
   deployments: read
+  statuses: read
 
 concurrency:
   group: changeplane-pr-\${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.deployment.sha || github.run_id }}
@@ -1044,8 +1068,15 @@ async function callback(req, res) {
 
 async function repositories(req, res) {
   const session = requireSession(req);
+  const canaryRepository = configuredCanaryRepository();
+  if (process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
+    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
+  }
   const repos = [];
-  if (session.authMode === "github_app") {
+  if (canaryRepository) {
+    const { repo } = await requireWritableRepository(canaryRepository, session);
+    repos.push(repo);
+  } else if (session.authMode === "github_app") {
     repos.push(...await installationRepositories(session));
   } else {
     for (let page = 1; page <= 10; page += 1) {
@@ -1058,6 +1089,7 @@ async function repositories(req, res) {
   sendJson(res, 200, {
     repositories: repos
       .filter((repo) => repo?.permissions?.push || repo?.permissions?.admin)
+      .filter((repo) => !canaryRepository || repo?.full_name?.toLowerCase() === canaryRepository.toLowerCase())
       .map((repo) => ({
         fullName: repo.full_name,
         private: Boolean(repo.private),

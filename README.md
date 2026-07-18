@@ -45,10 +45,13 @@ GITHUB_CLIENT_SECRET=...
 GITHUB_APP_SLUG=changeplane
 CHANGEPLANE_SESSION_SECRET=at-least-32-random-characters
 CHANGEPLANE_APP_ORIGIN=https://YOUR_DOMAIN
+CHANGEPLANE_CANARY_REPOSITORY=your-user/changeplane-disposable-canary
 CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY=optional-private-pilot-key
 ```
 
 `CHANGEPLANE_APP_ORIGIN` must be the exact public origin with no path. The GitHub App user token stays inside an encrypted, `HttpOnly`, `Secure`, `SameSite=Lax`, `__Host-` session cookie, expires with the shorter provider/session lifetime, and is never returned to the browser. If `GITHUB_APP_SLUG` is omitted, ChangePlane falls back to the broad `repo workflow` OAuth pilot; use that fallback only with a consenting design partner and never for enforcement.
+
+**Controlled-canary guard:** Set `CHANGEPLANE_CANARY_REPOSITORY` to one exact GitHub repository in `owner/repository` form—not a URL, branch, or organization name. Use a personal test repository containing no customer or production work and safe to delete after validation. While set, ChangePlane lists only this repository and rejects every other repository before making a GitHub request. Keep the guard set for the entire free canary; remove it only as part of an approved broader rollout.
 
 `GET /api/github?action=readiness` returns `200` only when the required production configuration is present and `503` otherwise. It exposes configuration booleans and a release identifier, never values.
 
@@ -59,7 +62,7 @@ No ChangePlane CLI or TUI is required. The platform lead uses the web installer 
 3. Let the automatic read-only preflight confirm that the setup will use one PR, never overwrite reserved paths, never run pull-request code, never access provider secrets, and cannot block merge or deploy.
 4. Create the observe setup PR.
 5. Review and merge that PR in GitHub. Closing it stops installation; GitHub may retain the unmerged setup branch until you delete it.
-6. Optionally connect Enterprise BYOK later if a repair adapter is enabled.
+6. Do not connect BYOK for the observe canary; it has no effect on observe receipts. Use it only in a separately approved repair canary after every repair gate passes.
 7. Keep ChangePlane in observe mode until every enforcement release gate below has direct evidence.
 
 Enterprise BYOK is optional for observe-only receipts and required only when a DeepSeek repair adapter is enabled. `ChangePlane Managed` can verify a server-side provider key for private pilots, but remains non-interactive until isolated execution, metering, budgets, and billing exist server-side.
@@ -143,7 +146,7 @@ Time never promotes a repository. Verify all of the following from real receipts
 - An App-signed attempt and approval ledger that repository workflows cannot impersonate.
 - Live sandbox and end-to-end stale-revision validation for the selected repair worker.
 
-## Optional DeepSeek repair canary
+## Future repair canary — inactive until all enforcement gates pass
 
 `examples/changeplane-repair.yml` is a controlled-lab template, not an active workflow and not part of the self-serve observe install. It receives an exact-revision `repository_dispatch`. Scope repair is generated deterministically from the trusted merge base. Evidence repair runs the proposal helper from a separate trusted-base checkout, treats the pull-request checkout only as untrusted data, sends bounded text context inside the controller-issued grant to `deepseek-v4-flash`, accepts only an existing-file unified patch inside that grant, and gives the proposal job no forge write permission. A separate write job again runs the validator from the trusted-base checkout, rechecks the live head, applies the patch, then dispatches a fresh evaluation. DeepSeek and pull-request code cannot issue a ChangePlane `PASS`.
 

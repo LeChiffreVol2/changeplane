@@ -395,7 +395,7 @@ function SetupJourney() {
       <ol>
         <li><span>01</span><div><strong>You or a repository owner · once</strong><small>Connect GitHub and merge one observe-mode setup PR.</small></div></li>
         <li><span>02</span><div><strong>Coding agent · as usual</strong><small>Codex, Claude Code, Cursor, or OpenCode opens or updates the PR.</small></div></li>
-        <li><span>03</span><div><strong>ChangePlane · automatic</strong><small>Observe every update and publish an exact-head receipt. Approved enforce repositories may also run bounded repair.</small></div></li>
+        <li><span>03</span><div><strong>ChangePlane · automatic</strong><small>Observe every update and publish an exact-revision receipt in GitHub. This pilot cannot block, merge, or repair.</small></div></li>
       </ol>
     </section>
   );
