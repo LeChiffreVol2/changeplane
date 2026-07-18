@@ -403,6 +403,45 @@ test("session reports whether the real GitHub connector is configured", async ()
   });
 });
 
+test("GitHub App cutover rejects stale broad-OAuth sessions before repository access", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const staleSession = seal({
+      kind: "session",
+      token: "stale-broad-oauth-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "oauth",
+    }, SECRET);
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { calls += 1; throw new Error("GitHub must not be called"); };
+    try {
+      const sessionResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=session",
+        headers: { cookie: `__Host-changeplane_session=${staleSession}` },
+      }, sessionResponse);
+      assert.deepEqual(JSON.parse(sessionResponse.body), {
+        authenticated: false,
+        configured: true,
+        authMode: "github_app",
+      });
+
+      const repositoriesResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=repos",
+        headers: { cookie: `__Host-changeplane_session=${staleSession}` },
+      }, repositoriesResponse);
+      assert.equal(repositoriesResponse.statusCode, 401);
+      assert.equal(calls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 test("readiness fails closed when a Vercel deployment has no source commit", async () => {
   await withOAuthEnvironment(async () => {
     process.env.VERCEL = "1";
