@@ -388,6 +388,8 @@ function readSession(req) {
       || typeof session.csrf !== "string"
     ) return null;
     const authMode = session.authMode === "github_app" ? "github_app" : "oauth";
+    const configuredAuthMode = githubAppSlug() ? "github_app" : "oauth";
+    if (authMode !== configuredAuthMode) return null;
     if (authMode === "github_app" && !/^[1-9][0-9]{0,19}$/u.test(String(session.installationId ?? ""))) return null;
     return { ...session, authMode };
   } catch {
