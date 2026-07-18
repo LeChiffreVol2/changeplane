@@ -168,6 +168,9 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   assert.match(installerSource, /\*\*Behavior checks: none configured\*\*/u);
   assert.match(installerSource, /receipts prove revision and scope only/u);
+  assert.match(installerSource, /Make the first receipt prove behavior/u);
+  assert.match(installerSource, /publisher slug is `github-actions`/u);
+  assert.match(installerSource, /The receipt will not claim that the code works/u);
   const policy = JSON.parse(files.get(".changeplane.json"));
   assert.equal(policy.version, 1);
   assert.deepEqual(policy.evidence, { requiredChecks: [], timeoutSeconds: 0 });

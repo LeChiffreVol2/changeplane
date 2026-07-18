@@ -1,8 +1,10 @@
 # ChangePlane
 
-Connect GitHub, choose a writable repository, and create one atomic setup pull request for an observe-mode pilot. After that PR is merged, ChangePlane evaluates every eligible pull request from trusted base code and publishes `ChangePlane / guard` directly on the pull request's exact head SHA.
+Connect GitHub, choose a writable repository, and create one atomic setup pull request for an observe-mode pilot. After that PR is merged, ChangePlane evaluates every eligible pull request from trusted base code and publishes `ChangePlane / guard` directly on the pull request's exact head SHA. The self-serve pilot is best suited to GitHub projects that already run at least one meaningful automated test on pull requests.
 
 ChangePlane is a GitHub-native exact-head assurance layer for AI-written code. It does not replace the forge, coding-agent runtime, or human merge authority, and it never lets a model approve its own work. The protocol is designed to remain runtime-independent; this pilot supports GitHub.com only.
+
+The source repository is public for product evaluation and pilot transparency. It is source-visible, not open source: no license to copy, modify, distribute, or operate the software is granted. All rights are reserved.
 
 **Current production boundary:** observe only. The installed Action rejects `mode: enforce`. It may report that a finding is repairable, but it cannot dispatch or apply a repair.
 
@@ -108,6 +110,8 @@ The policy can require existing GitHub checks on the same head revision:
 ```
 
 The self-serve starter policy leaves `requiredChecks` empty because ChangePlane cannot safely guess which repository check proves behavior. Its first receipts therefore prove revision identity, declared scope, and protected-path policy only. A repository owner must add at least one meaningful deterministic check before treating the pilot as behavioral assurance or proposing enforcement.
+
+The setup pull request contains the activation recipe: open an existing pull request's **Checks** tab, copy the exact meaningful check name and publisher, and add them to `.changeplane.json`. GitHub Actions uses the publisher slug `github-actions`. Repositories without automated tests may remain scope-only, but ChangePlane will not claim that their code works.
 
 Use exact check names and GitHub App slugs. A policy may list at most 20 checks, may not list `ChangePlane / guard`, and may wait from 0 to 240 seconds. Strings remain accepted in observe mode for migration, but enforce requires every item to use `{ "name", "appSlug" }`. Missing, pending, failed, or wrong-source evidence becomes part of the receipt; observe mode still concludes neutrally.
 
