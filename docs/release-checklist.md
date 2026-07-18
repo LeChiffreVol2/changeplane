@@ -23,6 +23,7 @@
 
 - [ ] Inventory `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, controlled-rollout `CHANGEPLANE_CANARY_REPOSITORY`, optional `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
 - [ ] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
+- [ ] On Vercel Hobby, keep the GitHub App private and verify the public root offers only the fictional workspace. Verify the unlisted `?access=canary-owner` entry returns a non-owner cleanly and `/api/github?action=login` plus in-flight installation/callback state reject without redirecting to GitHub.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` server-side and absent unless the private canary is explicitly approved.

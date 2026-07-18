@@ -37,6 +37,11 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_APP_ORIGIN",
     "CHANGEPLANE_CANARY_REPOSITORY",
     "VERCEL",
+    "VERCEL_ENV",
+    "VERCEL_GIT_PROVIDER",
+    "VERCEL_GIT_REPO_OWNER",
+    "VERCEL_GIT_REPO_SLUG",
+    "VERCEL_GIT_COMMIT_REF",
     "VERCEL_GIT_COMMIT_SHA",
     "VERCEL_DEPLOYMENT_ID",
   ];
@@ -49,6 +54,11 @@ async function withOAuthEnvironment(callback) {
   });
   delete process.env.GITHUB_APP_SLUG;
   delete process.env.VERCEL;
+  delete process.env.VERCEL_ENV;
+  delete process.env.VERCEL_GIT_PROVIDER;
+  delete process.env.VERCEL_GIT_REPO_OWNER;
+  delete process.env.VERCEL_GIT_REPO_SLUG;
+  delete process.env.VERCEL_GIT_COMMIT_REF;
   delete process.env.VERCEL_GIT_COMMIT_SHA;
   delete process.env.VERCEL_DEPLOYMENT_ID;
   delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
@@ -398,7 +408,12 @@ test("session reports whether the real GitHub connector is configured", async ()
     const response = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, response);
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(JSON.parse(response.body), { authenticated: false, configured: true, authMode: "oauth" });
+    assert.deepEqual(JSON.parse(response.body), {
+      authenticated: false,
+      configured: true,
+      authMode: "oauth",
+      rolloutMode: "self_serve",
+    });
     assert.equal(response.getHeader("cache-control"), "no-store");
   });
 });
@@ -426,6 +441,7 @@ test("GitHub App cutover rejects stale broad-OAuth sessions before repository ac
         authenticated: false,
         configured: true,
         authMode: "github_app",
+        rolloutMode: "self_serve",
       });
 
       const repositoriesResponse = responseRecorder();
@@ -461,6 +477,7 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         canaryRepository: true,
       },
       authMode: "oauth",
+      rolloutMode: "self_serve",
       release: "dpl_test_release_identifier",
       managedRuntime: "reserved",
     });
@@ -473,6 +490,11 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
 test("readiness exposes the exact Vercel source commit without secret values", async () => {
   await withOAuthEnvironment(async () => {
     process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_GIT_PROVIDER = "github";
+    process.env.VERCEL_GIT_REPO_OWNER = "LeChiffreVol2";
+    process.env.VERCEL_GIT_REPO_SLUG = "changeplane";
+    process.env.VERCEL_GIT_COMMIT_REF = "main";
     process.env.VERCEL_GIT_COMMIT_SHA = "a".repeat(40);
     process.env.VERCEL_DEPLOYMENT_ID = "dpl_test_release_identifier";
     const response = responseRecorder();
@@ -490,9 +512,40 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         canaryRepository: true,
       },
       authMode: "oauth",
+      rolloutMode: "self_serve",
       release: "aaaaaaaaaaaa",
       managedRuntime: "reserved",
     });
+  });
+});
+
+test("Vercel provenance rejects CLI, preview, branch, and wrong-repository releases", async () => {
+  await withOAuthEnvironment(async () => {
+    Object.assign(process.env, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
+    });
+    const mismatches = [
+      ["VERCEL_GIT_PROVIDER", ""],
+      ["VERCEL_ENV", "preview"],
+      ["VERCEL_GIT_COMMIT_REF", "agent/unreviewed"],
+      ["VERCEL_GIT_REPO_OWNER", "someone-else"],
+      ["VERCEL_GIT_REPO_SLUG", "another-project"],
+    ];
+    for (const [name, value] of mismatches) {
+      const original = process.env[name];
+      process.env[name] = value;
+      const response = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, response);
+      assert.equal(response.statusCode, 503, `${name} must fail closed`);
+      assert.equal(JSON.parse(response.body).checks.sourceProvenance, false);
+      process.env[name] = original;
+    }
   });
 });
 
@@ -513,7 +566,12 @@ test("unattributed Vercel deployments reject repository mutations before externa
 
       const sessionResponse = responseRecorder();
       await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
-      assert.deepEqual(JSON.parse(sessionResponse.body), { authenticated: false, configured: false, authMode: "oauth" });
+      assert.deepEqual(JSON.parse(sessionResponse.body), {
+        authenticated: false,
+        configured: false,
+        authMode: "oauth",
+        rolloutMode: "self_serve",
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -647,6 +705,119 @@ test("controlled canary mode lists and authorizes only the exact disposable repo
       assert.match(JSON.parse(rejectedResponse.body).error, /access only its approved test repository/u);
       assert.equal(calls, 1);
       assert.deepEqual(paths, ["/repos/alice/disposable-canary"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary exposes owner access but rejects every new GitHub App installation", async () => {
+  await withGitHubAppEnvironment(async () => {
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { calls += 1; throw new Error("GitHub must not be called"); };
+    try {
+      const sessionResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+      assert.deepEqual(JSON.parse(sessionResponse.body), {
+        authenticated: false,
+        configured: true,
+        authMode: "github_app",
+        rolloutMode: "controlled_canary",
+      });
+
+      const loginResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=login", headers: {} }, loginResponse);
+      assert.equal(loginResponse.statusCode, 403);
+      assert.equal(loginResponse.getHeader("location"), undefined);
+      assert.equal(loginResponse.getHeader("set-cookie"), undefined);
+      assert.equal(
+        JSON.parse(loginResponse.body).error,
+        "New GitHub App installations are disabled for this controlled canary.",
+      );
+
+      const installState = "i".repeat(43);
+      const installationCookie = seal({
+        kind: "installation",
+        state: installState,
+        redirectUri: "https://changeplane.example/api/github?action=callback",
+        authMode: "github_app",
+      }, SECRET, { purpose: "oauth" });
+      const installationResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=installation&installation_id=12345&state=${installState}`,
+        headers: { cookie: `__Host-changeplane_oauth=${installationCookie}` },
+      }, installationResponse);
+      assert.equal(installationResponse.statusCode, 403);
+      assert.equal(installationResponse.getHeader("location"), undefined);
+
+      const oauthState = "o".repeat(43);
+      const postInstallCookie = seal({
+        kind: "oauth",
+        state: oauthState,
+        redirectUri: "https://changeplane.example/api/github?action=callback",
+        authMode: "github_app",
+        installationId: "12345",
+        verifier: "v".repeat(64),
+      }, SECRET, { purpose: "oauth" });
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=abcdefgh&state=${oauthState}`,
+        headers: { cookie: `__Host-changeplane_oauth=${postInstallCookie}` },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 403);
+      assert.equal(callbackResponse.getHeader("location"), undefined);
+
+      const ownerResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, ownerResponse);
+      assert.equal(ownerResponse.statusCode, 302);
+      assert.equal(new URL(ownerResponse.getHeader("location")).pathname, "/login/oauth/authorize");
+      assert.equal(calls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary returns a non-owner cleanly to the unlisted owner entry", async () => {
+  await withGitHubAppEnvironment(async () => {
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+    const oauthState = authorizeUrl.searchParams.get("state");
+    const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      if (requestUrl.origin === "https://github.com") {
+        return { ok: true, status: 200, async json() { return { access_token: "ghu_non_owner", expires_in: 28_800, scope: "" }; } };
+      }
+      if (requestUrl.pathname === "/user") {
+        return { ok: true, status: 200, async json() { return { login: "not-the-owner" }; } };
+      }
+      if (requestUrl.pathname === "/user/installations") {
+        return { ok: true, status: 200, async json() { return { installations: [] }; } };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=valid-code-123&state=${oauthState}`,
+        headers: { cookie: oauthCookie },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 302);
+      const returnUrl = new URL(callbackResponse.getHeader("location"));
+      assert.equal(returnUrl.origin, "https://changeplane.example");
+      assert.equal(returnUrl.searchParams.get("access"), "canary-owner");
+      assert.equal(returnUrl.searchParams.get("github"), "owner_required");
+      assert.match(callbackResponse.getHeader("set-cookie")[0], /Max-Age=0/u);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1107,6 +1278,127 @@ test("GitHub App onboarding installs first, then verifies the installation throu
       assert.equal(session.authMode, "github_app");
       assert.equal(session.login, "alice");
       assert.equal(JSON.stringify(session).includes("ghu_user_token"), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("returning GitHub App users authorize without reopening installation settings", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    assert.equal(authorizeResponse.statusCode, 302);
+    const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+    assert.equal(authorizeUrl.pathname, "/login/oauth/authorize");
+    assert.equal(authorizeUrl.searchParams.get("scope"), null);
+    assert.equal(authorizeUrl.searchParams.get("code_challenge_method"), "S256");
+    const oauthState = authorizeUrl.searchParams.get("state");
+    const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      const requestUrl = new URL(String(url));
+      if (requestUrl.origin === "https://github.com") {
+        const body = JSON.parse(options.body);
+        assert.match(body.code_verifier, /^[A-Za-z0-9_-]{64}$/u);
+        return {
+          ok: true,
+          status: 200,
+          async json() { return { access_token: "ghu_returning_token", expires_in: 28_800, scope: "" }; },
+        };
+      }
+      if (requestUrl.pathname === "/user") {
+        return { ok: true, status: 200, async json() { return { login: "returning-user" }; } };
+      }
+      if (requestUrl.pathname === "/user/installations") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              installations: [{
+                id: 98765,
+                app_slug: "changeplane-test",
+                permissions: {
+                  contents: "write",
+                  pull_requests: "write",
+                  workflows: "write",
+                },
+              }],
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=valid-code-456&state=${oauthState}`,
+        headers: { cookie: oauthCookie },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 302);
+      const sessionCookie = callbackResponse.getHeader("set-cookie")[1].split(";", 1)[0];
+      const sessionResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=session",
+        headers: { cookie: sessionCookie },
+      }, sessionResponse);
+      const session = JSON.parse(sessionResponse.body);
+      assert.equal(session.authenticated, true);
+      assert.equal(session.login, "returning-user");
+      assert.equal(session.authMode, "github_app");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("returning authorization fails closed when the GitHub App installation is ambiguous", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+    const oauthState = authorizeUrl.searchParams.get("state");
+    const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      if (requestUrl.origin === "https://github.com") {
+        return { ok: true, status: 200, async json() { return { access_token: "ghu_returning_token", expires_in: 28_800, scope: "" }; } };
+      }
+      if (requestUrl.pathname === "/user") {
+        return { ok: true, status: 200, async json() { return { login: "returning-user" }; } };
+      }
+      if (requestUrl.pathname === "/user/installations") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              installations: [
+                { id: 1, app_slug: "changeplane-test", permissions: {} },
+                { id: 2, app_slug: "changeplane-test", permissions: {} },
+              ],
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=valid-code-789&state=${oauthState}`,
+        headers: { cookie: oauthCookie },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 409);
+      assert.match(JSON.parse(callbackResponse.body).error, /More than one ChangePlane installation/u);
     } finally {
       globalThis.fetch = originalFetch;
     }

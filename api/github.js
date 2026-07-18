@@ -25,6 +25,13 @@ const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY";
 const BYOK_MIN_LENGTH = 20;
 const BYOK_MAX_LENGTH = 512;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const VERIFIED_VERCEL_SOURCE = Object.freeze({
+  environment: "production",
+  provider: "github",
+  owner: "LeChiffreVol2",
+  repository: "changeplane",
+  branch: "main",
+});
 const REQUIRED_SCOPES = ["repo", "workflow"];
 const PILOT_RESERVED_PATHS = ["changeplane", ".changeplane.json", ".github/workflows/changeplane.yml"];
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
@@ -36,6 +43,7 @@ const ROUTE_METHODS = new Map([
   ["session", ["GET"]],
   ["readiness", ["GET"]],
   ["login", ["GET"]],
+  ["authorize", ["GET"]],
   ["installation", ["GET"]],
   ["callback", ["GET"]],
   ["repos", ["GET"]],
@@ -102,7 +110,14 @@ function logApiRequest(level, fields) {
 }
 
 function hasSourceProvenance() {
-  return process.env.VERCEL !== "1" || /^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "");
+  return process.env.VERCEL !== "1" || (
+    process.env.VERCEL_ENV === VERIFIED_VERCEL_SOURCE.environment
+    && process.env.VERCEL_GIT_PROVIDER === VERIFIED_VERCEL_SOURCE.provider
+    && process.env.VERCEL_GIT_REPO_OWNER === VERIFIED_VERCEL_SOURCE.owner
+    && process.env.VERCEL_GIT_REPO_SLUG === VERIFIED_VERCEL_SOURCE.repository
+    && process.env.VERCEL_GIT_COMMIT_REF === VERIFIED_VERCEL_SOURCE.branch
+    && /^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "")
+  );
 }
 
 function configuredCanaryRepository() {
@@ -113,6 +128,10 @@ function configuredCanaryRepository() {
   } catch {
     return null;
   }
+}
+
+function rolloutMode() {
+  return process.env.CHANGEPLANE_CANARY_REPOSITORY ? "controlled_canary" : "self_serve";
 }
 
 function hasValidCanaryRepository() {
@@ -137,6 +156,7 @@ function readiness() {
     ready: Object.values(checks).every(Boolean),
     checks,
     authMode: appSlug ? "github_app" : "oauth",
+    rolloutMode: rolloutMode(),
     release: sourceSha?.slice(0, 12)
       || process.env.VERCEL_DEPLOYMENT_ID?.slice(0, 64)
       || "development",
@@ -907,7 +927,17 @@ function authorizeUrl({ clientId, redirectUri, state, challenge, scopes = [] }) 
   return url;
 }
 
+function redirectCanaryOwnerError(req, res, reason) {
+  const url = new URL(configuredOrigin(req));
+  url.searchParams.set("access", "canary-owner");
+  url.searchParams.set("github", reason);
+  redirect(res, url.toString(), [clearCookie(OAUTH_COOKIE)]);
+}
+
 async function login(req, res) {
+  if (rolloutMode() === "controlled_canary") {
+    throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
+  }
   const configuration = oauthConfiguration(req);
   const state = randomBytes(32).toString("base64url");
   if (configuration.authMode === "github_app") {
@@ -947,7 +977,37 @@ async function login(req, res) {
   redirect(res, url.toString(), [cookie(OAUTH_COOKIE, stateCookie, OAUTH_TTL_MS / 1000)]);
 }
 
+async function authorizeExisting(req, res) {
+  const configuration = oauthConfiguration(req);
+  if (configuration.authMode !== "github_app") {
+    throw new HttpError(404, "GitHub App authorization is not configured.");
+  }
+  const state = randomBytes(32).toString("base64url");
+  const { verifier, challenge } = oauthChallenge();
+  const stateCookie = seal({
+    kind: "oauth",
+    state,
+    redirectUri: configuration.redirectUri,
+    authMode: "github_app",
+    existingInstallation: true,
+    verifier,
+  }, sessionSecret(), {
+    ttlMs: OAUTH_TTL_MS,
+    purpose: "oauth",
+  });
+  const url = authorizeUrl({
+    clientId: configuration.clientId,
+    redirectUri: configuration.redirectUri,
+    state,
+    challenge,
+  });
+  redirect(res, url.toString(), [cookie(OAUTH_COOKIE, stateCookie, OAUTH_TTL_MS / 1000)]);
+}
+
 async function installation(req, res) {
+  if (rolloutMode() === "controlled_canary") {
+    throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
+  }
   const configuration = oauthConfiguration(req);
   if (configuration.authMode !== "github_app") throw new HttpError(404, "GitHub App installation is not configured.");
   const installationId = queryValue(req, "installation_id");
@@ -1017,6 +1077,13 @@ async function callback(req, res) {
     throw new HttpError(400, "OAuth state expired or is invalid.");
   }
   if (saved.kind !== "oauth" || !constantTimeEqual(state, saved.state)) throw new HttpError(400, "OAuth state mismatch.");
+  if (
+    rolloutMode() === "controlled_canary"
+    && saved.authMode === "github_app"
+    && saved.existingInstallation !== true
+  ) {
+    throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
+  }
 
   const configuration = oauthConfiguration(req);
   if (saved.authMode !== configuration.authMode || typeof saved.verifier !== "string") {
@@ -1047,10 +1114,29 @@ async function callback(req, res) {
   const user = await github("/user", exchange.access_token);
   if (typeof user?.login !== "string" || !user.login) throw new HttpError(502, "GitHub returned an invalid user profile.");
   let byokSecretWrite = configuration.authMode !== "github_app";
+  let installationId = saved.installationId;
   if (configuration.authMode === "github_app") {
-    if (typeof saved.installationId !== "string") throw new HttpError(400, "GitHub App installation is missing.");
     const installations = await userInstallations(exchange.access_token);
-    const installation = installations.find(({ id }) => String(id) === saved.installationId);
+    if (saved.existingInstallation === true && typeof installationId !== "string") {
+      const matching = installations.filter(({ app_slug: appSlug }) => appSlug === configuration.appSlug);
+      if (matching.length === 0) {
+        if (rolloutMode() === "controlled_canary") {
+          redirectCanaryOwnerError(req, res, "owner_required");
+          return;
+        }
+        throw new HttpError(404, "No existing ChangePlane installation is available to this GitHub user. Install the GitHub App first.");
+      }
+      if (matching.length > 1) {
+        if (rolloutMode() === "controlled_canary") {
+          redirectCanaryOwnerError(req, res, "owner_ambiguous");
+          return;
+        }
+        throw new HttpError(409, "More than one ChangePlane installation is available. Re-open the installer and choose the GitHub account you want to connect.");
+      }
+      installationId = String(matching[0].id);
+    }
+    if (typeof installationId !== "string") throw new HttpError(400, "GitHub App installation is missing.");
+    const installation = installations.find(({ id }) => String(id) === installationId);
     if (!installation) {
       throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
@@ -1072,7 +1158,7 @@ async function callback(req, res) {
     login: user.login,
     csrf: randomBytes(32).toString("base64url"),
     authMode: configuration.authMode,
-    ...(configuration.authMode === "github_app" ? { installationId: saved.installationId, byokSecretWrite } : {}),
+    ...(configuration.authMode === "github_app" ? { installationId, byokSecretWrite } : {}),
   }, sessionSecret(), { ttlMs });
   redirect(res, `${configuredOrigin(req)}/?github=connected`, [
     clearCookie(OAUTH_COOKIE),
@@ -1342,6 +1428,7 @@ export default async function handler(req, res) {
         status: state.ready ? "ready" : "configuration_required",
         checks: state.checks,
         authMode: state.authMode,
+        rolloutMode: state.rolloutMode,
         release: state.release,
         managedRuntime: state.managedRuntime,
       });
@@ -1350,17 +1437,25 @@ export default async function handler(req, res) {
     if (method === "GET" && action === "session") {
       const session = readSession(req);
       const configured = oauthIsConfigured() && hasSourceProvenance();
+      const mode = rolloutMode();
       sendJson(res, 200, session && configured ? {
         authenticated: true,
         configured,
         authMode: session.authMode,
+        rolloutMode: mode,
         login: session.login,
         csrf: session.csrf,
         expiresAt: session.exp,
-      } : { authenticated: false, configured, authMode: githubAppSlug() ? "github_app" : "oauth" });
+      } : {
+        authenticated: false,
+        configured,
+        authMode: githubAppSlug() ? "github_app" : "oauth",
+        rolloutMode: mode,
+      });
       return;
     }
     if (method === "GET" && action === "login") return await login(req, res);
+    if (method === "GET" && action === "authorize") return await authorizeExisting(req, res);
     if (method === "GET" && action === "installation") return await installation(req, res);
     if (method === "GET" && action === "callback") return await callback(req, res);
     if (method === "GET" && action === "repos") return await repositories(req, res);

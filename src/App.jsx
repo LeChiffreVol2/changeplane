@@ -44,7 +44,13 @@ const REVISION = {
   inputDigest: "scope-and-files-v2",
 };
 
-const PREVIEW_MODE = import.meta.env.DEV || new URLSearchParams(window.location.search).has("preview");
+const PAGE_QUERY = new URLSearchParams(window.location.search);
+const PREVIEW_MODE = import.meta.env.DEV || PAGE_QUERY.has("preview");
+const CANARY_OWNER_ENTRY = PAGE_QUERY.get("access") === "canary-owner";
+const GITHUB_ENTRY_ERROR = {
+  owner_required: "This owner-controlled canary is not available to that GitHub account.",
+  owner_ambiguous: "More than one owner installation was found. Review the GitHub App installations before trying again.",
+}[PAGE_QUERY.get("github")] ?? "";
 const SESSION_KEY = "changeplane.preview-session.v3";
 const RUNS_KEY = "changeplane.autonomous-runs.v1";
 const PRESENTATION_USER = {
@@ -252,10 +258,11 @@ function sessionFor(login, csrf, authMode = "oauth") {
   };
 }
 
-function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onSignIn, onExplore }) {
+function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore }) {
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
-  const exampleOnly = configured === false && !checking;
+  const controlledCanary = rolloutMode === "controlled_canary";
+  const exampleOnly = (configured === false || controlledCanary) && !checking;
   const buttonLabel = checking
     ? "Checking GitHub setup…"
     : configured === false
@@ -279,7 +286,7 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">
             <div className="auth-signal-heading">
-              <span><i /> Automatic on every pull request update</span>
+              <span><i /> Automatic on every pull request update in that project</span>
               <time>No per-PR handoff</time>
             </div>
             <div className="auth-signal-row">
@@ -298,11 +305,13 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{exampleOnly ? "Controlled example · no GitHub access" : "One-time GitHub setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "See the target repair loop." : "Connect once. Then stay in GitHub."}</h2>
-            <p>{exampleOnly
+            <p className="auth-eyebrow">{controlledCanary ? "Owner-controlled canary" : exampleOnly ? "Controlled example · no GitHub access" : "One-time GitHub setup"}</p>
+            <h2 id="sign-in-title">{controlledCanary ? "See the workflow. Owner access stays private." : exampleOnly ? "See the target repair loop." : "Connect once. Then stay in GitHub."}</h2>
+            <p>{controlledCanary
+              ? "Explore the complete workflow with fictional repository data. The live GitHub connection is limited to ChangePlane's isolated canary while this service runs on Vercel Hobby."
+              : exampleOnly
               ? "Run a fictional checkout failure from detection through re-check. Today's connected pilot observes real pull requests and posts receipts; it does not dispatch repair or block merges."
-              : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update triggers ChangePlane automatically."}</p>
+              : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update in that project triggers ChangePlane automatically."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
@@ -329,12 +338,22 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
               </button>
             )}
 
-            <p className="auth-security"><LockKey size={15} /> {exampleOnly
+            {authMode === "github_app" && canConnect && (!controlledCanary || ownerEntry) && (
+              <button className="github-existing" type="button" onClick={onAuthorize} disabled={isSigningIn}>
+                {controlledCanary ? "Canary owner sign in" : "Already installed? Sign in with GitHub"}
+              </button>
+            )}
+
+            <p className="auth-security"><LockKey size={15} /> {controlledCanary
+              ? "The example never accesses GitHub. Owner sign-in can see only the pre-authorized disposable canary."
+              : exampleOnly
               ? "No GitHub account needed. This opens a fictional project and changes nothing."
               : authMode === "github_app"
                 ? "Choose the repositories ChangePlane may see. The installer writes only to the one you select, through one setup PR."
                 : "Pilot access lists writable repositories; writes happen only to the one you select, through one setup PR."}</p>
-            {exampleOnly ? (
+            {controlledCanary ? (
+              <p className="auth-deployment-note">New GitHub App installations stay closed until the production plan is enabled.</p>
+            ) : exampleOnly ? (
               <p className="auth-deployment-note">This share link uses fictional repository data and cannot access GitHub.</p>
             ) : configured === false && !checking && (
               <p className="auth-deployment-note">
@@ -345,7 +364,7 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
 
           <footer className="auth-footer">
             <span>Exact revision · project rules · GitHub receipt</span>
-            <span>{checking ? "Checking connection" : configured ? authMode === "github_app" ? "GitHub App ready" : "GitHub OAuth pilot" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+            <span>{checking ? "Checking connection" : controlledCanary ? "Owner-controlled canary" : configured ? authMode === "github_app" ? "GitHub App ready" : "GitHub OAuth pilot" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
           </footer>
         </div>
       </section>
@@ -571,7 +590,7 @@ function GitHubSetup({
           <aside className="setup-context">
             <p className="setup-context-kicker">One-time installation</p>
             <h1>Connect once. Then close this tab.</h1>
-            <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update. Developers keep working in their coding agent and GitHub.</p>
+            <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update in that repository. Developers keep working in their coding agent and GitHub.</p>
             <SetupProgress complete={complete} isPreview={session.isPreview} repositorySelected={Boolean(selected)} />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
@@ -1466,7 +1485,8 @@ export function App() {
   const [authStatus, setAuthStatus] = useState(PREVIEW_MODE ? "ready" : "loading");
   const [githubConfigured, setGithubConfigured] = useState(PREVIEW_MODE ? false : null);
   const [githubAuthMode, setGithubAuthMode] = useState(PREVIEW_MODE ? "example" : "oauth");
-  const [authError, setAuthError] = useState("");
+  const [githubRolloutMode, setGithubRolloutMode] = useState(PREVIEW_MODE ? "example" : "self_serve");
+  const [authError, setAuthError] = useState(GITHUB_ENTRY_ERROR);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [repositories, setRepositories] = useState(() => PREVIEW_MODE && session ? PREVIEW_REPOSITORIES : []);
   const [repositoryStatus, setRepositoryStatus] = useState(() => PREVIEW_MODE && session ? "ready" : "idle");
@@ -1510,6 +1530,7 @@ export function App() {
         if (cancelled) return;
         setGithubConfigured(Boolean(payload.configured));
         setGithubAuthMode(payload.authMode === "github_app" ? "github_app" : "oauth");
+        setGithubRolloutMode(payload.rolloutMode === "controlled_canary" ? "controlled_canary" : "self_serve");
         setSession(payload.authenticated ? sessionFor(payload.login, payload.csrf, payload.authMode) : null);
         setAuthStatus("ready");
       } catch (error) {
@@ -1644,8 +1665,14 @@ export function App() {
     window.location.assign("/api/github?action=login");
   }
 
+  function authorizeExisting() {
+    if (isSigningIn || githubConfigured !== true || githubAuthMode !== "github_app") return;
+    setIsSigningIn(true);
+    window.location.assign("/api/github?action=authorize");
+  }
+
   function exploreProduct() {
-    if ((githubConfigured !== false && !PREVIEW_MODE) || isSigningIn) return;
+    if ((githubConfigured !== false && githubRolloutMode !== "controlled_canary" && !PREVIEW_MODE) || isSigningIn) return;
     setIsSigningIn(true);
     window.setTimeout(() => {
       window.localStorage.setItem(SESSION_KEY, JSON.stringify(PRESENTATION_USER));
@@ -1901,9 +1928,12 @@ export function App() {
         authStatus={authStatus}
         configured={githubConfigured}
         authMode={githubAuthMode}
+        rolloutMode={githubRolloutMode}
+        ownerEntry={CANARY_OWNER_ENTRY}
         error={authError}
         isSigningIn={isSigningIn}
         onSignIn={signIn}
+        onAuthorize={authorizeExisting}
         onExplore={exploreProduct}
       />
     );

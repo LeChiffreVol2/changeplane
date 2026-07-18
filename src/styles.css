@@ -306,6 +306,31 @@ button {
   cursor: wait;
 }
 
+.github-existing {
+  width: 100%;
+  margin-top: 12px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #3e5f57;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  text-align: center;
+  cursor: pointer;
+}
+
+.github-existing:hover:not(:disabled) {
+  color: #153f35;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.github-existing:disabled {
+  color: var(--muted);
+  cursor: wait;
+}
+
 .preview-entry {
   width: 100%;
   min-height: 48px;
