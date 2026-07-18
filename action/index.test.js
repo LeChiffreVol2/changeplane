@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
   canonicalJson,
@@ -21,6 +22,23 @@ import {
   sanitizePreviewUrl,
   validateAgentWebhookUrl,
 } from "./index.js";
+
+test("GitHub Actions test imports do not execute the Action entrypoint", () => {
+  const result = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `await import(${JSON.stringify(new URL("./index.js", import.meta.url).href)})`,
+  ], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_PATH: "/changeplane/missing-test-event.json",
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+});
 
 test("builds bounded exact-check diagnostics from output and annotations", () => {
   const diagnostic = checkDiagnostic({
