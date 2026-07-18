@@ -130,6 +130,10 @@ function configuredCanaryRepository() {
   }
 }
 
+function rolloutMode() {
+  return process.env.CHANGEPLANE_CANARY_REPOSITORY ? "controlled_canary" : "self_serve";
+}
+
 function hasValidCanaryRepository() {
   return !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
 }
@@ -152,6 +156,7 @@ function readiness() {
     ready: Object.values(checks).every(Boolean),
     checks,
     authMode: appSlug ? "github_app" : "oauth",
+    rolloutMode: rolloutMode(),
     release: sourceSha?.slice(0, 12)
       || process.env.VERCEL_DEPLOYMENT_ID?.slice(0, 64)
       || "development",
@@ -923,6 +928,9 @@ function authorizeUrl({ clientId, redirectUri, state, challenge, scopes = [] }) 
 }
 
 async function login(req, res) {
+  if (rolloutMode() === "controlled_canary") {
+    throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
+  }
   const configuration = oauthConfiguration(req);
   const state = randomBytes(32).toString("base64url");
   if (configuration.authMode === "github_app") {
@@ -1395,6 +1403,7 @@ export default async function handler(req, res) {
         status: state.ready ? "ready" : "configuration_required",
         checks: state.checks,
         authMode: state.authMode,
+        rolloutMode: state.rolloutMode,
         release: state.release,
         managedRuntime: state.managedRuntime,
       });
@@ -1403,14 +1412,21 @@ export default async function handler(req, res) {
     if (method === "GET" && action === "session") {
       const session = readSession(req);
       const configured = oauthIsConfigured() && hasSourceProvenance();
+      const mode = rolloutMode();
       sendJson(res, 200, session && configured ? {
         authenticated: true,
         configured,
         authMode: session.authMode,
+        rolloutMode: mode,
         login: session.login,
         csrf: session.csrf,
         expiresAt: session.exp,
-      } : { authenticated: false, configured, authMode: githubAppSlug() ? "github_app" : "oauth" });
+      } : {
+        authenticated: false,
+        configured,
+        authMode: githubAppSlug() ? "github_app" : "oauth",
+        rolloutMode: mode,
+      });
       return;
     }
     if (method === "GET" && action === "login") return await login(req, res);

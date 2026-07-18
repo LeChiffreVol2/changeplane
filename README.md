@@ -30,7 +30,7 @@ The ship verdict is deliberately narrow: **ready for one-repository observe cana
 
 ## Self-serve GitHub setup
 
-Create a public GitHub App with these URLs:
+Create a private GitHub App for the owner-controlled Hobby canary. Make it public only in the same reviewed release that upgrades the project to Vercel Pro, removes `CHANGEPLANE_CANARY_REPOSITORY`, and enables external onboarding. Use these URLs:
 
 ```text
 Callback URL: https://YOUR_DOMAIN/api/github?action=callback
@@ -53,7 +53,7 @@ CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY=optional-private-pilot-key
 
 `CHANGEPLANE_APP_ORIGIN` must be the exact public origin with no path. The GitHub App user token stays inside an encrypted, `HttpOnly`, `Secure`, `SameSite=Lax`, `__Host-` session cookie, expires with the shorter provider/session lifetime, and is never returned to the browser. If `GITHUB_APP_SLUG` is omitted, ChangePlane falls back to the broad `repo workflow` OAuth pilot; use that fallback only with a consenting design partner and never for enforcement.
 
-**Controlled-canary guard:** Set `CHANGEPLANE_CANARY_REPOSITORY` to one exact GitHub repository in `owner/repository` form—not a URL, branch, or organization name. Use a personal test repository containing no customer or production work and safe to delete after validation. While set, ChangePlane lists only this repository and rejects every other repository before making a GitHub request. Keep the guard set for the entire free canary; remove it only as part of an approved broader rollout.
+**Controlled-canary guard:** Set `CHANGEPLANE_CANARY_REPOSITORY` to one exact GitHub repository in `owner/repository` form—not a URL, branch, or organization name. Use a personal test repository containing no customer or production work and safe to delete after validation. While set, ChangePlane disables new installation redirects, lists only this repository for an already-authorized owner, and rejects every other repository before making a GitHub request. Keep both the guard and the GitHub App's private setting for the entire free canary; remove them only as part of the reviewed Vercel Pro launch.
 
 `GET /api/github?action=readiness` returns `200` only when the required production configuration is present and `503` otherwise. It exposes configuration booleans and a release identifier, never values.
 

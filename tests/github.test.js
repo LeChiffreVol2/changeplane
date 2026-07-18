@@ -408,7 +408,12 @@ test("session reports whether the real GitHub connector is configured", async ()
     const response = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, response);
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(JSON.parse(response.body), { authenticated: false, configured: true, authMode: "oauth" });
+    assert.deepEqual(JSON.parse(response.body), {
+      authenticated: false,
+      configured: true,
+      authMode: "oauth",
+      rolloutMode: "self_serve",
+    });
     assert.equal(response.getHeader("cache-control"), "no-store");
   });
 });
@@ -436,6 +441,7 @@ test("GitHub App cutover rejects stale broad-OAuth sessions before repository ac
         authenticated: false,
         configured: true,
         authMode: "github_app",
+        rolloutMode: "self_serve",
       });
 
       const repositoriesResponse = responseRecorder();
@@ -471,6 +477,7 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         canaryRepository: true,
       },
       authMode: "oauth",
+      rolloutMode: "self_serve",
       release: "dpl_test_release_identifier",
       managedRuntime: "reserved",
     });
@@ -505,6 +512,7 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         canaryRepository: true,
       },
       authMode: "oauth",
+      rolloutMode: "self_serve",
       release: "aaaaaaaaaaaa",
       managedRuntime: "reserved",
     });
@@ -558,7 +566,12 @@ test("unattributed Vercel deployments reject repository mutations before externa
 
       const sessionResponse = responseRecorder();
       await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
-      assert.deepEqual(JSON.parse(sessionResponse.body), { authenticated: false, configured: false, authMode: "oauth" });
+      assert.deepEqual(JSON.parse(sessionResponse.body), {
+        authenticated: false,
+        configured: false,
+        authMode: "oauth",
+        rolloutMode: "self_serve",
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -692,6 +705,38 @@ test("controlled canary mode lists and authorizes only the exact disposable repo
       assert.match(JSON.parse(rejectedResponse.body).error, /access only its approved test repository/u);
       assert.equal(calls, 1);
       assert.deepEqual(paths, ["/repos/alice/disposable-canary"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary exposes owner access but rejects every new GitHub App installation", async () => {
+  await withGitHubAppEnvironment(async () => {
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { calls += 1; throw new Error("GitHub must not be called"); };
+    try {
+      const sessionResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+      assert.deepEqual(JSON.parse(sessionResponse.body), {
+        authenticated: false,
+        configured: true,
+        authMode: "github_app",
+        rolloutMode: "controlled_canary",
+      });
+
+      const loginResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=login", headers: {} }, loginResponse);
+      assert.equal(loginResponse.statusCode, 403);
+      assert.equal(loginResponse.getHeader("location"), undefined);
+      assert.equal(loginResponse.getHeader("set-cookie"), undefined);
+      assert.equal(
+        JSON.parse(loginResponse.body).error,
+        "New GitHub App installations are disabled for this controlled canary.",
+      );
+      assert.equal(calls, 0);
     } finally {
       globalThis.fetch = originalFetch;
     }
