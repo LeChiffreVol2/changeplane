@@ -736,7 +736,88 @@ test("controlled canary exposes owner access but rejects every new GitHub App in
         JSON.parse(loginResponse.body).error,
         "New GitHub App installations are disabled for this controlled canary.",
       );
+
+      const installState = "i".repeat(43);
+      const installationCookie = seal({
+        kind: "installation",
+        state: installState,
+        redirectUri: "https://changeplane.example/api/github?action=callback",
+        authMode: "github_app",
+      }, SECRET, { purpose: "oauth" });
+      const installationResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=installation&installation_id=12345&state=${installState}`,
+        headers: { cookie: `__Host-changeplane_oauth=${installationCookie}` },
+      }, installationResponse);
+      assert.equal(installationResponse.statusCode, 403);
+      assert.equal(installationResponse.getHeader("location"), undefined);
+
+      const oauthState = "o".repeat(43);
+      const postInstallCookie = seal({
+        kind: "oauth",
+        state: oauthState,
+        redirectUri: "https://changeplane.example/api/github?action=callback",
+        authMode: "github_app",
+        installationId: "12345",
+        verifier: "v".repeat(64),
+      }, SECRET, { purpose: "oauth" });
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=abcdefgh&state=${oauthState}`,
+        headers: { cookie: `__Host-changeplane_oauth=${postInstallCookie}` },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 403);
+      assert.equal(callbackResponse.getHeader("location"), undefined);
+
+      const ownerResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, ownerResponse);
+      assert.equal(ownerResponse.statusCode, 302);
+      assert.equal(new URL(ownerResponse.getHeader("location")).pathname, "/login/oauth/authorize");
       assert.equal(calls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary returns a non-owner cleanly to the unlisted owner entry", async () => {
+  await withGitHubAppEnvironment(async () => {
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+    const oauthState = authorizeUrl.searchParams.get("state");
+    const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      if (requestUrl.origin === "https://github.com") {
+        return { ok: true, status: 200, async json() { return { access_token: "ghu_non_owner", expires_in: 28_800, scope: "" }; } };
+      }
+      if (requestUrl.pathname === "/user") {
+        return { ok: true, status: 200, async json() { return { login: "not-the-owner" }; } };
+      }
+      if (requestUrl.pathname === "/user/installations") {
+        return { ok: true, status: 200, async json() { return { installations: [] }; } };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const callbackResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&code=valid-code-123&state=${oauthState}`,
+        headers: { cookie: oauthCookie },
+      }, callbackResponse);
+      assert.equal(callbackResponse.statusCode, 302);
+      const returnUrl = new URL(callbackResponse.getHeader("location"));
+      assert.equal(returnUrl.origin, "https://changeplane.example");
+      assert.equal(returnUrl.searchParams.get("access"), "canary-owner");
+      assert.equal(returnUrl.searchParams.get("github"), "owner_required");
+      assert.match(callbackResponse.getHeader("set-cookie")[0], /Max-Age=0/u);
     } finally {
       globalThis.fetch = originalFetch;
     }

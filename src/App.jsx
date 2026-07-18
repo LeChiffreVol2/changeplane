@@ -44,7 +44,13 @@ const REVISION = {
   inputDigest: "scope-and-files-v2",
 };
 
-const PREVIEW_MODE = import.meta.env.DEV || new URLSearchParams(window.location.search).has("preview");
+const PAGE_QUERY = new URLSearchParams(window.location.search);
+const PREVIEW_MODE = import.meta.env.DEV || PAGE_QUERY.has("preview");
+const CANARY_OWNER_ENTRY = PAGE_QUERY.get("access") === "canary-owner";
+const GITHUB_ENTRY_ERROR = {
+  owner_required: "This owner-controlled canary is not available to that GitHub account.",
+  owner_ambiguous: "More than one owner installation was found. Review the GitHub App installations before trying again.",
+}[PAGE_QUERY.get("github")] ?? "";
 const SESSION_KEY = "changeplane.preview-session.v3";
 const RUNS_KEY = "changeplane.autonomous-runs.v1";
 const PRESENTATION_USER = {
@@ -252,7 +258,7 @@ function sessionFor(login, csrf, authMode = "oauth") {
   };
 }
 
-function LoginScreen({ authStatus, configured, authMode, rolloutMode, error, isSigningIn, onSignIn, onAuthorize, onExplore }) {
+function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore }) {
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const controlledCanary = rolloutMode === "controlled_canary";
@@ -332,7 +338,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, error, isS
               </button>
             )}
 
-            {authMode === "github_app" && canConnect && (!exampleOnly || controlledCanary) && (
+            {authMode === "github_app" && canConnect && (!controlledCanary || ownerEntry) && (
               <button className="github-existing" type="button" onClick={onAuthorize} disabled={isSigningIn}>
                 {controlledCanary ? "Canary owner sign in" : "Already installed? Sign in with GitHub"}
               </button>
@@ -1480,7 +1486,7 @@ export function App() {
   const [githubConfigured, setGithubConfigured] = useState(PREVIEW_MODE ? false : null);
   const [githubAuthMode, setGithubAuthMode] = useState(PREVIEW_MODE ? "example" : "oauth");
   const [githubRolloutMode, setGithubRolloutMode] = useState(PREVIEW_MODE ? "example" : "self_serve");
-  const [authError, setAuthError] = useState("");
+  const [authError, setAuthError] = useState(GITHUB_ENTRY_ERROR);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [repositories, setRepositories] = useState(() => PREVIEW_MODE && session ? PREVIEW_REPOSITORIES : []);
   const [repositoryStatus, setRepositoryStatus] = useState(() => PREVIEW_MODE && session ? "ready" : "idle");
@@ -1923,6 +1929,7 @@ export function App() {
         configured={githubConfigured}
         authMode={githubAuthMode}
         rolloutMode={githubRolloutMode}
+        ownerEntry={CANARY_OWNER_ENTRY}
         error={authError}
         isSigningIn={isSigningIn}
         onSignIn={signIn}

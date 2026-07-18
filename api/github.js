@@ -927,6 +927,13 @@ function authorizeUrl({ clientId, redirectUri, state, challenge, scopes = [] }) 
   return url;
 }
 
+function redirectCanaryOwnerError(req, res, reason) {
+  const url = new URL(configuredOrigin(req));
+  url.searchParams.set("access", "canary-owner");
+  url.searchParams.set("github", reason);
+  redirect(res, url.toString(), [clearCookie(OAUTH_COOKIE)]);
+}
+
 async function login(req, res) {
   if (rolloutMode() === "controlled_canary") {
     throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
@@ -998,6 +1005,9 @@ async function authorizeExisting(req, res) {
 }
 
 async function installation(req, res) {
+  if (rolloutMode() === "controlled_canary") {
+    throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
+  }
   const configuration = oauthConfiguration(req);
   if (configuration.authMode !== "github_app") throw new HttpError(404, "GitHub App installation is not configured.");
   const installationId = queryValue(req, "installation_id");
@@ -1067,6 +1077,13 @@ async function callback(req, res) {
     throw new HttpError(400, "OAuth state expired or is invalid.");
   }
   if (saved.kind !== "oauth" || !constantTimeEqual(state, saved.state)) throw new HttpError(400, "OAuth state mismatch.");
+  if (
+    rolloutMode() === "controlled_canary"
+    && saved.authMode === "github_app"
+    && saved.existingInstallation !== true
+  ) {
+    throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
+  }
 
   const configuration = oauthConfiguration(req);
   if (saved.authMode !== configuration.authMode || typeof saved.verifier !== "string") {
@@ -1103,9 +1120,17 @@ async function callback(req, res) {
     if (saved.existingInstallation === true && typeof installationId !== "string") {
       const matching = installations.filter(({ app_slug: appSlug }) => appSlug === configuration.appSlug);
       if (matching.length === 0) {
+        if (rolloutMode() === "controlled_canary") {
+          redirectCanaryOwnerError(req, res, "owner_required");
+          return;
+        }
         throw new HttpError(404, "No existing ChangePlane installation is available to this GitHub user. Install the GitHub App first.");
       }
       if (matching.length > 1) {
+        if (rolloutMode() === "controlled_canary") {
+          redirectCanaryOwnerError(req, res, "owner_ambiguous");
+          return;
+        }
         throw new HttpError(409, "More than one ChangePlane installation is available. Re-open the installer and choose the GitHub account you want to connect.");
       }
       installationId = String(matching[0].id);
