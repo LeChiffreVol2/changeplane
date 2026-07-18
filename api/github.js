@@ -101,10 +101,14 @@ function logApiRequest(level, fields) {
   }));
 }
 
+function hasSourceProvenance() {
+  return process.env.VERCEL !== "1" || /^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "");
+}
+
 function readiness() {
   const appSlug = githubAppSlug();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
-  const sourceProvenance = process.env.VERCEL !== "1" || /^[a-f0-9]{40}$/u.test(sourceSha ?? "");
+  const sourceProvenance = hasSourceProvenance();
   const checks = {
     githubClientId: Boolean(process.env.GITHUB_CLIENT_ID),
     githubClientSecret: Boolean(process.env.GITHUB_CLIENT_SECRET),
@@ -126,7 +130,7 @@ function readiness() {
 }
 
 function assertMutationSourceProvenance() {
-  if (process.env.VERCEL === "1" && !/^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "")) {
+  if (!hasSourceProvenance()) {
     throw new HttpError(503, "GitHub writes are disabled until this deployment is bound to a verified source commit.");
   }
 }
@@ -1301,14 +1305,15 @@ export default async function handler(req, res) {
     }
     if (method === "GET" && action === "session") {
       const session = readSession(req);
-      sendJson(res, 200, session ? {
+      const configured = oauthIsConfigured() && hasSourceProvenance();
+      sendJson(res, 200, session && configured ? {
         authenticated: true,
-        configured: oauthIsConfigured(),
+        configured,
         authMode: session.authMode,
         login: session.login,
         csrf: session.csrf,
         expiresAt: session.exp,
-      } : { authenticated: false, configured: oauthIsConfigured(), authMode: githubAppSlug() ? "github_app" : "oauth" });
+      } : { authenticated: false, configured, authMode: githubAppSlug() ? "github_app" : "oauth" });
       return;
     }
     if (method === "GET" && action === "login") return await login(req, res);

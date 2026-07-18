@@ -460,6 +460,10 @@ test("unattributed Vercel deployments reject repository mutations before externa
         assert.match(JSON.parse(response.body).error, /bound to a verified source commit/u);
       }
       assert.equal(calls, 0);
+
+      const sessionResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+      assert.deepEqual(JSON.parse(sessionResponse.body), { authenticated: false, configured: false, authMode: "oauth" });
     } finally {
       globalThis.fetch = originalFetch;
     }
