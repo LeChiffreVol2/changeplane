@@ -2,6 +2,7 @@
   "name": "changeplane",
   "version": "0.1.0-pilot",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",

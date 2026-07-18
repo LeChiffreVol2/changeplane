@@ -274,7 +274,7 @@ function LoginScreen({ authStatus, configured, authMode, error, isSigningIn, onS
           <div className="auth-message">
             <p className="auth-kicker"><span /> GitHub safety checks for agent-written code</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Before you trust an agent&apos;s pull request, ChangePlane checks the exact code revision against your project&apos;s rules and any required test results, then posts a receipt in GitHub. The pilot observes only—it cannot block a merge or change code.</p>
+            <p>Before you trust an agent&apos;s pull request, ChangePlane checks the exact code revision against your project&apos;s rules and any required test results, then posts a receipt in GitHub. The pilot observes only—it cannot block a merge or change code. Best for GitHub projects that already run automated tests on pull requests.</p>
           </div>
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">
@@ -699,7 +699,18 @@ function GitHubSetup({
                     </div>
 
                     {preflightReady && (
-                      <p className="install-note">No test check is required by default. Add one meaningful GitHub test in the setup PR before merging, or begin scope-only and configure evidence later.</p>
+                      <details className="runtime-optional evidence-recipe">
+                        <summary>
+                          <span><strong>Make the first receipt prove behavior</strong><small>Recommended before merging the setup PR</small></span>
+                          <CaretDown size={16} aria-hidden="true" />
+                        </summary>
+                        <ol>
+                          <li>Open an existing pull request&apos;s <strong>Checks</strong> tab.</li>
+                          <li>Copy the exact meaningful test name and its publisher. GitHub Actions uses <code>github-actions</code>.</li>
+                          <li>In the setup PR, edit <code>.changeplane.json</code> and add that name and publisher under <code>requiredChecks</code>.</li>
+                        </ol>
+                        <p>No automated tests yet? You can still start scope-only. The receipt will verify the exact revision and allowed paths, but not whether the code works.</p>
+                      </details>
                     )}
 
                     <p className="install-note install-note-provider">No provider key or repair funding is needed for the observe pilot.</p>
@@ -767,25 +778,14 @@ function GitHubSetup({
                   </a>
                 )}
                 {!installResult.preview && <p className="install-note">After merging, the next agent-created or agent-updated pull request receives a ChangePlane receipt automatically.</p>}
-                {!installResult.preview && (
-                  <details className="runtime-optional runtime-optional-after-setup">
-                    <summary>
-                      <span><strong>Advanced: add a repair provider later</strong><small>Not needed for observe · repair remains gated</small></span>
-                      <CaretDown size={16} aria-hidden="true" />
-                    </summary>
-                    <RuntimeFunding
-                      isPreview={session.isPreview}
-                      repositorySelected={installResult.repository}
-                      runtimeStatus={runtimeStatus}
-                      runtimeError={runtimeError}
-                      managed={managedRuntime}
-                      byok={byok}
-                      saving={byokSaving}
-                      onSave={onSaveByok}
-                      onDisconnect={onDisconnectByok}
-                    />
-                  </details>
-                )}
+                <section className="activation-checklist" aria-labelledby="activation-title">
+                  <strong id="activation-title">What happens after merge</strong>
+                  <ol>
+                    <li><span>1</span><p>Open or update a normal pull request. No ChangePlane handoff is needed.</p></li>
+                    <li><span>2</span><p>In GitHub, open <strong>Checks</strong> and choose <code>ChangePlane / guard</code>.</p></li>
+                    <li><span>3</span><p><strong>Neutral</strong> means observe-only. The receipt says <strong>scope-only</strong> when no behavioral test is configured, or lists the exact test evidence when it is.</p></li>
+                  </ol>
+                </section>
                 <button className="text-action" type="button" onClick={onResetInstall}>Choose another repository</button>
               </div>
             )}
