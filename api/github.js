@@ -25,6 +25,13 @@ const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY";
 const BYOK_MIN_LENGTH = 20;
 const BYOK_MAX_LENGTH = 512;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const VERIFIED_VERCEL_SOURCE = Object.freeze({
+  environment: "production",
+  provider: "github",
+  owner: "LeChiffreVol2",
+  repository: "changeplane",
+  branch: "main",
+});
 const REQUIRED_SCOPES = ["repo", "workflow"];
 const PILOT_RESERVED_PATHS = ["changeplane", ".changeplane.json", ".github/workflows/changeplane.yml"];
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
@@ -103,7 +110,14 @@ function logApiRequest(level, fields) {
 }
 
 function hasSourceProvenance() {
-  return process.env.VERCEL !== "1" || /^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "");
+  return process.env.VERCEL !== "1" || (
+    process.env.VERCEL_ENV === VERIFIED_VERCEL_SOURCE.environment
+    && process.env.VERCEL_GIT_PROVIDER === VERIFIED_VERCEL_SOURCE.provider
+    && process.env.VERCEL_GIT_REPO_OWNER === VERIFIED_VERCEL_SOURCE.owner
+    && process.env.VERCEL_GIT_REPO_SLUG === VERIFIED_VERCEL_SOURCE.repository
+    && process.env.VERCEL_GIT_COMMIT_REF === VERIFIED_VERCEL_SOURCE.branch
+    && /^[a-f0-9]{40}$/u.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "")
+  );
 }
 
 function configuredCanaryRepository() {

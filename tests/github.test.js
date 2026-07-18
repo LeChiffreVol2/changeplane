@@ -37,6 +37,11 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_APP_ORIGIN",
     "CHANGEPLANE_CANARY_REPOSITORY",
     "VERCEL",
+    "VERCEL_ENV",
+    "VERCEL_GIT_PROVIDER",
+    "VERCEL_GIT_REPO_OWNER",
+    "VERCEL_GIT_REPO_SLUG",
+    "VERCEL_GIT_COMMIT_REF",
     "VERCEL_GIT_COMMIT_SHA",
     "VERCEL_DEPLOYMENT_ID",
   ];
@@ -49,6 +54,11 @@ async function withOAuthEnvironment(callback) {
   });
   delete process.env.GITHUB_APP_SLUG;
   delete process.env.VERCEL;
+  delete process.env.VERCEL_ENV;
+  delete process.env.VERCEL_GIT_PROVIDER;
+  delete process.env.VERCEL_GIT_REPO_OWNER;
+  delete process.env.VERCEL_GIT_REPO_SLUG;
+  delete process.env.VERCEL_GIT_COMMIT_REF;
   delete process.env.VERCEL_GIT_COMMIT_SHA;
   delete process.env.VERCEL_DEPLOYMENT_ID;
   delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
@@ -473,6 +483,11 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
 test("readiness exposes the exact Vercel source commit without secret values", async () => {
   await withOAuthEnvironment(async () => {
     process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_GIT_PROVIDER = "github";
+    process.env.VERCEL_GIT_REPO_OWNER = "LeChiffreVol2";
+    process.env.VERCEL_GIT_REPO_SLUG = "changeplane";
+    process.env.VERCEL_GIT_COMMIT_REF = "main";
     process.env.VERCEL_GIT_COMMIT_SHA = "a".repeat(40);
     process.env.VERCEL_DEPLOYMENT_ID = "dpl_test_release_identifier";
     const response = responseRecorder();
@@ -493,6 +508,36 @@ test("readiness exposes the exact Vercel source commit without secret values", a
       release: "aaaaaaaaaaaa",
       managedRuntime: "reserved",
     });
+  });
+});
+
+test("Vercel provenance rejects CLI, preview, branch, and wrong-repository releases", async () => {
+  await withOAuthEnvironment(async () => {
+    Object.assign(process.env, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
+    });
+    const mismatches = [
+      ["VERCEL_GIT_PROVIDER", ""],
+      ["VERCEL_ENV", "preview"],
+      ["VERCEL_GIT_COMMIT_REF", "agent/unreviewed"],
+      ["VERCEL_GIT_REPO_OWNER", "someone-else"],
+      ["VERCEL_GIT_REPO_SLUG", "another-project"],
+    ];
+    for (const [name, value] of mismatches) {
+      const original = process.env[name];
+      process.env[name] = value;
+      const response = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, response);
+      assert.equal(response.statusCode, 503, `${name} must fail closed`);
+      assert.equal(JSON.parse(response.body).checks.sourceProvenance, false);
+      process.env[name] = original;
+    }
   });
 });
 
