@@ -1,10 +1,19 @@
 # Production release checklist
 
+## Controlled-canary release record — 2026-07-19
+
+- Production source: `720a2e47f2ccb4c3eb4a52efc6615c7957e5e8f3` from [PR #14](https://github.com/LeChiffreVol2/changeplane/pull/14); required `CI / verify`, Vercel, and Vercel Preview Comments checks all passed before merge.
+- Vercel Production: `dpl_9m8ryow6tPEwo5wyX2LucQziq3St`, aliased to `https://changeplane.vercel.app`; immediately previous known-good deployment `dpl_6qNemSGfuMWwgSgFkEDKoViwQvhz` remains available.
+- Readiness: request ID `11cb076aa3561d9c25514906`, HTTP `200`, `status: ready`, `authMode: github_app`, `rolloutMode: controlled_canary`, release `720a2e47f2cc`. Repair reports `enabled: false` and `configured: false`.
+- Live owner flow exposed only `LeChiffreVol2/changeplane-disposable-canary-20260719`. Its read-only preflight stopped before writing because three managed paths differ from the current installer: `.github/workflows/changeplane.yml`, `changeplane/action/index.js`, and `changeplane/src/lib/changeplane.js`.
+- Zero-impact evidence after the live preflight: canary `main` remained `e32f379564a037ae4b8ea87fb89aad5f444d4fac`; `.changeplane.json` remained SHA-256 `3497cf81562198efc6849d1db12eaf51c12883878b38ee244fd5db70e7e4ff65`; no managed-upgrade branch was created. This is safe-refusal evidence, not a successful pristine-upgrade canary.
+- Release, rollback, GitHub connector, and customer-repository owner names still require an external release record before onboarding a design partner.
+
 ## Release ownership and platform boundary
 
 - [ ] Name the release owner, rollback owner, GitHub connector owner, and customer repository owner.
-- [ ] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
-- [ ] Keep this release on the fixed free Vercel phase and bind every repository route to the one disposable `CHANGEPLANE_CANARY_REPOSITORY`; hosting-plan work and broader onboarding are out of scope.
+- [x] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
+- [x] Keep this release on the fixed free Vercel phase and bind every repository route to the one disposable `CHANGEPLANE_CANARY_REPOSITORY`; hosting-plan work and broader onboarding are out of scope.
 - [ ] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
 - [ ] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and optional inactive repair templates. No database, queue, merge service, or paid observability is required.
 - [ ] Confirm GitHub Merge Queue is not enabled for a repository that requires `ChangePlane / guard`.
@@ -12,21 +21,21 @@
 ## Source and CI gate
 
 - [ ] Protect `main`, disallow direct pushes/bypasses, and require the pinned `CI / verify` job before merge.
-- [ ] Confirm `CI / verify` is the exact required check name and the workflow has `contents: read`, immutable action SHAs, one canceling concurrency lane, a job timeout, and no deployment secret.
-- [ ] Confirm the activation-boundary step finds only `.github/workflows/ci.yml`; observe and repair templates must remain under `examples/`.
-- [ ] From a clean checkout, confirm `npm ci --cache .npm-cache`, `npm run verify`, and `npm run audit:prod` pass with Node `22.18.0`.
-- [ ] Confirm CI serves `dist` only on runner-local `127.0.0.1` and smoke-checks the built root without calling Preview or Production.
-- [ ] Confirm the Chromium onboarding suite passes for controlled-canary isolation plus fresh, upgrade, pending, current, and owner-review repository states without making non-local requests.
+- [x] Confirm `CI / verify` is the exact required check name and the workflow has `contents: read`, immutable action SHAs, one canceling concurrency lane, a job timeout, and no deployment secret.
+- [x] Confirm the activation-boundary step finds only `.github/workflows/ci.yml`; observe and repair templates must remain under `examples/`.
+- [x] From a clean checkout, confirm `npm ci --cache .npm-cache`, `npm run verify`, and `npm run audit:prod` pass with Node `22.18.0`.
+- [x] Confirm CI serves `dist` only on runner-local `127.0.0.1` and smoke-checks the built root without calling Preview or Production.
+- [x] Confirm the Chromium onboarding suite passes for controlled-canary isolation plus fresh, upgrade, pending, current, and owner-review repository states without making non-local requests.
 - [ ] Review every dependency or pinned Action SHA change; do not waive a high/critical production audit finding without a written owner and expiry.
-- [ ] Confirm Vercel's Git integration is the only deployment path, `main` is the Production branch, and the install/build/output settings match `vercel.json`.
+- [x] Confirm Vercel's Git integration is the only deployment path, `main` is the Production branch, and the install/build/output settings match `vercel.json`.
 
 ## Configuration and secrets
 
 - [ ] Inventory observe Vercel settings `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, controlled-rollout `CHANGEPLANE_CANARY_REPOSITORY`, optional `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
 - [ ] Inventory repair Vercel settings `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; keep the switch false and keep all secret values out of the release record.
 - [ ] Inventory disposable-repository Variables `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, and `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, plus Secrets `CHANGEPLANE_CONTROLLER_HMAC` and optional evidence-repair `DEEPSEEK_API_KEY`; keep the worker switch false during provisioning.
-- [ ] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
-- [ ] On the free canary, keep the GitHub App private and verify the public root offers only the fictional workspace. Verify the unlisted `?access=canary-owner` entry returns a non-owner cleanly and `/api/github?action=login` plus in-flight installation/callback state reject without redirecting to GitHub.
+- [x] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
+- [x] On the free canary, keep the GitHub App private and verify the public root offers only the fictional workspace. Verify the unlisted `?access=canary-owner` entry returns a non-owner cleanly and `/api/github?action=login` plus in-flight installation/callback state reject without redirecting to GitHub.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` server-side and absent unless the private canary is explicitly approved.
@@ -53,10 +62,10 @@
 
 ## Release and rollback
 
-- [ ] Merge only after every required check above passes; do not deploy an unreviewed local build.
-- [ ] Confirm the resulting Production deployment source is the protected `main` SHA and record its deployment ID.
+- [x] Merge only after every required check above passes; do not deploy an unreviewed local build.
+- [x] Confirm the resulting Production deployment source is the protected `main` SHA and record its deployment ID.
 - [ ] Make one read-only Production readiness request and repeat one disposable-repository observe evaluation; stop if either differs from Preview.
-- [ ] Confirm the immediately previous Production deployment remains available for Instant Rollback.
+- [x] Confirm the immediately previous Production deployment remains available for Instant Rollback.
 - [ ] Exercise or review access to Vercel rollback, GitHub authorization revocation, session-secret rotation, and provider-key revocation.
 - [ ] Confirm the release owner is watching native Vercel logs/usage and GitHub Actions usage during onboarding; no external monitor or pager is claimed.
 - [ ] At 80% of a free included allowance, stop new onboarding and nonessential reruns. At exhaustion, fail closed until reset.
