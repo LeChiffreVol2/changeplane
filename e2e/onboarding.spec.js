@@ -404,7 +404,14 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   await expect(page.getByText("Ask a repository owner to review the listed paths. ChangePlane did not overwrite them.")).toBeVisible();
   await expect(page.locator(".safety-preflight-attention")).toBeVisible();
   await expect(page.getByText("No repository change was made.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create observe setup PR" })).toBeDisabled();
+  await expect(page.getByText("Blocked safely")).toBeVisible();
+  await expect(page.getByText("Repository owner review")).toBeVisible();
+  await expect(page.getByText("ChangePlane stopped before writing", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create observe setup PR" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open repository for owner review" })).toHaveAttribute(
+    "href",
+    "https://github.com/acme/conflict-api",
+  );
 
   expect(installRequests).toBe(0);
   expect(externalRequests).toEqual([]);

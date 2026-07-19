@@ -637,7 +637,8 @@ button {
 }
 
 .setup-progress .is-active,
-.setup-progress .is-complete {
+.setup-progress .is-complete,
+.setup-progress .is-attention {
   color: rgba(245, 244, 237, 0.92);
 }
 
@@ -652,6 +653,12 @@ button {
   border-color: #7ab395;
   background: #39785f;
   color: white;
+}
+
+.setup-progress .is-attention > span {
+  border-color: #d5a16f;
+  background: rgba(201, 109, 39, 0.22);
+  color: #f0bf91;
 }
 
 .setup-boundary {
