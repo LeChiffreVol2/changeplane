@@ -186,6 +186,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
 test("a pristine legacy install offers one policy-preserving upgrade pull request", async ({ page }) => {
   let connected = false;
   let installPayload = null;
+  let preflightRequests = 0;
   const externalRequests = await mockLocalApi(page, async (route, url) => {
     const action = url.searchParams.get("action");
     if (action === "session") {
@@ -213,6 +214,28 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
       });
     }
     if (action === "preflight") {
+      preflightRequests += 1;
+      if (preflightRequests > 1) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return json(route, {
+          repositoryState: "active",
+          installation: { state: "current", currentVersion: 1, targetVersion: 1, conflicts: [] },
+          installable: false,
+          conflicts: [],
+          setupFiles: 0,
+          setup: { state: "current", managedVersion: 1 },
+          evidenceOptions: [],
+          boundary: {
+            defaultBranchWrite: false,
+            pullRequestOnly: true,
+            observeOnly: true,
+            mergeBlocking: false,
+            agentRepair: false,
+            untrustedCodeExecution: false,
+            providerSecretAccess: false,
+          },
+        });
+      }
       return json(route, {
         repositoryState: "active",
         installation: {
@@ -278,6 +301,19 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
     "href",
     "https://github.com/acme/payments-api/pull/43",
   );
+  await page.getByRole("button", { name: "I merged it — check this repository" }).click();
+  await expect(page.getByText("Checking the repository boundary")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create managed upgrade PR" })).toHaveCount(0);
+  await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
+  await expect(page.getByText("ChangePlane is active")).toBeVisible();
+  await expect(page.getByText("No repository change is needed", { exact: true })).toBeVisible();
+  await expect(page.getByText(/No test PR is required/u)).toBeVisible();
+  await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open project pull requests" })).toHaveAttribute(
+    "href",
+    "https://github.com/acme/payments-api/pulls",
+  );
+  expect(preflightRequests).toBe(2);
   expect(installPayload).toEqual({ repository: "acme/payments-api", requiredCheck: null });
   expect(externalRequests).toEqual([]);
 });
@@ -285,6 +321,8 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
 test("pending, current, and owner-review states never offer an unsafe mutation", async ({ page }) => {
   let connected = false;
   let installRequests = 0;
+  let pendingPreflightRequests = 0;
+  let retryPreflightRequests = 0;
   const externalRequests = await mockLocalApi(page, async (route, url) => {
     const action = url.searchParams.get("action");
     if (action === "session") {
@@ -303,7 +341,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
     }
     if (action === "repos") {
       return json(route, {
-        repositories: ["pending-api", "current-api", "conflict-api"].map((name) => ({
+        repositories: ["pending-api", "current-api", "retry-api", "conflict-api"].map((name) => ({
           fullName: `acme/${name}`,
           private: true,
           defaultBranch: "main",
@@ -323,6 +361,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         providerSecretAccess: false,
       };
       if (repository === "acme/pending-api") {
+        pendingPreflightRequests += 1;
         return json(route, {
           repositoryState: "active",
           installation: { state: "outdated", currentVersion: 0, targetVersion: 1, conflicts: [] },
@@ -339,6 +378,22 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         });
       }
       if (repository === "acme/current-api") {
+        return json(route, {
+          repositoryState: "active",
+          installation: { state: "current", currentVersion: 1, targetVersion: 1, conflicts: [] },
+          installable: false,
+          conflicts: [],
+          setupFiles: 0,
+          setup: { state: "current", managedVersion: 1 },
+          evidenceOptions: [],
+          boundary,
+        });
+      }
+      if (repository === "acme/retry-api") {
+        retryPreflightRequests += 1;
+        if (retryPreflightRequests === 1) {
+          return json(route, { error: "GitHub could not complete the read-only check." }, 503);
+        }
         return json(route, {
           repositoryState: "active",
           installation: { state: "current", currentVersion: 1, targetVersion: 1, conflicts: [] },
@@ -393,11 +448,28 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
     "href",
     "https://github.com/acme/pending-api/pull/7",
   );
+  await page.getByRole("button", { name: "I merged it — check this repository" }).click();
+  await expect(page.getByText("Upgrade PR already ready")).toBeVisible();
+  expect(pendingPreflightRequests).toBe(2);
+  await page.getByRole("radio", { name: /acme\/pending-api/u }).click();
+  await expect(page.getByText("Upgrade PR already ready")).toBeVisible();
+  expect(pendingPreflightRequests).toBe(3);
 
   await page.getByRole("radio", { name: /acme\/current-api/u }).click();
-  await expect(page.getByText("ChangePlane is up to date")).toBeVisible();
+  await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
   await expect(page.getByText("ChangePlane is active")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create managed upgrade PR" })).toHaveCount(0);
+
+  await page.getByRole("radio", { name: /acme\/retry-api/u }).click();
+  await expect(page.getByRole("alert")).toContainText("Read-only check could not finish");
+  await expect(page.getByRole("alert")).toContainText("GitHub could not complete the read-only check.");
+  await expect(page.locator(".install-summary").getByText("Blocked safely", { exact: true })).toBeVisible();
+  const retryButton = page.getByRole("button", { name: "Try read-only check again" });
+  await retryButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
+  await expect(page.getByRole("radio", { name: /acme\/retry-api/u })).toBeChecked();
+  expect(retryPreflightRequests).toBe(2);
 
   await page.getByRole("radio", { name: /acme\/conflict-api/u }).click();
   await expect(page.getByText("Setup needs attention")).toBeVisible();

@@ -427,7 +427,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
   );
 }
 
-function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isCurrent, needsOwnerReview }) {
+function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isCurrent, needsOwnerReview, needsRetry }) {
   return (
     <ol className="setup-progress" aria-label="Repository setup progress">
       <li className="is-complete">
@@ -441,14 +441,16 @@ function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isC
         <span>{repositorySelected ? <Check size={13} weight="bold" /> : "2"}</span>
         <div><strong>Choose a project</strong><small>Select one repository</small></div>
       </li>
-      <li className={isCurrent ? "is-complete" : needsOwnerReview ? "is-attention" : complete ? "is-active" : ""}>
-        <span>{isCurrent ? <Check size={13} weight="bold" /> : needsOwnerReview ? <Warning size={13} weight="fill" /> : "3"}</span>
+      <li className={isCurrent ? "is-complete" : needsOwnerReview || needsRetry ? "is-attention" : complete ? "is-active" : ""}>
+        <span>{isCurrent ? <Check size={13} weight="bold" /> : needsOwnerReview || needsRetry ? <Warning size={13} weight="fill" /> : "3"}</span>
         <div>
-          <strong>{isCurrent ? "ChangePlane is active" : needsOwnerReview ? "Repository owner review" : `Review and merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
+          <strong>{isCurrent ? "ChangePlane is active" : needsOwnerReview ? "Repository owner review" : needsRetry ? "Retry repository check" : `Review and merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
           <small>{isCurrent
             ? "No repository change is needed"
             : needsOwnerReview
               ? "ChangePlane stopped before writing"
+              : needsRetry
+                ? "The read-only check did not finish"
             : isUpgrade
               ? "Current installation stays active until merge"
               : "Nothing starts before GitHub shows it merged"}</small>
@@ -627,6 +629,7 @@ function GitHubSetup({
   onSaveByok,
   onDisconnectByok,
   onInstall,
+  onRecheckInstall,
   onResetInstall,
   onOpenWorkspace,
   onSignOut,
@@ -646,6 +649,7 @@ function GitHubSetup({
   const isUpgrade = installationState === "outdated";
   const isCurrent = installationState === "current";
   const needsOwnerReview = installationState === "conflict";
+  const preflightFailed = Boolean(selected && preflightStatus === "error");
   const preflightReady = preflightStatus === "ready" && preflight?.installable;
   const pendingSetup = preflight?.setup?.state === "pending" && preflight.setup.pullRequest?.url;
   const pendingUpgrade = pendingSetup && preflight?.setup?.operation === "upgrade";
@@ -695,6 +699,7 @@ function GitHubSetup({
               isUpgrade={isUpgrade}
               isCurrent={isCurrent}
               needsOwnerReview={needsOwnerReview}
+              needsRetry={preflightFailed}
             />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
@@ -783,6 +788,8 @@ function GitHubSetup({
                       <div><span>Rollout mode</span><strong>Observe only</strong></div>
                       <div><span>Repository write</span><strong>{isCurrent
                         ? "None needed"
+                        : preflightFailed
+                          ? "Blocked safely"
                         : preflightBlocked
                           ? "Blocked safely"
                           : preflightStatus === "loading"
@@ -790,7 +797,12 @@ function GitHubSetup({
                             : isUpgrade ? "One upgrade PR" : "One setup PR"}</strong></div>
                     </div>
 
-                    <div className={`safety-preflight safety-preflight-${preflightTone}`} aria-live="polite">
+                    <div
+                      className={`safety-preflight safety-preflight-${preflightTone}`}
+                      aria-live={preflightFailed ? undefined : "polite"}
+                      aria-busy={Boolean(selected && preflightStatus === "loading")}
+                      role={preflightFailed ? "alert" : undefined}
+                    >
                       <div className="safety-preflight-heading">
                         {!selected
                           ? <Circle size={18} weight="bold" aria-hidden="true" />
@@ -805,7 +817,9 @@ function GitHubSetup({
                             : preflightStatus === "loading"
                             ? "Checking the repository boundary"
                             : isCurrent
-                              ? "ChangePlane is up to date"
+                              ? "Setup is merged. ChangePlane is ready."
+                              : preflightFailed
+                                ? "Read-only check could not finish"
                               : preflightReady
                               ? pendingSetup
                                 ? pendingUpgrade ? "Upgrade PR already ready" : "Setup PR already ready"
@@ -816,7 +830,9 @@ function GitHubSetup({
                             : preflightStatus === "loading"
                             ? "Read-only checks only. Nothing is being changed."
                             : isCurrent
-                              ? `Managed version ${preflight.installation.currentVersion} is installed. Your project policy remains repository-owned.`
+                              ? `Managed version ${preflight.installation.currentVersion} is up to date. Your project policy remains repository-owned.`
+                            : preflightFailed
+                              ? preflightError || "Repository safety could not be checked."
                             : preflightReady
                               ? pendingSetup
                                 ? pendingUpgrade
@@ -934,10 +950,21 @@ function GitHubSetup({
                     {installError && <p className="install-error" role="alert"><Warning size={16} weight="fill" /> {installError}</p>}
 
                     {pendingSetup ? (
-                      <a className="primary-action install-action" href={preflight.setup.pullRequest.url} target="_blank" rel="noreferrer">
-                        <GitBranch size={17} weight="bold" /> Open existing {pendingUpgrade ? "upgrade" : "setup"} PR <ArrowRight size={16} />
+                      <>
+                        <a className="primary-action install-action" href={preflight.setup.pullRequest.url} target="_blank" rel="noreferrer">
+                          <GitBranch size={17} weight="bold" /> Open existing {pendingUpgrade ? "upgrade" : "setup"} PR <ArrowRight size={16} />
+                        </a>
+                        <button className="text-action" type="button" onClick={onRetryPreflight}>I merged it — check this repository</button>
+                      </>
+                    ) : isCurrent ? (
+                      <a className="primary-action install-action" href={`https://github.com/${selected.fullName}/pulls`} target="_blank" rel="noreferrer">
+                        <GithubLogo size={17} weight="fill" /> Open project pull requests <ArrowRight size={16} />
                       </a>
-                    ) : isCurrent ? null : needsOwnerReview ? (
+                    ) : preflightFailed ? (
+                      <button className="primary-action install-action" type="button" onClick={onRetryPreflight}>
+                        <ArrowsClockwise size={17} weight="bold" /> Try read-only check again
+                      </button>
+                    ) : needsOwnerReview ? (
                       <a className="primary-action install-action" href={`https://github.com/${selected.fullName}`} target="_blank" rel="noreferrer">
                         <GithubLogo size={17} weight="fill" /> Open repository for owner review <ArrowRight size={16} />
                       </a>
@@ -960,7 +987,9 @@ function GitHubSetup({
                           ? "Open the verified upgrade pull request. Your current installation remains active; the managed update starts only after merge."
                           : "Open the verified setup pull request. Nothing runs until you review and merge it."
                         : isCurrent
-                          ? "No repository change is needed."
+                          ? "No test PR is required, and you do not return to ChangePlane for every pull request. On the next real pull request, open Checks and find ChangePlane / guard."
+                          : preflightFailed
+                            ? "Nothing was changed. Retry the read-only check without reconnecting or choosing the repository again."
                           : needsOwnerReview
                             ? "ChangePlane stopped before writing. Ask a repository owner to compare the listed managed files with the intended installation."
                             : preflightBlocked
@@ -993,9 +1022,12 @@ function GitHubSetup({
                 {installResult.preview ? (
                   <button className="primary-action success-action" type="button" onClick={onOpenWorkspace}>Inspect an automatic assurance canary <ArrowRight size={17} /></button>
                 ) : (
-                  <a className="primary-action success-action" href={installResult.pullRequest.url} target="_blank" rel="noreferrer">
-                    Open {installResult.operation === "upgrade" ? "upgrade" : "setup"} PR on GitHub <ArrowRight size={17} />
-                  </a>
+                  <>
+                    <a className="primary-action success-action" href={installResult.pullRequest.url} target="_blank" rel="noreferrer">
+                      Open {installResult.operation === "upgrade" ? "upgrade" : "setup"} PR on GitHub <ArrowRight size={17} />
+                    </a>
+                    <button className="text-action" type="button" onClick={onRecheckInstall}>I merged it — check this repository</button>
+                  </>
                 )}
                 {!installResult.preview && <p className="install-note">{installResult.operation === "upgrade"
                   ? "Your current installation remains active; the managed update becomes active only after this pull request is merged."
@@ -1795,7 +1827,10 @@ export function App() {
     setPreflightStatus("loading");
     setPreflight(null);
     setPreflightError("");
-    fetch(`/api/github?action=preflight&repository=${encodeURIComponent(selectedRepository)}`, { credentials: "same-origin" })
+    fetch(`/api/github?action=preflight&repository=${encodeURIComponent(selectedRepository)}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
       .then(responseJson)
       .then((payload) => {
         if (cancelled) return;
@@ -2104,6 +2139,22 @@ export function App() {
     setSelectedRepository("");
   }
 
+  function refreshPreflight() {
+    if (!selectedRepository || preflightStatus === "loading") return;
+    setPreflightStatus("loading");
+    setPreflight(null);
+    setPreflightError("");
+    setPreflightRefresh((value) => value + 1);
+  }
+
+  function recheckInstall() {
+    if (!selectedRepository || preflightStatus === "loading") return;
+    setInstallResult(null);
+    setInstallStatus("idle");
+    setInstallError("");
+    refreshPreflight();
+  }
+
   function setRunStatus(id, status) {
     setRuns((current) => ({
       ...current,
@@ -2180,6 +2231,10 @@ export function App() {
         selectedRepository={selectedRepository}
         onSelectRepository={(repository) => {
           if (installStatus === "installing" || byokSaving) return;
+          if (repository === selectedRepository) {
+            refreshPreflight();
+            return;
+          }
           selectedRepositoryRef.current = repository;
           setSelectedRepository(repository);
           setPreflightStatus("loading");
@@ -2191,7 +2246,7 @@ export function App() {
         preflightStatus={preflightStatus}
         preflight={preflight}
         preflightError={preflightError}
-        onRetryPreflight={() => setPreflightRefresh((value) => value + 1)}
+        onRetryPreflight={refreshPreflight}
         installStatus={installStatus}
         installError={installError}
         installResult={installResult}
@@ -2203,6 +2258,7 @@ export function App() {
         onSaveByok={saveByok}
         onDisconnectByok={disconnectByok}
         onInstall={installRepository}
+        onRecheckInstall={recheckInstall}
         onResetInstall={resetInstall}
         onOpenWorkspace={() => setWorkspaceOpen(true)}
         onSignOut={signOut}
