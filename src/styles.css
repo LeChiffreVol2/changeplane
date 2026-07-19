@@ -2722,6 +2722,31 @@ code,
   gap: 9px;
 }
 
+.result-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.setup-link-action {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #355d56;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.setup-link-action:hover {
+  color: #163f38;
+  text-decoration: underline;
+}
+
 .canary-disclaimer {
   margin: -4px 0 12px;
   color: #727a76;
@@ -2791,6 +2816,17 @@ code,
   margin-top: 22px;
   padding-top: 22px;
   border-top: 1px solid var(--line);
+}
+
+.technical-proof > summary {
+  color: #52615c;
+  font-size: 11px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.technical-proof[open] > summary {
+  margin-bottom: 18px;
 }
 
 .rail-section-title {

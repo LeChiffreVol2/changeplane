@@ -136,8 +136,8 @@ const CHANGES = [
     initialStatus: "ready",
     time: "Just now",
     summary: "Claude Code added retry handling for checkout requests that time out after payment capture.",
-    impact: "The idempotency race test reproduced a duplicate charge. The failure is fixable inside the declared contract.",
-    passedImpact: "The repaired head passed the race suite and is eligible under the repository's GitHub rules.",
+    impact: "An automated race test reproduced a duplicate charge. The issue can be fixed without touching sensitive files.",
+    passedImpact: "The new version passed the duplicate-charge test. GitHub still decides whether to merge.",
     scope: "src/checkout/**",
     head: "71b04c2",
     remediatedHead: "9c812fa",
@@ -158,7 +158,7 @@ const CHANGES = [
       { path: "src/checkout/idempotency.ts", add: 21, remove: 7, scope: "In scope", repairTouched: true },
       { path: "src/checkout/idempotency.race.test.ts", add: 86, remove: 0, scope: "In scope" },
     ],
-    advisory: "PR #418 also changes checkout retry timing",
+    advisory: "Another proposed change also updates checkout retry timing",
     advisoryTime: "35m ago",
   },
   {
@@ -228,12 +228,12 @@ const CHANGES = [
 ];
 
 const PIPELINE = [
-  ["contract", "Contract bound"],
-  ["evidence", "Evidence harness"],
-  ["policy", "Policy evaluation"],
-  ["remediation", "Agent remediation"],
-  ["verify", "Re-verification"],
-  ["check", "Required check"],
+  ["contract", "Change boundary"],
+  ["evidence", "Automated test"],
+  ["policy", "Project rules"],
+  ["remediation", "Agent fix"],
+  ["verify", "Check new version"],
+  ["check", "GitHub result"],
 ];
 
 function readStoredJson(key, fallback) {
@@ -947,7 +947,7 @@ function FileTable({ files, onInspect }) {
         <div className="file-table-head" aria-hidden="true">
           <span>File</span>
           <span>Change</span>
-          <span>Contract</span>
+          <span>Allowed</span>
           <span />
         </div>
         {files.map((file) => (
@@ -976,37 +976,37 @@ function FileTable({ files, onInspect }) {
 function evidenceFor(change) {
   if (change.status === "blocked") {
     return [
-      ["pass", "Change contract bound", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["pass", "Repository tests passed", "126 tests · 42s"],
-      ["blocked", "Non-overridable policy matched", "secrets/**"],
+      ["pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
+      ["pass", "Project tests passed", "126 tests · 42s"],
+      ["blocked", "Sensitive-file rule matched", "secrets/**"],
     ];
   }
   if (change.status === "passed") {
     return [
-      ["pass", "Change contract bound", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["pass", change.id === "payment" ? "Checkout idempotency race suite passed" : "Configured GitHub checks passed", change.id === "payment" ? "1 capture across 1,000 concurrent retry pairs" : "Evidence matched to this revision"],
-      ...(change.id === "payment" ? [["pass", "Agent patch applied and re-verified", "Attempt 1 of 2 · 49s"]] : []),
-      ["pass", "Required check published", "Eligible under GitHub rules"],
+      ["pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
+      ["pass", change.id === "payment" ? "Duplicate-charge test passed" : "Configured GitHub tests passed", change.id === "payment" ? "1 capture across 1,000 concurrent retry pairs" : "Results matched this version"],
+      ...(change.id === "payment" ? [["pass", "Coding-agent fix checked again", "Attempt 1 of 2 · 49s"]] : []),
+      ["pass", "Result posted to GitHub", "GitHub still decides whether to merge"],
     ];
   }
   if (change.status === "remediating") {
     return [
-      ["pass", "Change contract bound", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["warning", "Checkout idempotency race test failed", "Expected 1 capture · received 2"],
-      ["active", "Agent remediation requested", `${change.agent} · attempt 1 of 2`],
+      ["pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
+      ["warning", "Duplicate-charge test failed", "Expected 1 capture · received 2"],
+      ["active", "Coding agent is proposing a fix", `Attempt 1 of 2`],
     ];
   }
   if (change.status === "verifying" || change.status === "publishing") {
     return [
-      ["pass", "Agent patch applied", `New head ${change.head}`],
-      [change.status === "verifying" ? "active" : "pass", "Re-running checkout race suite", "1,000 concurrent retry pairs"],
-      [change.status === "publishing" ? "active" : "pending", "Publishing required check", "ChangePlane / guard"],
+      ["pass", "Agent proposal applied safely", `New version ${change.head}`],
+      [change.status === "verifying" ? "active" : "pass", "Running the duplicate-charge test again", "1,000 concurrent retry pairs"],
+      [change.status === "publishing" ? "active" : "pending", "Posting the result to GitHub", "ChangePlane / guard"],
     ];
   }
   return [
-    [change.status === "evaluating" ? "active" : "pass", "Change contract bound", `${change.base.split(" ")[0]} → ${change.head}`],
-    [change.status === "evaluating" ? "active" : "warning", "Checkout idempotency race test failed", change.status === "evaluating" ? "Reproducing the failed check" : "Expected 1 capture · received 2"],
-    ["warning", "Bounded repair available", "Failure is inside src/checkout/** · no protected capability"],
+    [change.status === "evaluating" ? "active" : "pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
+    [change.status === "evaluating" ? "active" : "warning", "Duplicate-charge test failed", change.status === "evaluating" ? "Confirming the failure" : "Expected 1 capture · received 2"],
+    ["warning", "Agent fix is allowed", "The issue is inside allowed files · no sensitive files"],
   ];
 }
 
@@ -1015,8 +1015,8 @@ function Evidence({ change }) {
     <>
       <section className="workspace-section" aria-labelledby="evidence-title">
         <div className="section-title-row">
-          <h2 id="evidence-title">Evidence</h2>
-          <span>Bound to {change.head}</span>
+          <h2 id="evidence-title">What happened</h2>
+          <span>Version {change.head}</span>
         </div>
         <div className="plain-list evidence-list">
           {evidenceFor(change).map(([state, label, detail]) => (
@@ -1054,7 +1054,7 @@ function Evidence({ change }) {
   );
 }
 
-function Workspace({ change, onInspect }) {
+function Workspace({ change, isPreview, onInspect }) {
   const { state, label } = displayState(change.status, change.id === "payment");
   const automationLabel = change.status === "blocked" ? "Exception only" : "Zero-touch eligible";
   const actualFiles = change.files.filter(({ resolved }) => !resolved).length;
@@ -1064,7 +1064,7 @@ function Workspace({ change, onInspect }) {
     <main className="workspace">
       <div className="workspace-title-row">
         <div>
-          <p className="workspace-kicker">{change.changeId} · PR #{change.pr} · {automationLabel}</p>
+          <p className="workspace-kicker">{isPreview ? "Fictional proposed change · no human action" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
           <h1>{change.title}</h1>
         </div>
         <span className={`decision-pill pill-${state}`}>{label}</span>
@@ -1080,7 +1080,7 @@ function Workspace({ change, onInspect }) {
           <dd>{change.status === "passed" && change.passedImpact ? change.passedImpact : change.impact}</dd>
         </div>
         <div>
-          <dt>Contract</dt>
+          <dt>Allowed files</dt>
           <dd className="scope-line">
             <code>{change.scope}</code>
             <span aria-hidden="true">·</span>
@@ -1102,13 +1102,13 @@ function Workspace({ change, onInspect }) {
       </dl>
 
       <dl className="change-facts" aria-label="Change contract comparison">
-        <div><dt>Origin</dt><dd>{change.origin}</dd></div>
+        <div><dt>Coding agent</dt><dd>{change.origin}</dd></div>
         <div><dt>Risk</dt><dd>{change.risk} · {change.riskLabel}</dd></div>
         {paymentFacts ? (
           <>
-            <div><dt>Revision</dt><dd className="mono">{change.head}</dd></div>
-            <div className={change.status === "passed" ? "" : "has-drift"}><dt>Evidence</dt><dd>{change.status === "passed" ? "4 / 4 passed" : "1 failed"}</dd></div>
-            <div><dt>Human</dt><dd>0 actions</dd></div>
+            <div><dt>Version</dt><dd className="mono">{change.head}</dd></div>
+            <div className={change.status === "passed" ? "" : "has-drift"}><dt>Tests</dt><dd>{change.status === "passed" ? "4 / 4 passed" : "1 failed"}</dd></div>
+            <div><dt>Human actions</dt><dd>0</dd></div>
           </>
         ) : (
           <>
@@ -1149,7 +1149,7 @@ function AssuranceNotice({ change }) {
     return (
       <div className="decision-notice notice-pass">
         <GitMerge size={22} weight="fill" aria-hidden="true" />
-        <div><strong>Eligible under GitHub rules</strong><p>Every configured guarantee passed at head {change.head}.</p></div>
+        <div><strong>Verified on this version</strong><p>{change.id === "payment" ? "The duplicate-charge test passed." : "Every configured project test passed."} GitHub still decides whether to merge.</p></div>
       </div>
     );
   }
@@ -1163,10 +1163,10 @@ function AssuranceNotice({ change }) {
   }
   if (RUNNING_STATES.has(change.status)) {
     const messages = {
-      evaluating: ["Evaluating exact inputs", "Binding contract, evidence, policy, and evaluator version."],
-      remediating: ["Repair request dispatched", `Waiting for ${change.agent} to push a bounded fix.`],
-      verifying: ["Verifying repaired head", "Re-running all required evidence before any merge decision."],
-      publishing: ["Publishing required check", "The result is bound to this exact revision."],
+      evaluating: ["Checking the exact version", "Confirming the failed test and allowed files before asking an agent to act."],
+      remediating: ["The coding agent is proposing a fix", "The proposed change must stay inside the allowed files."],
+      verifying: ["Checking the new version", "The same automated test is running again before any result is posted."],
+      publishing: ["Posting the result to GitHub", "GitHub remains responsible for the merge decision."],
     };
     return (
       <div className="decision-notice notice-progress" aria-live="polite">
@@ -1178,7 +1178,7 @@ function AssuranceNotice({ change }) {
   return (
     <div className="decision-notice notice-ready">
       <Lightning size={22} weight="fill" aria-hidden="true" />
-      <div><strong>Failed evidence is auto-fix eligible</strong><p>The race failure is inside the contract. The model may propose a patch; only the harness can PASS it.</p></div>
+      <div><strong>A test found a duplicate-charge risk</strong><p>The coding agent may propose a fix in the allowed files. It cannot approve its own work.</p></div>
     </div>
   );
 }
@@ -1194,7 +1194,7 @@ function previewEvidenceFor(change) {
   }
   if (change.status === "passed") {
     return {
-      label: "Preview URL bound",
+      label: "Existing preview matched",
       detail: "Successful deployment status matched",
       receipt: "Included",
       tone: "pass",
@@ -1209,7 +1209,7 @@ function previewEvidenceFor(change) {
     };
   }
   return {
-    label: "Preview status detected",
+    label: "Existing preview found",
     detail: "Ready for exact-revision binding",
     receipt: "Pending verification",
     tone: "ready",
@@ -1251,8 +1251,8 @@ function backboneStateFor(change) {
   }
   if (change.status === "passed") {
     return {
-      label: "Backbone completed safely",
-      detail: change.id === "payment" ? "1 bounded repair · model cannot PASS" : "No repair needed · model cannot PASS",
+      label: "Fix checked independently",
+      detail: change.id === "payment" ? "1 agent fix · agent cannot approve itself" : "No fix needed · agent cannot approve itself",
       summary: change.id === "payment"
         ? "This receipt path shows one bounded repair followed by independent evidence and policy."
         : "The deterministic harness passed this revision without dispatching a repair model.",
@@ -1260,8 +1260,8 @@ function backboneStateFor(change) {
     };
   }
   return {
-    label: change.id === "payment" ? "Assurance canary ready" : "Agentic backbone armed",
-    detail: change.id === "payment" ? "1 failed race test · bounded repair" : "Dispatches after the enforce gate",
+    label: change.id === "payment" ? "A safe fix can be attempted" : "Repair path ready",
+    detail: change.id === "payment" ? "1 failed test · limited to allowed files" : "Available after the rollout gate",
     summary: change.id === "payment"
       ? "This controlled canary replays the enforce path without writing to a repository. The model proposes; the deterministic harness decides."
       : "The repair adapter is ready, but it does not run in observe mode or inside this browser.",
@@ -1294,15 +1294,15 @@ function MetaRows({ change }) {
   );
 }
 
-function AssuranceRail({ change, onRun, onReplay, onCopy, onPreview, onBackbone }) {
+function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, onBackbone, onShowSetup }) {
   const running = RUNNING_STATES.has(change.status);
   const preview = previewEvidenceFor(change);
   const backbone = backboneStateFor(change);
   return (
     <aside className="decision-rail" aria-label="Change receipt details">
       <div className="rail-heading">
-        <div><p>{change.changeId} · {change.id === "payment" ? "Canary mode" : "Autonomous mode"}</p><h2>Change receipt</h2></div>
-        <span className="mode-live"><i /> {change.id === "payment" ? "Sandbox" : "Controlled"}</span>
+        <div><p>{isPreview ? "Guided example" : `${change.changeId} · report only`}</p><h2>Change result</h2></div>
+        <span className="mode-live"><i /> {isPreview ? "Fictional" : "Connected"}</span>
       </div>
       <AssuranceNotice change={change} />
 
@@ -1323,6 +1323,33 @@ function AssuranceRail({ change, onRun, onReplay, onCopy, onPreview, onBackbone 
         </button>
       </div>
 
+      {change.id === "payment" && (
+        <p className="canary-disclaimer">Fictional example. Connected projects currently receive report-only results; no repair or merge blocking.</p>
+      )}
+
+      {change.status === "ready" && (
+        <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
+          <Play size={17} weight="fill" /> Run the assurance loop
+        </button>
+      )}
+      {running && (
+        <button className="primary-action run-action" type="button" disabled>
+          <ArrowsClockwise className="spin" size={17} weight="bold" /> Assurance in progress
+        </button>
+      )}
+      {change.status === "passed" && change.id === "payment" && (
+        <div className="result-actions">
+          <button className="secondary-action run-action" type="button" onClick={() => onReplay(change.id)}>
+            <ArrowsClockwise size={17} /> Replay the walkthrough
+          </button>
+          {isPreview && (
+            <button className="setup-link-action" type="button" onClick={onShowSetup}>
+              See the three-step GitHub setup <ArrowRight size={15} />
+            </button>
+          )}
+        </div>
+      )}
+
       <ol className="run-pipeline" aria-label="Assurance pipeline">
         {PIPELINE.map(([key, label]) => {
           const stage = pipelineState(change.status, key);
@@ -1338,30 +1365,11 @@ function AssuranceRail({ change, onRun, onReplay, onCopy, onPreview, onBackbone 
         })}
       </ol>
 
-      {change.id === "payment" && (
-        <p className="canary-disclaimer">Tour control only · connected observe repositories evaluate automatically; repair remains gated.</p>
-      )}
-
-      {change.status === "ready" && (
-        <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
-          <Play size={17} weight="fill" /> Run checkout failure example
-        </button>
-      )}
-      {running && (
-        <button className="primary-action run-action" type="button" disabled>
-          <ArrowsClockwise className="spin" size={17} weight="bold" /> Assurance in progress
-        </button>
-      )}
-      {change.status === "passed" && change.id === "payment" && (
-        <button className="secondary-action run-action" type="button" onClick={() => onReplay(change.id)}>
-          <ArrowsClockwise size={17} /> Run checkout failure again
-        </button>
-      )}
-
-      <section className="rail-section details-section">
-        <div className="rail-section-title"><h3>Bound inputs</h3><button className="copy-button" type="button" onClick={() => onCopy(change.head)} aria-label="Copy head SHA"><Copy size={16} /></button></div>
+      <details className="rail-section details-section technical-proof">
+        <summary>Show technical proof</summary>
+        <div className="rail-section-title"><h3>Bound inputs</h3><button className="copy-button" type="button" onClick={() => onCopy(change.head)} aria-label="Copy exact version"><Copy size={16} /></button></div>
         <MetaRows change={change} />
-      </section>
+      </details>
 
       <section className="rail-section audit-section">
         <h3>Operational guarantee</h3>
@@ -1716,6 +1724,8 @@ export function App() {
       setRepositories(PREVIEW_REPOSITORIES);
       setSelectedRepository("");
       setRepositoryStatus("ready");
+      setSelectedId("payment");
+      setWorkspaceOpen(true);
       setIsSigningIn(false);
     }, 520);
   }
@@ -1925,12 +1935,12 @@ export function App() {
     setSelectedId(id);
     setFilter(FILTERS[0]);
     setRunStatus(id, "evaluating");
-    showToast("Replaying failed evidence at head 71b04c2");
+    showToast("Confirming the duplicate-charge failure");
     const sequence = [
-      [850, "remediating", "Race-test evidence sent to dev-automation[bot]"],
-      [1900, "verifying", "Agent pushed a bounded patch at head 9c812fa"],
-      [3000, "publishing", "Race suite passed · publishing exact-head check"],
-      [4000, "passed", "ChangePlane / guard passed · GitHub merge rules can proceed"],
+      [850, "remediating", "The coding agent received the failed test"],
+      [1900, "verifying", "The agent proposed a fix in the allowed files"],
+      [3000, "publishing", "The new version passed the duplicate-charge test"],
+      [4000, "passed", "Result posted · GitHub still decides whether to merge"],
     ];
     timersRef.current = sequence.map(([delay, status, message]) => window.setTimeout(() => {
       setRunStatus(id, status);
@@ -2021,7 +2031,7 @@ export function App() {
             <span className="topbar-divider" aria-hidden="true" />
             <span className="repo-name">{change.repo}</span>
             <span aria-hidden="true">·</span>
-            <span>PR #{change.pr}</span>
+            <span>{session.isPreview ? "Proposed change" : `PR #${change.pr}`}</span>
           </div>
           <div className="topbar-actions">
             <div className="topbar-menu-wrap">
@@ -2065,8 +2075,18 @@ export function App() {
 
         <div className="app-grid" id="top">
           <Queue changes={changes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setInspectedFile(null); }} filter={filter} onFilter={setFilter} />
-          <Workspace key={`workspace-${change.id}`} change={change} onInspect={setInspectedFile} />
-          <AssuranceRail key={`rail-${change.id}`} change={change} onRun={startRun} onReplay={replayRun} onCopy={copyHead} onPreview={() => setPreviewEvidenceOpen(true)} onBackbone={() => setBackboneOpen(true)} />
+          <Workspace key={`workspace-${change.id}`} change={change} isPreview={session.isPreview} onInspect={setInspectedFile} />
+          <AssuranceRail
+            key={`rail-${change.id}`}
+            change={change}
+            isPreview={session.isPreview}
+            onRun={startRun}
+            onReplay={replayRun}
+            onCopy={copyHead}
+            onPreview={() => setPreviewEvidenceOpen(true)}
+            onBackbone={() => setBackboneOpen(true)}
+            onShowSetup={() => setWorkspaceOpen(false)}
+          />
         </div>
       </div>
 
