@@ -427,7 +427,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
   );
 }
 
-function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isCurrent }) {
+function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isCurrent, needsOwnerReview }) {
   return (
     <ol className="setup-progress" aria-label="Repository setup progress">
       <li className="is-complete">
@@ -441,12 +441,14 @@ function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isC
         <span>{repositorySelected ? <Check size={13} weight="bold" /> : "2"}</span>
         <div><strong>Choose a project</strong><small>Select one repository</small></div>
       </li>
-      <li className={isCurrent ? "is-complete" : complete ? "is-active" : ""}>
-        <span>{isCurrent ? <Check size={13} weight="bold" /> : "3"}</span>
+      <li className={isCurrent ? "is-complete" : needsOwnerReview ? "is-attention" : complete ? "is-active" : ""}>
+        <span>{isCurrent ? <Check size={13} weight="bold" /> : needsOwnerReview ? <Warning size={13} weight="fill" /> : "3"}</span>
         <div>
-          <strong>{isCurrent ? "ChangePlane is active" : `Review and merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
+          <strong>{isCurrent ? "ChangePlane is active" : needsOwnerReview ? "Repository owner review" : `Review and merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
           <small>{isCurrent
             ? "No repository change is needed"
+            : needsOwnerReview
+              ? "ChangePlane stopped before writing"
             : isUpgrade
               ? "Current installation stays active until merge"
               : "Nothing starts before GitHub shows it merged"}</small>
@@ -643,12 +645,14 @@ function GitHubSetup({
   const installationState = preflight?.installation?.state ?? "fresh";
   const isUpgrade = installationState === "outdated";
   const isCurrent = installationState === "current";
+  const needsOwnerReview = installationState === "conflict";
   const preflightReady = preflightStatus === "ready" && preflight?.installable;
   const pendingSetup = preflight?.setup?.state === "pending" && preflight.setup.pullRequest?.url;
   const pendingUpgrade = pendingSetup && preflight?.setup?.operation === "upgrade";
   const preflightTone = preflightStatus === "ready" && !preflightReady && !isCurrent
     ? "attention"
     : preflightStatus;
+  const preflightBlocked = Boolean(selected && preflightStatus === "ready" && !preflightReady && !isCurrent);
   const evidenceReady = isUpgrade || pendingSetup || evidenceMode === "scope"
     || (checkName.trim() && checkPublisher.trim() && behaviorConfirmed);
   const repositoryMutationBusy = installStatus === "installing" || byokSaving;
@@ -690,6 +694,7 @@ function GitHubSetup({
               repositorySelected={Boolean(selected)}
               isUpgrade={isUpgrade}
               isCurrent={isCurrent}
+              needsOwnerReview={needsOwnerReview}
             />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
@@ -776,7 +781,13 @@ function GitHubSetup({
                         <strong>{selected?.fullName || "Choose a repository"}</strong>
                       </div>
                       <div><span>Rollout mode</span><strong>Observe only</strong></div>
-                      <div><span>Repository write</span><strong>{isCurrent ? "None needed" : isUpgrade ? "One upgrade PR" : "One setup PR"}</strong></div>
+                      <div><span>Repository write</span><strong>{isCurrent
+                        ? "None needed"
+                        : preflightBlocked
+                          ? "Blocked safely"
+                          : preflightStatus === "loading"
+                            ? "Checking"
+                            : isUpgrade ? "One upgrade PR" : "One setup PR"}</strong></div>
                     </div>
 
                     <div className={`safety-preflight safety-preflight-${preflightTone}`} aria-live="polite">
@@ -926,7 +937,11 @@ function GitHubSetup({
                       <a className="primary-action install-action" href={preflight.setup.pullRequest.url} target="_blank" rel="noreferrer">
                         <GitBranch size={17} weight="bold" /> Open existing {pendingUpgrade ? "upgrade" : "setup"} PR <ArrowRight size={16} />
                       </a>
-                    ) : isCurrent ? null : (
+                    ) : isCurrent ? null : needsOwnerReview ? (
+                      <a className="primary-action install-action" href={`https://github.com/${selected.fullName}`} target="_blank" rel="noreferrer">
+                        <GithubLogo size={17} weight="fill" /> Open repository for owner review <ArrowRight size={16} />
+                      </a>
+                    ) : preflightBlocked ? null : (
                       <button className="primary-action install-action" type="button" onClick={() => onInstall({
                         requiredCheck: evidenceMode === "behavior"
                           ? { name: checkName.trim(), appSlug: checkPublisher.trim() }
@@ -946,6 +961,10 @@ function GitHubSetup({
                           : "Open the verified setup pull request. Nothing runs until you review and merge it."
                         : isCurrent
                           ? "No repository change is needed."
+                          : needsOwnerReview
+                            ? "ChangePlane stopped before writing. Ask a repository owner to compare the listed managed files with the intended installation."
+                            : preflightBlocked
+                              ? "ChangePlane stopped before writing. Resolve the repository state shown above, then run the read-only check again."
                           : isUpgrade
                             ? "Creates one upgrade pull request for pristine managed files only. Your policy is never included."
                             : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation, and GitHub may retain the unmerged branch until you delete it."}</p>
