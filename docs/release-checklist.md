@@ -3,21 +3,21 @@
 ## Controlled-canary release record — 2026-07-19
 
 - Production source: `d758005d3790b679f842a87d9745c34985051319` from [PR #19](https://github.com/LeChiffreVol2/changeplane/pull/19); required [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29681989165/job/88179651533), Vercel, and Vercel Preview Comments checks all passed before merge.
-- Vercel Production: `dpl_8daL5a7zcruWwuKB6xAMAhvJGCdD`, aliased to `https://changeplane.vercel.app`; immediately previous known-good deployment `dpl_2gddYBD8EELCHr95szSfS7dyhMV8` remains available.
-- Readiness: request ID `e50fad91a327b5a01b709f2f`, HTTP `200`, `status: ready`, `authMode: github_app`, `rolloutMode: controlled_canary`, release `d758005d3790`. Every readiness check is true; Managed remains reserved and repair reports `enabled: false` and `configured: false`.
+- Vercel Production: `dpl_2kBAs55hwUWRZCgeBAWSSTEB3acX`, aliased to `https://changeplane.vercel.app`; immediately previous known-good deployment `dpl_8daL5a7zcruWwuKB6xAMAhvJGCdD` remains available.
+- Readiness: request ID `6f948fb1913b7e6637398404`, HTTP `200`, `status: ready`, `authMode: github_app`, `rolloutMode: controlled_canary`, release `d758005d3790`. Every readiness check is true; Managed remains reserved and repair reports `enabled: false` and `configured: false`.
 - The fixed-endpoint DeepSeek provider boundary remains inactive behind the common patch harness. GitHub-hosted runner egress is not treated as sandbox-enforced; a strict network canary is required before repair activation.
 - The public production root exposes an observe-only fictional exact-revision receipt and makes clear that it cannot access GitHub, change code, block merging, or repair. The terminal receipt keeps head `71b04c2` unchanged and names GitHub as merge authority.
-- Live owner flow exposed only `LeChiffreVol2/changeplane-disposable-canary-20260719`. Its read-only preflight stopped before writing because three managed paths differ from the current installer: `.github/workflows/changeplane.yml`, `changeplane/action/index.js`, and `changeplane/src/lib/changeplane.js`.
-- Zero-impact evidence after the live preflight: canary `main` remained `e32f379564a037ae4b8ea87fb89aad5f444d4fac`; `.changeplane.json` remained SHA-256 `3497cf81562198efc6849d1db12eaf51c12883878b38ee244fd5db70e7e4ff65`; no managed-upgrade branch was created. This is safe-refusal evidence, not a successful pristine-upgrade canary.
-- Release, rollback, GitHub connector, and customer-repository owner names still require an external release record before onboarding a design partner.
+- Positive owner-flow evidence passed in the private disposable repository `LeChiffreVol2/changeplane-pristine-canary-20260719`: read-only preflight reported fresh/installable, setup [PR #1](https://github.com/LeChiffreVol2/changeplane-pristine-canary-20260719/pull/1) changed only the seven expected policy/managed observe files, and exact head `89aac3c8da1d7c3f29013b084542c01dd7e780a5` merged as `d0f784d377624f68f9734b1f4ac377293ee0f859`.
+- Normal [PR #2](https://github.com/LeChiffreVol2/changeplane-pristine-canary-20260719/pull/2) then published one `ChangePlane / guard` Check Run from `github-actions` with conclusion `neutral` and one idempotent receipt, both bound to exact head `602a367343688f9f4c36c0661aea85b398a674ca`. The receipt declared one actual file, no findings, scope-only evidence, no repair, and no merge blocking.
+- For this owner-controlled canary, `@LeChiffreVol2` is the release, rollback, GitHub connector, and disposable-repository owner. Replace these assignments with named team roles before a design-partner rollout.
 
 ## Release ownership and platform boundary
 
-- [ ] Name the release owner, rollback owner, GitHub connector owner, and customer repository owner.
+- [x] Name the release owner, rollback owner, GitHub connector owner, and customer repository owner.
 - [x] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
 - [x] Keep this release on the fixed free Vercel phase and bind every repository route to the one disposable `CHANGEPLANE_CANARY_REPOSITORY`; hosting-plan work and broader onboarding are out of scope.
-- [ ] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
-- [ ] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and optional inactive repair templates. No database, queue, merge service, or paid observability is required.
+- [x] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
+- [x] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and optional inactive repair templates. No database, queue, merge service, or paid observability is required.
 - [ ] Confirm GitHub Merge Queue is not enabled for a repository that requires `ChangePlane / guard`.
 
 ## Source and CI gate
@@ -52,7 +52,7 @@
 - [ ] Confirm the required GitHub Check passed on that same SHA.
 - [ ] On a trusted Preview, confirm `/api/github?action=readiness` returns `200`, `ready: true`, the expected connector mode, no secret values, and a release matching the Preview source SHA.
 - [ ] Smoke the trusted Preview root and confirm security headers and API `Cache-Control: no-store` are present.
-- [ ] Install observe mode into the one disposable repository through a manually reviewed pull request and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite. The private GitHub Free canary has no branch protection, so this is controlled evidence rather than a production merge gate.
+- [x] Install observe mode into the one disposable repository through a manually reviewed pull request and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite. The private GitHub Free canary has no branch protection, so this is controlled evidence rather than a production merge gate.
   - Observe install evidence passed in private disposable repository `LeChiffreVol2/changeplane-disposable-canary-20260719`: setup [PR #1](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/1) changed six reserved files only and merged at `82c0f3f91f8c6f516c55e11c4e69491803430db7`.
 - [x] Confirm the atomic setup pull request exposes observe-only Action metadata, least-privilege permissions, no repair inputs, and no active repair workflow.
   - PR #1 installed a trusted-base workflow with read-only contents/deployments/statuses access plus Check/comment publication only. The installed Action exposes no enforce or repair-dispatch input.
@@ -66,7 +66,7 @@
 
 - [x] Merge only after every required check above passes; do not deploy an unreviewed local build.
 - [x] Confirm the resulting Production deployment source is the protected `main` SHA and record its deployment ID.
-- [ ] Make one read-only Production readiness request and repeat one disposable-repository observe evaluation; stop if either differs from Preview.
+- [x] Make one read-only Production readiness request and repeat one disposable-repository observe evaluation; stop if either differs from Preview.
 - [x] Confirm the immediately previous Production deployment remains available for Instant Rollback.
 - [ ] Exercise or review access to Vercel rollback, GitHub authorization revocation, session-secret rotation, and provider-key revocation.
 - [ ] Confirm the release owner is watching native Vercel logs/usage and GitHub Actions usage during onboarding; no external monitor or pager is claimed.
