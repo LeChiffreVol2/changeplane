@@ -188,6 +188,13 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.match(actionMetadata, /Observe only; no enforcement or repair\./u);
   assert.doesNotMatch(actionInputs, /^  (mode|agent_dispatch|agent_webhook_url|agent_webhook_token|max_remediation_attempts):/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
+  const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  assert.match(appSource, /Independent exact-head assurance for agent PRs/u);
+  assert.match(appSource, /A separate deterministic harness checks the exact commit/u);
+  assert.match(installerSource, /\*\*Done when:\*\* open or update one normal pull request/u);
+  assert.match(installerSource, /\*\*Neutral\*\* means ChangePlane reported findings without changing merge rules/u);
+  assert.match(installerSource, /\*\*Scope only\*\* means the exact commit and files were checked/u);
+  assert.match(installerSource, /Open this repository's pull requests/u);
   assert.match(installerSource, /\*\*Behavior checks: none configured\*\*/u);
   assert.match(installerSource, /receipts prove the exact commit and file scope only/u);
   assert.match(installerSource, /\*\*Behavior check configured:\*\*/u);

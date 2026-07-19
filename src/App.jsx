@@ -334,9 +334,9 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <div className="auth-message">
-            <p className="auth-kicker"><span /> GitHub safety checks for agent-written code</p>
+            <p className="auth-kicker"><span /> Independent exact-head assurance for agent PRs</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Before you trust an agent&apos;s pull request, ChangePlane checks the exact commit against your project&apos;s rules and required test results, then posts a receipt in GitHub. The pilot observes only—it cannot block a merge or change code. Best for projects that use pull requests and already run at least one automated test; direct-publish projects should start with the example.</p>
+            <p>Any agent can write the change. A separate deterministic harness checks the exact commit against your project rules and the test you trust, then posts the receipt in GitHub. The pilot observes only—it cannot block a merge or change code. Best for projects that use pull requests and already run at least one automated test; direct-publish projects should start with the example.</p>
           </div>
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">

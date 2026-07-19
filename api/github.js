@@ -899,6 +899,8 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
           "",
           "**Next:** review the six added files, then merge to activate ChangePlane on future pull-request updates.",
           "",
+          `**Done when:** open or update one normal pull request, open its **Checks** tab, and choose \`ChangePlane / guard\`. **Neutral** means ChangePlane reported findings without changing merge rules. **Scope only** means the exact commit and files were checked, but no behavior test was bound. [Open this repository's pull requests](https://github.com/${repo.full_name}/pulls).`,
+          "",
           behaviorEvidence ? `**Behavior check configured:** ${behaviorEvidence}` : "**Behavior checks: none configured**",
           behaviorEvidence
             ? "ChangePlane will bind this exact check result and publisher to each evaluated commit."
