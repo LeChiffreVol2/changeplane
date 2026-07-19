@@ -741,6 +741,8 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   "server authority and the exact head must be rechecked immediately before provider access");
   assert.match(workflow, /CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash/u);
   assert.match(workflow, /DEEPSEEK_API_KEY: \$\{\{ secrets\.DEEPSEEK_API_KEY \}\}/u);
+  const providerStep = workflow.match(/- name: Ask DeepSeek V4 Flash for a patch proposal[\s\S]*?changeplane-proposal\.js propose/u)?.[0] ?? "";
+  assert.doesNotMatch(providerStep, /CHANGEPLANE_CONTROLLER_HMAC|CHANGEPLANE_PUSH_TOKEN/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.base-sha \}\}[\s\S]*?path: trusted/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.head-sha \}\}[\s\S]*?path: workspace/u);
   assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/controller\/examples\/changeplane-proposal\.js propose/u);

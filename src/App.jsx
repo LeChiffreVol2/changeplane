@@ -1707,7 +1707,7 @@ function BackboneDrawer({ change, onClose }) {
         <ol className="backbone-jobs" aria-label="Agentic backbone job boundaries">
           <li>
             <span>01</span>
-            <div><strong>Model job</strong><p><b>{RUNTIME.model} · {RUNTIME.effort} effort</b><br />Provider-only egress, bounded workspace, no GitHub write. It may only propose a patch.</p></div>
+            <div><strong>Model job</strong><p><b>{RUNTIME.model} · {RUNTIME.effort} effort</b><br />Hard-coded provider endpoint, bounded source context, no GitHub write. A strict network canary is still required before activation.</p></div>
           </li>
           <li>
             <span>02</span>
