@@ -1,4 +1,5 @@
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { repairLedgerEntryDigest } from "../server/repair-ledger.js";
@@ -45,7 +46,7 @@ export function buildClaimRequest({ envelope, runId, runAttempt }) {
 }
 
 export async function authorizeRepairGrant({ operation = "claim", envelope, runId, runAttempt, endpoint, secret, fetchImpl = fetch }) {
-  if (!["claim", "validate"].includes(operation)) throw new Error("The ChangePlane authorization operation is invalid.");
+  if (!["claim", "validate", "push-token"].includes(operation)) throw new Error("The ChangePlane authorization operation is invalid.");
   if (typeof secret !== "string" || secret.length < 32) throw new Error("The repository-scoped ChangePlane claim secret is unavailable.");
   const request = buildClaimRequest({ envelope, runId, runAttempt });
   const deliveryId = claimDeliveryId(request);
@@ -61,7 +62,15 @@ export async function authorizeRepairGrant({ operation = "claim", envelope, runI
   });
   if (!response.ok) throw new Error(`ChangePlane refused the repair ${operation} operation (${response.status}).`);
   const result = await response.json();
-  const accepted = operation === "claim" ? result?.claimed === true : result?.valid === true;
+  const accepted = operation === "claim"
+    ? result?.claimed === true
+    : operation === "validate"
+      ? result?.valid === true
+      : typeof result?.token === "string" && result.token.length >= 20 && result.token.length <= 512
+        && !/[\s\u0000-\u001f\u007f]/u.test(result.token)
+        && result.repository === request.repository && result.repositoryId === request.repositoryId
+        && result.headSha === envelope.entry.headSha && result.headRef === envelope.entry.headRef
+        && result.generation === request.generation && Date.parse(result.expiresAt) > Date.now();
   if (!accepted || result.authorizationId !== request.authorizationId) {
     throw new Error(`ChangePlane returned an invalid repair ${operation} result.`);
   }
@@ -74,7 +83,11 @@ export async function claimRepairGrant(options) {
 
 async function runCli() {
   const operation = process.argv[2];
-  if (!["claim", "validate"].includes(operation)) throw new Error("Expected claim or validate operation.");
+  if (!["claim", "validate", "push-token"].includes(operation)) throw new Error("Expected claim, validate, or push-token operation.");
+  if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is unavailable.");
+  if (operation === "push-token" && (typeof process.env.RUNNER_TEMP !== "string" || !process.env.RUNNER_TEMP.startsWith("/"))) {
+    throw new Error("RUNNER_TEMP is unavailable.");
+  }
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const result = await authorizeRepairGrant({
     operation,
@@ -84,7 +97,17 @@ async function runCli() {
     endpoint: process.env.CHANGEPLANE_CLAIM_URL,
     secret: process.env.CHANGEPLANE_CONTROLLER_HMAC,
   });
-  if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is unavailable.");
+  if (operation === "push-token") {
+    const tokenPath = join(process.env.RUNNER_TEMP, "changeplane-push-token");
+    try {
+      writeFileSync(tokenPath, result.token, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      appendFileSync(process.env.GITHUB_OUTPUT, `authorization-id=${result.authorizationId}\ntoken-file=${tokenPath}\nexpires-at=${result.expiresAt}\n`);
+    } catch (error) {
+      try { unlinkSync(tokenPath); } catch {}
+      throw error;
+    }
+    return;
+  }
   appendFileSync(process.env.GITHUB_OUTPUT, `authorization-id=${result.authorizationId}\n`);
 }
 

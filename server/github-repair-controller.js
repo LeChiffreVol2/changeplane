@@ -343,6 +343,35 @@ export async function createInstallationAccessToken({
   return payload.token;
 }
 
+async function createContentsWriteInstallationAccessToken({
+  appId,
+  privateKey,
+  installationId,
+  repositoryId,
+  request,
+  now = Date.now(),
+}) {
+  if (typeof request !== "function") throw new TypeError("GitHub request function is required");
+  if (!validPositiveInteger(installationId) || !validPositiveInteger(repositoryId) || !Number.isFinite(now)) {
+    throw new Error("GitHub App push credential scope is invalid");
+  }
+  const jwt = createGitHubAppJwt({ appId, privateKey, now });
+  const payload = await request(`/app/installations/${installationId}/access_tokens`, jwt, {
+    method: "POST",
+    body: {
+      repository_ids: [repositoryId],
+      permissions: { contents: "write" },
+    },
+  });
+  const expiresAt = Date.parse(payload?.expires_at);
+  if (typeof payload?.token !== "string" || !payload.token || !Array.isArray(payload.repositories)
+    || payload.repositories.length !== 1 || payload.repositories[0]?.id !== repositoryId
+    || !Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + (65 * 60 * 1_000)) {
+    throw new Error("GitHub returned an invalid short-lived repository push credential");
+  }
+  return { token: payload.token, expiresAt: new Date(expiresAt).toISOString() };
+}
+
 function encodedRepository(repository) {
   return repository.split("/").map(encodeURIComponent).join("/");
 }
@@ -676,7 +705,20 @@ export function repairLedgerReference({ pullRequestId, generation }) {
   return `refs/changeplane/repair/v3/g${generation}/pr-${pullRequestId}`;
 }
 
-function ledgerDocument({ appId, installationId, repositoryId, repository, pullRequestId, pullRequestNumber, contractDigest, generation, envelopes = [], claims = [], dispatches = [] }) {
+function ledgerDocument({
+  appId,
+  installationId,
+  repositoryId,
+  repository,
+  pullRequestId,
+  pullRequestNumber,
+  contractDigest,
+  generation,
+  envelopes = [],
+  claims = [],
+  dispatches = [],
+  pushCredentials = [],
+}) {
   return {
     schemaVersion: LEDGER_SCHEMA_VERSION,
     appId,
@@ -690,11 +732,18 @@ function ledgerDocument({ appId, installationId, repositoryId, repository, pullR
     envelopes,
     claims,
     dispatches,
+    pushCredentials,
   };
 }
 
 function validateLedgerDocument(document, expected) {
-  exactKeys(document, ["appId", "claims", "contractDigest", "dispatches", "envelopes", "generation", "installationId", "pullRequestId", "pullRequestNumber", "repository", "repositoryId", "schemaVersion"].sort(), "Repair ledger document");
+  const documentKeys = [
+    "appId", "claims", "contractDigest", "dispatches", "envelopes", "generation", "installationId",
+    "pullRequestId", "pullRequestNumber", "repository", "repositoryId", "schemaVersion",
+    ...(Object.hasOwn(document, "pushCredentials") ? ["pushCredentials"] : []),
+  ].sort();
+  exactKeys(document, documentKeys, "Repair ledger document");
+  const pushCredentials = document.pushCredentials ?? [];
   if (document.schemaVersion !== LEDGER_SCHEMA_VERSION
     || document.appId !== expected.appId
     || document.installationId !== expected.installationId
@@ -706,7 +755,8 @@ function validateLedgerDocument(document, expected) {
     || document.generation !== expected.generation
     || !Array.isArray(document.envelopes) || document.envelopes.length > 2
     || !Array.isArray(document.claims) || document.claims.length > 2
-    || !Array.isArray(document.dispatches) || document.dispatches.length > 2) {
+    || !Array.isArray(document.dispatches) || document.dispatches.length > 2
+    || !Array.isArray(pushCredentials) || pushCredentials.length > 2) {
     throw new Error("Repair ledger document identity is invalid");
   }
   const authorizationIds = new Set(document.envelopes.map((envelope) => envelope?.entry?.authorizationId));
@@ -727,8 +777,29 @@ function validateLedgerDocument(document, expected) {
     }
     if (expected.publicKeys) verifyLedgerTransition("dispatch", dispatch, expected.publicKeys);
   }
+  for (const credential of pushCredentials) {
+    exactKeys(credential, ["authorizationId", "generation", "grantDigest", "headRef", "headSha", "issuedAt", "repositoryId", "signature"].sort(), "Repair push credential reservation");
+    const envelope = document.envelopes.find((item) => item?.entry?.authorizationId === credential.authorizationId);
+    if (!envelope || !validDigest(credential.grantDigest) || !validPositiveInteger(credential.repositoryId)
+      || !validPositiveInteger(credential.generation) || !validSha(credential.headSha)
+      || Number.isNaN(Date.parse(credential.issuedAt))) {
+      throw new Error("Repair push credential reservation is invalid");
+    }
+    validateRef(credential.headRef, "Repair push credential head ref");
+    if (credential.grantDigest !== repairLedgerEntryDigest(envelope)
+      || credential.repositoryId !== envelope.entry.repositoryId
+      || credential.headSha !== envelope.entry.headSha
+      || credential.headRef !== envelope.entry.headRef
+      || credential.generation !== envelope.entry.generation
+      || credential.repositoryId !== expected.repositoryId
+      || credential.generation !== expected.generation) {
+      throw new Error("Repair push credential reservation identity is invalid");
+    }
+    if (expected.publicKeys) verifyLedgerTransition("pushCredential", credential, expected.publicKeys);
+  }
   if (new Set(document.claims.map((claim) => claim.authorizationId)).size !== document.claims.length
-    || new Set(document.dispatches.map((dispatch) => dispatch.authorizationId)).size !== document.dispatches.length) {
+    || new Set(document.dispatches.map((dispatch) => dispatch.authorizationId)).size !== document.dispatches.length
+    || new Set(pushCredentials.map((credential) => credential.authorizationId)).size !== pushCredentials.length) {
     throw new Error("Repair ledger state contains a replayed transition");
   }
   if (expected.publicKeys) {
@@ -752,7 +823,7 @@ export async function readGitHubRepairLedger({ request, token, repository, refer
   try {
     ref = await request(`/repos/${encoded}/git/ref/${encodedPath(refPath)}`, token);
   } catch (error) {
-    if (error?.status === 404) return { document: ledgerDocument(expected), envelopes: [], claims: [], dispatches: [], tipSha: null, parentSha: null, parentCount: 0 };
+    if (error?.status === 404) return { document: ledgerDocument(expected), envelopes: [], claims: [], dispatches: [], pushCredentials: [], tipSha: null, parentSha: null, parentCount: 0 };
     throw error;
   }
   if (!validSha(ref?.object?.sha)) throw new Error("Repair ledger reference is invalid");
@@ -783,6 +854,7 @@ async function readGitHubRepairLedgerCommit({ request, token, repository, tipSha
     envelopes: verified.envelopes,
     claims: verified.claims,
     dispatches: verified.dispatches,
+    pushCredentials: verified.pushCredentials ?? [],
     tipSha,
     parentSha,
     parentCount: parents.length,
@@ -856,11 +928,11 @@ async function listAppChecks({ request, token, repository, headSha, name, appId 
 }
 
 function isSingleAllowedLedgerTransition(previous, current) {
-  const collections = ["envelopes", "dispatches", "claims"];
+  const collections = ["envelopes", "dispatches", "claims", "pushCredentials"];
   let additions = 0;
   for (const name of collections) {
-    const before = previous[name];
-    const after = current[name];
+    const before = previous[name] ?? [];
+    const after = current[name] ?? [];
     if (after.length === before.length) {
       if (canonicalJson(after) !== canonicalJson(before)) return false;
       continue;
@@ -875,7 +947,8 @@ function isSingleAllowedLedgerTransition(previous, current) {
 async function reconcileMissingLedgerAnchor({ request, token, repository, expected, snapshot, latest }) {
   if (!snapshot.tipSha) return false;
   if (snapshot.parentCount === 0) {
-    if (latest || snapshot.envelopes.length !== 1 || snapshot.claims.length !== 0 || snapshot.dispatches.length !== 0) return false;
+    if (latest || snapshot.envelopes.length !== 1 || snapshot.claims.length !== 0
+      || snapshot.dispatches.length !== 0 || snapshot.pushCredentials.length !== 0) return false;
     await createLedgerAnchor({ request, token, repository, expected, tipSha: snapshot.tipSha, document: snapshot.document });
     return true;
   }
@@ -991,7 +1064,16 @@ async function appendStateTransition({ request, token, repository, reference, ex
     body: { sha: commit.sha, force: false },
   });
   await createLedgerAnchor({ request, token, repository, expected, tipSha: commit.sha, document });
-  return { ...snapshot, document, envelopes: document.envelopes, claims: document.claims, dispatches: document.dispatches, parentSha: snapshot.tipSha, tipSha: commit.sha };
+  return {
+    ...snapshot,
+    document,
+    envelopes: document.envelopes,
+    claims: document.claims,
+    dispatches: document.dispatches,
+    pushCredentials: document.pushCredentials ?? [],
+    parentSha: snapshot.tipSha,
+    tipSha: commit.sha,
+  };
 }
 
 async function assertLiveGrantHead({ request, token, candidate }) {
@@ -1337,4 +1419,136 @@ export async function claimTrustedRepair({
 
 export async function validateTrustedRepair(options) {
   return claimTrustedRepair({ ...options, consume: false });
+}
+
+export async function issueTrustedRepairPushToken({
+  claimRequest,
+  appId,
+  privateKey,
+  generation,
+  enabled,
+  expectedRepository,
+  expectedPublisherReleaseSha,
+  expectedActorLogin,
+  request,
+  now = new Date(),
+}) {
+  await validateTrustedRepair({
+    claimRequest,
+    appId,
+    privateKey,
+    generation,
+    enabled,
+    expectedRepository,
+    expectedPublisherReleaseSha,
+    expectedActorLogin,
+    request,
+    now,
+  });
+  const input = validateClaimRequest(claimRequest);
+  const numericAppId = Number(appId);
+  const nowMs = new Date(now).getTime();
+  const key = normalizedPrivateKey(privateKey);
+  const publicKey = createPublicKey(key);
+  const keyId = repairLedgerKeyId(publicKey);
+  const publicKeys = { [keyId]: repairLedgerPublicKeyValue(publicKey) };
+  const token = await createInstallationAccessToken({
+    appId,
+    privateKey: key,
+    installationId: input.installationId,
+    repositoryId: input.repositoryId,
+    request,
+    now: nowMs,
+  });
+  const reference = repairLedgerReference({ pullRequestId: input.pullRequestId, generation });
+  const expected = {
+    appId: numericAppId,
+    installationId: input.installationId,
+    repositoryId: input.repositoryId,
+    repository: input.repository,
+    pullRequestId: input.pullRequestId,
+    pullRequestNumber: input.pullRequestNumber,
+    contractDigest: input.contractDigest,
+    generation,
+    baseSha: input.baseSha,
+    publicKeys,
+    now: nowMs,
+  };
+  let snapshot = await readGitHubRepairLedger({ request, token, repository: input.repository, reference, expected });
+  await assertLedgerAnchor({ request, token, repository: input.repository, expected, snapshot });
+  const envelope = reconciliationEnvelope(snapshot.envelopes, input.authorizationId);
+  const claim = snapshot.claims.find((item) => item.authorizationId === input.authorizationId);
+  if (!envelope || repairLedgerEntryDigest(envelope) !== input.grantDigest
+    || !claim || claim.grantDigest !== input.grantDigest
+    || claim.workflowRunId !== input.workflowRunId || claim.workflowRunAttempt !== input.workflowRunAttempt) {
+    throw new Error("Repair push credential requires the exact claimed signed grant");
+  }
+  if (snapshot.pushCredentials.some((item) => item.authorizationId === input.authorizationId)) {
+    throw new Error("Repair push credential was already reserved; refusing to re-mint");
+  }
+  const entry = verifyRepairLedgerEnvelope(envelope, publicKeys, {
+    now: nowMs,
+    expectedRepository: input.repository,
+    expectedPullRequestNumber: input.pullRequestNumber,
+    expectedContractDigest: input.contractDigest,
+    expectedGeneration: generation,
+    expectedHeadSha: envelope.entry.headSha,
+    expectedBaseRef: envelope.entry.baseRef,
+    expectedControllerSha: envelope.entry.controllerSha,
+  });
+  const pull = await request(`/repos/${encodedRepository(input.repository)}/pulls/${input.pullRequestNumber}`, token);
+  if (pull?.id !== input.pullRequestId || pull?.state !== "open"
+    || pull.base?.ref !== entry.baseRef || pull.base?.sha !== entry.baseSha
+    || pull.head?.sha !== entry.headSha || pull.head?.ref !== entry.headRef
+    || pull.head?.repo?.full_name !== entry.repository) {
+    throw new Error("Repair push credential no longer matches the live pull-request revision");
+  }
+  const reservation = signLedgerTransition("pushCredential", {
+    authorizationId: input.authorizationId,
+    grantDigest: input.grantDigest,
+    repositoryId: input.repositoryId,
+    headSha: entry.headSha,
+    headRef: entry.headRef,
+    generation,
+    issuedAt: new Date(now).toISOString(),
+  }, key);
+  const document = ledgerDocument({
+    ...snapshot.document,
+    pushCredentials: [...snapshot.pushCredentials, reservation],
+  });
+  try {
+    snapshot = await appendStateTransition({
+      request,
+      token,
+      repository: input.repository,
+      reference,
+      expected,
+      snapshot,
+      document,
+      message: `ChangePlane push credential reservation ${input.authorizationId.slice(0, 12)}`,
+    });
+  } catch (error) {
+    if (error?.status !== 409 && error?.status !== 422) throw error;
+    snapshot = await readGitHubRepairLedger({ request, token, repository: input.repository, reference, expected });
+    await assertLedgerAnchor({ request, token, repository: input.repository, expected, snapshot });
+    throw new Error("Repair push credential reservation was consumed or lost; refusing to re-mint");
+  }
+  const credential = await createContentsWriteInstallationAccessToken({
+    appId,
+    privateKey: key,
+    installationId: input.installationId,
+    repositoryId: input.repositoryId,
+    request,
+    now: nowMs,
+  });
+  return {
+    authorizationId: input.authorizationId,
+    repository: input.repository,
+    repositoryId: input.repositoryId,
+    headSha: entry.headSha,
+    headRef: entry.headRef,
+    generation,
+    token: credential.token,
+    expiresAt: credential.expiresAt,
+  };
 }

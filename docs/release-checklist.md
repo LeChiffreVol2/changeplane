@@ -74,13 +74,14 @@
 - [ ] Evaluate `merge_group` as its own exact revision and publish the required Check for GitHub Merge Queue.
 - [x] Implement the PS256-signed monotonic ledger primitive intended for the App publisher, campaign-bound two-attempt/15-minute invariant, pinned-key verifier, and inactive workflow kill switch.
 - [x] Bind inactive grants to the exact controller SHA, default base ref, policy digest/evaluator version, contract, protected-path denylist, and live pull-request revision; recheck the signed deadline immediately before push.
+- [x] Reserve push credentials once in the App-signed ledger, mint only an exact-repository Contents-write token after claim revalidation, keep it in runner temp, and push with force-with-lease so `pull_request synchronize` starts fresh CI.
 - [ ] Wire ledger publication and dispatch to a dedicated GitHub App installation-token controller outside repository-controlled workflows.
 - [ ] Prove tampered signature, unknown key, future/expired grant, deadline reset, wrong repository/head/path, third attempt, fork, sequential replay, and concurrent replay all fail closed before provider access.
 - [ ] Record the active Vercel Production deployment's full 40-character source SHA and confirm its first 12 characters equal readiness `release`.
   - Observe-release evidence captured 2026-07-19: Production source `38d4c4d261ba43df7e6d580b56e797100519526e`, readiness release `38d4c4d261ba`. This is not authorization to reuse that SHA for a later repair install; pin the full active reviewed repair-capable release at activation time.
 - [ ] Install `examples/changeplane-repair-guard.yml` and `examples/changeplane-repair.yml` together through one manually reviewed setup PR; replace all six `__CHANGEPLANE_RELEASE_SHA__` occurrences with that same reviewed Production source SHA and confirm no placeholder, branch, tag, shortened SHA, or mixed SHA remains.
 - [ ] Pin every third-party Action in the installed repair workflows to a reviewed full commit SHA.
-- [ ] With both switches false, deploy the complete configuration; confirm readiness remains observe-ready, repair is disabled/unconfigured with only the enabled check false, and `repair`, `repair-claim`, and `repair-validate` each fail closed with `503` before GitHub access.
+- [ ] With both switches false, deploy the complete configuration; confirm readiness remains observe-ready, repair is disabled/unconfigured with only the enabled check false, and `repair`, `repair-claim`, `repair-validate`, and `repair-push-token` each fail closed with `503` before GitHub access.
 - [ ] Pass stale-head, expiry, path-boundary, replay, idempotency, fork, and sandbox escape tests in a disposable repository.
 - [ ] Run the checkout-race canary end to end: expected-App evidence fails, the model proposes only an in-scope patch, the clean apply job creates a new head, the same evidence succeeds, and only then does `ChangePlane / guard` pass with zero human actions.
 - [ ] Exercise the generation-based kill switch before provider access and again before clean apply in the disposable repair canary.
