@@ -333,7 +333,6 @@ export async function createInstallationAccessToken({
         checks: "write",
         contents: "write",
         pull_requests: "read",
-        statuses: "read",
       },
     },
   });
@@ -396,24 +395,76 @@ function protectedPathRules(policy) {
   return [...new Set(values)].sort();
 }
 
-function declaredContractFromPullRequest(body) {
+function normalizeContract(value, name) {
+  const object = plainObject(value, name);
+  if (Object.keys(object).some((key) => !["goal", "scope"].includes(key))
+    || !Array.isArray(object.scope) || object.scope.length < 1 || object.scope.length > 50
+    || object.scope.some((path) => typeof path !== "string" || !path.trim() || path.length > 300)
+    || (object.goal != null && (typeof object.goal !== "string" || !object.goal.trim() || object.goal.length > 500))) {
+    throw new Error(`${name} is invalid`);
+  }
+  const scope = [...new Set(object.scope.map((path) => path.trim()))].sort();
+  return { scope, ...(object.goal ? { goal: object.goal.trim() } : {}) };
+}
+
+function declaredContractFromPullRequest(body, { optional = false } = {}) {
   const match = String(body ?? "").match(/<!--\s*changeplane\s*([\s\S]*?)-->/iu);
-  if (!match) throw new Error("Controlled repair requires an explicit ChangePlane contract in the pull-request body");
+  if (!match) {
+    if (optional) return null;
+    throw new Error("Controlled repair requires a ChangePlane contract");
+  }
   let value;
   try {
     value = JSON.parse(match[1]);
   } catch {
     throw new Error("The live pull-request ChangePlane contract is not valid JSON");
   }
-  const object = plainObject(value, "Live pull-request ChangePlane contract");
-  if (Object.keys(object).some((key) => !["goal", "scope"].includes(key))
-    || !Array.isArray(object.scope) || object.scope.length < 1 || object.scope.length > 50
-    || object.scope.some((path) => typeof path !== "string" || !path.trim() || path.length > 300)
-    || (object.goal != null && (typeof object.goal !== "string" || !object.goal.trim() || object.goal.length > 500))) {
-    throw new Error("The live pull-request ChangePlane contract is invalid");
+  return normalizeContract(value, "The live pull-request ChangePlane contract");
+}
+
+function inferAutomaticContract(actualFiles, title) {
+  const scope = [...new Set(actualFiles.flatMap((file) => [file.path, file.previousPath]).filter(Boolean))].sort();
+  if (scope.length < 1 || scope.length > 50) {
+    throw new Error("Automatic repair contracts support 1-50 exact paths");
   }
-  const scope = [...new Set(object.scope.map((path) => path.trim()))].sort();
-  return { scope, ...(object.goal ? { goal: object.goal.trim() } : {}) };
+  const goal = String(title ?? "").trim().slice(0, 500);
+  return normalizeContract({ scope, ...(goal ? { goal } : {}) }, "The inferred ChangePlane contract");
+}
+
+function trustedAutomaticContractFromComments(comments) {
+  if (!Array.isArray(comments)) throw new Error("GitHub returned an invalid pull-request comment list");
+  const contracts = comments.flatMap((comment) => {
+    if (comment?.user?.login !== "github-actions[bot]") return [];
+    const body = String(comment.body ?? "");
+    const receipt = body.match(/<!-- changeplane-receipt:v2 contract=([a-f0-9]{64}) input=[a-f0-9]{64} head=[a-f0-9]{40} -->/u);
+    const marker = body.match(/<!-- changeplane-contract:v1 source=first-head plan=([A-Za-z0-9_-]+) -->/u);
+    if (!receipt || !marker || marker[1].length > 20_000) return [];
+    try {
+      const plan = normalizeContract(
+        JSON.parse(Buffer.from(marker[1], "base64url").toString("utf8")),
+        "The trusted automatic ChangePlane contract",
+      );
+      return [{ contractDigest: receipt[1], plan }];
+    } catch {
+      return [];
+    }
+  });
+  if (contracts.length > 1) throw new Error("A unique trusted automatic ChangePlane contract is unavailable");
+  return contracts[0] ?? null;
+}
+
+async function readTrustedAutomaticContract(repository, pullRequestNumber, token, request) {
+  const comments = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const batch = await request(
+      `/repos/${encodedRepository(repository)}/issues/${pullRequestNumber}/comments?per_page=100&page=${page}`,
+      token,
+    );
+    if (!Array.isArray(batch)) throw new Error("GitHub returned an invalid pull-request comment list");
+    comments.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return trustedAutomaticContractFromComments(comments);
 }
 
 function boundedEvidenceText(value, limit = MAX_DIAGNOSTIC_LENGTH) {
@@ -516,11 +567,25 @@ export async function buildTrustedRepairCandidate({
   const policy = decodePolicy(policyFile, authority.policyPath);
   const actualFiles = await readChangedFiles(change.repository, pullRequest, installationToken, request);
   const plan = { scope: contract.scope, ...(contract.goal ? { goal: contract.goal } : {}) };
-  const declaredPlan = declaredContractFromPullRequest(pullRequest.body);
-  if (canonicalJson(declaredPlan) !== canonicalJson(plan)) {
-    throw new Error("Repair controller contract does not match the live pull-request declaration");
-  }
   const computedContractDigest = digest(plan);
+  const declaredPlan = declaredContractFromPullRequest(pullRequest.body, { optional: true });
+  if (declaredPlan) {
+    if (canonicalJson(declaredPlan) !== canonicalJson(plan)) {
+      throw new Error("Repair controller contract does not match the live pull-request declaration");
+    }
+  } else {
+    const trusted = await readTrustedAutomaticContract(
+      change.repository,
+      change.pullRequestNumber,
+      installationToken,
+      request,
+    );
+    if (trusted
+      ? trusted.contractDigest !== computedContractDigest || canonicalJson(trusted.plan) !== canonicalJson(plan)
+      : canonicalJson(inferAutomaticContract(actualFiles, pullRequest.title)) !== canonicalJson(plan)) {
+      throw new Error("Repair controller contract does not match the trusted automatic contract");
+    }
+  }
   const computedPolicyDigest = digest(policy);
   const computedInputDigest = digest({ plan, files: actualFiles });
   if (computedContractDigest !== authority.contractDigest

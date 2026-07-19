@@ -539,6 +539,7 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.match(guardWorkflow, /INPUT_MODE: enforce/u);
   assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
   assert.match(guardWorkflow, /ref: __CHANGEPLANE_RELEASE_SHA__/u);
+  assert.doesNotMatch(guardWorkflow, /statuses: read/u);
 });
 
 test("session reports whether the real GitHub connector is configured", async () => {
@@ -1081,6 +1082,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
     const headSha = "a".repeat(40);
     const pullHeadSha = "b".repeat(40);
     const calls = [];
+    let discoveryMode = "found";
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
@@ -1104,10 +1106,19 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
         return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
       }
       if (requestUrl.pathname === `/repos/alice/private-service/commits/${headSha}/check-runs`) {
+        if (discoveryMode === "unavailable") {
+          return {
+            ok: false,
+            status: 503,
+            headers: { get: () => "github-request-discovery" },
+            async text() { return "private upstream body"; },
+          };
+        }
         return {
           ok: true,
           status: 200,
           async json() {
+            if (discoveryMode === "empty") return { check_runs: [] };
             return {
               check_runs: [
                 { name: "Vercel deployment", app: { slug: "vercel" } },
@@ -1118,10 +1129,19 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
         };
       }
       if (requestUrl.pathname === `/repos/alice/private-service/commits/${pullHeadSha}/check-runs`) {
+        if (discoveryMode === "unavailable") {
+          return {
+            ok: false,
+            status: 503,
+            headers: { get: () => "github-request-discovery" },
+            async text() { return "private upstream body"; },
+          };
+        }
         return {
           ok: true,
           status: 200,
           async json() {
+            if (discoveryMode === "empty") return { check_runs: [] };
             return { check_runs: [{ name: "unit tests", app: { slug: "github-actions" } }] };
           },
         };
@@ -1171,9 +1191,10 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.conflicts, []);
       assert.deepEqual(payload.setup, { state: "none" });
       assert.deepEqual(payload.evidenceOptions, [
-        { name: "unit tests", appSlug: "github-actions", recommended: true },
-        { name: "Vercel deployment", appSlug: "vercel", recommended: false },
+        { name: "unit tests", appSlug: "github-actions", suggested: true },
+        { name: "Vercel deployment", appSlug: "vercel", suggested: false },
       ]);
+      assert.deepEqual(payload.evidenceDiscovery, { state: "found", checkedHeads: 2 });
       assert.deepEqual(payload.boundary, {
         defaultBranchWrite: false,
         pullRequestOnly: true,
@@ -1184,6 +1205,33 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
         providerSecretAccess: false,
       });
       assert.equal(calls.every(({ method }) => method === "GET"), true);
+
+      discoveryMode = "empty";
+      const emptyResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fprivate-service",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, emptyResponse);
+      const emptyPayload = JSON.parse(emptyResponse.body);
+      assert.equal(emptyResponse.statusCode, 200);
+      assert.equal(emptyPayload.installable, true);
+      assert.deepEqual(emptyPayload.evidenceOptions, []);
+      assert.deepEqual(emptyPayload.evidenceDiscovery, { state: "empty", checkedHeads: 2 });
+
+      discoveryMode = "unavailable";
+      const unavailableResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fprivate-service",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, unavailableResponse);
+      const unavailablePayload = JSON.parse(unavailableResponse.body);
+      assert.equal(unavailableResponse.statusCode, 200);
+      assert.equal(unavailablePayload.installable, true);
+      assert.deepEqual(unavailablePayload.evidenceOptions, []);
+      assert.deepEqual(unavailablePayload.evidenceDiscovery, { state: "unavailable" });
+      assert.doesNotMatch(unavailableResponse.body, /private upstream body/u);
     } finally {
       globalThis.fetch = originalFetch;
     }

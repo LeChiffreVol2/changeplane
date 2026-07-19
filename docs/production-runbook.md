@@ -8,7 +8,7 @@ Do not enable `enforce`, make `ChangePlane / guard` required, or install a repai
 
 The current Vercel deployment is a fixed free-phase constraint. Keep the GitHub App private, keep `CHANGEPLANE_CANARY_REPOSITORY` set to the exact disposable target, and let the public root expose only the fictional workspace; the owner signs in through the unlisted `?access=canary-owner` entry. The API rejects login, installation, and post-install callback stages, including in-flight state minted before the gate was enabled. Hosting-plan work and broader onboarding are outside this release. See [Vercel limits](https://vercel.com/docs/limits).
 
-The selected repository must support the required protected-branch CI gate; otherwise it cannot ship. See [GitHub protected branch availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
+The ChangePlane source repository must keep its protected-`main` CI release gate. The private disposable canary on GitHub Free cannot enable branch protection; GitHub returns an upgrade-or-public requirement. That repository is limited to owner-controlled lab evidence with a manually reviewed setup pull request and no direct pushes by procedure. It cannot prove production enforcement, become a customer merge gate, or waive the protected-source release gate. Do not change its visibility or hosting phase to work around this limit. See [GitHub protected branch availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
 ## Delivery path
 
@@ -28,9 +28,20 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 | `CHANGEPLANE_SESSION_SECRET` | Vercel Production; independent value per environment | Yes | ChangePlane owner; rotation invalidates every session in that environment. |
 | `CHANGEPLANE_APP_ORIGIN` | Vercel Production; exact HTTPS origin, no path or trailing slash | No | ChangePlane owner; update with domain or callback changes. |
 | `CHANGEPLANE_CANARY_REPOSITORY` | Vercel Production during controlled rollout; exact `owner/repository` | No | Release owner; hides and rejects every other repository before GitHub access. Remove only for an approved broader rollout. |
+| `CHANGEPLANE_REPAIR_REPOSITORY` | Vercel Production; exact disposable `owner/repository` | No | Repair owner; must equal `CHANGEPLANE_CANARY_REPOSITORY` or repair stays unconfigured. |
+| `CHANGEPLANE_REPAIR_ENABLED` | Vercel Production | No | Repair owner; keep `false` until activation, restore `false` for containment, then redeploy. |
+| `CHANGEPLANE_REPAIR_GENERATION` | Vercel Production; positive integer | No | Repair owner; advance to invalidate grants during rollback or compromise containment. |
+| `GITHUB_APP_ID` | Vercel Production; dedicated repair-publisher App | No | GitHub App owner; must identify the same App as `GITHUB_APP_SLUG` and `GITHUB_APP_PRIVATE_KEY`. |
+| `GITHUB_APP_PRIVATE_KEY` | Vercel Production only | Yes | GitHub App owner; rotate in GitHub after suspected disclosure and redeploy. Never expose to a workflow. |
+| `CHANGEPLANE_CONTROLLER_SECRET` | Vercel Production only; independent 32+ character master | Yes | Repair owner; derives repository-bound HMACs. Rotation requires reprovisioning each repository HMAC. |
 | `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` | Vercel Production only, private canary only | Yes | Provider owner; omit unless the private verification canary is approved. Never copy to a repository. |
 | `CHANGEPLANE_LOG_REQUESTS` | Vercel environment configuration | No | ChangePlane owner; `true` enables structured, redacted request metadata. |
-| `DEEPSEEK_API_KEY` | Customer repository Actions Secret | Yes | Customer repository owner; Enterprise BYOK only. ChangePlane sends it once to GitHub's encrypted-secret API. |
+| `CHANGEPLANE_CONTROLLER_INSTALLATION_ID` | Disposable repository Actions Variable | No | GitHub App owner; positive installation ID for the exact repository-scoped App installation. |
+| `CHANGEPLANE_REPAIR_ENABLED` | Disposable repository Actions Variable | No | Repair owner; independent worker kill switch. Keep `false` until controlled activation. |
+| `CHANGEPLANE_REPAIR_GENERATION` | Disposable repository Actions Variable | No | Repair owner; must equal the active Vercel generation. |
+| `CHANGEPLANE_REPAIR_PUBLIC_KEYS` | Disposable repository Actions Variable | No | GitHub App owner; JSON map from the pinned PS256 key ID to its SPKI public key. |
+| `CHANGEPLANE_CONTROLLER_HMAC` | Disposable repository Actions Secret | Yes | Repair owner; repository-bound derived secret, never the Vercel master secret. Rotate with the controller master or repository/App identity. |
+| `DEEPSEEK_API_KEY` | Disposable repository Actions Secret | Yes | Repository owner; verified Enterprise BYOK for evidence repair only. Omit for deterministic scope repair. |
 | `GITHUB_TOKEN` | GitHub Actions job, issued automatically | Yes | GitHub; ephemeral. Never create or store a replacement token for CI. |
 
 `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_PROVIDER`, `VERCEL_GIT_REPO_OWNER`, `VERCEL_GIT_REPO_SLUG`, `VERCEL_GIT_COMMIT_REF`, `VERCEL_DEPLOYMENT_ID`, and `VERCEL_URL` are Vercel-provided metadata, not operator secrets. A Vercel release is ready only when it is the `production` environment, comes from GitHub repository `LeChiffreVol2/changeplane` on `main`, and carries a valid 40-character source commit; readiness reports its first 12 characters. CLI uploads and preview/branch deployments therefore keep repository mutation routes disabled even if they contain a Git-looking SHA. A deployment ID may still appear as diagnostic metadata when Git provenance is missing, but readiness returns `503`. Record an owner and last-rotation date for each real secret outside the repository. Never put secret values in tickets, release notes, shell history, screenshots, or this file.
@@ -64,6 +75,30 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 4. Merge only after the required GitHub check passes. Confirm the resulting Vercel Production deployment source is the protected `main` SHA.
 5. After deployment, make one read-only Production readiness request, then complete one disposable-repository observe install. Do not exercise repair or enforcement. Stop if either result differs from the verified Preview.
 6. Keep the immediately previous known-good Production deployment available for rollback.
+
+## Controlled repair canary activation
+
+The repair controller is not part of observe onboarding and remains fail-closed unless every setting and live identity agrees. Use only the exact disposable repository. The GitHub App installation must grant Actions (read), Checks (write), Contents (write), and Pull requests (read). Before provisioning any repository value, mint a short-lived installation token constrained by `repository_ids` and confirm GitHub returns exactly that repository ID.
+
+1. Record the reviewed Production deployment's full 40-character Git source SHA. Confirm its first 12 characters equal the readiness `release` value.
+2. In one manually reviewed setup pull request, install both controlled-canary workflows and their reviewed helpers. Replace all six `__CHANGEPLANE_RELEASE_SHA__` occurrences across `examples/changeplane-repair-guard.yml` and `examples/changeplane-repair.yml` with that same full SHA. Reject a branch, tag, shortened SHA, placeholder, mixed SHA, or a SHA that does not back the active Production controller.
+3. Configure the Vercel repair repository, positive generation, App ID/private key, and independent controller master secret with `CHANGEPLANE_REPAIR_ENABLED=false`. Configure the repository installation ID, identical generation, PS256 public-key map, and repository-derived HMAC with its worker switch also `false`. Add `DEEPSEEK_API_KEY` only for an explicitly approved evidence-repair run.
+4. Deploy the reviewed disabled configuration. Readiness must remain observe-ready while reporting repair `enabled: false`, `configured: false`; its nested checks must identify only the disabled switch as false. Empty or malformed requests to `repair`, `repair-claim`, and `repair-validate` must return `503` without GitHub access.
+5. Before activation, verify the exact App identity, repository-scoped token, workflow sandbox, pinned release, and static fail-closed coverage for replay, stale heads, path boundaries, and the attempt/deadline budget. The workflow's model-proposal job has no forge write permission and cannot publish `PASS`.
+6. Set the repository worker switch to `true`, then change the Vercel switch to `true` and deploy only the reviewed protected-source commit. Stop unless readiness reports `repairController.enabled: true`, `configured: true`, and every nested repair check true for the expected release.
+7. Run one deterministic scope-repair canary first. Require that live run to create and anchor the App-signed generation-bound ledger and prove replay denial, stale-head denial, path boundaries, and the attempt/deadline budget. Add the verified provider secret and run evidence repair only after the scope path and kill switch have passed. Never reuse the stale observe pull request as repair evidence.
+
+The private GitHub Free canary has no enforceable branch protection. A human owner must review and merge the workflow setup PR, keep all direct pushes prohibited by procedure, and treat every result as controlled lab evidence only. Do not describe this path as customer-ready production repair.
+
+### Repair kill switch and rollback
+
+Containment is repository-first because it does not wait for a Vercel deployment:
+
+1. Set the repository Actions Variable `CHANGEPLANE_REPAIR_ENABLED=false` and cancel active repair workflow runs. Do not delete ledger refs or artifacts; preserve them as evidence.
+2. Set Vercel `CHANGEPLANE_REPAIR_ENABLED=false`, advance `CHANGEPLANE_REPAIR_GENERATION` to a new positive integer, and deploy a reviewed disabled source commit. Mirror the new generation to the repository while leaving its worker switch false.
+3. Confirm readiness reports repair disabled and unconfigured, and confirm all three repair endpoints return `503` before GitHub mutation or provider access. A normal observe readiness `200` does not mean repair is enabled.
+4. If identity or secret material may be compromised, revoke/rotate the GitHub App private key, controller master secret and derived repository HMAC, and provider key before any retry.
+5. Do not use Instant Rollback alone as a repair kill switch: a prior deployment may carry an enabled repair configuration. Keep the repository switch false through rollback, then deploy and verify a disabled configuration.
 
 ## Logs, signals, and free-tier controls
 

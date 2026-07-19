@@ -57,6 +57,43 @@ CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY=optional-private-pilot-key
 
 `GET /api/github?action=readiness` returns `200` only when the required production configuration is present and `503` otherwise. It exposes configuration booleans and a release identifier, never values.
 
+### Controlled repair canary configuration
+
+Repair is a separate, disabled-by-default operator path for the one disposable repository. It is not part of self-serve onboarding. In Vercel Production, configure the following in addition to the observe variables above, but keep `CHANGEPLANE_REPAIR_ENABLED=false` until every live gate passes:
+
+```text
+CHANGEPLANE_REPAIR_REPOSITORY=your-user/changeplane-disposable-canary
+CHANGEPLANE_REPAIR_ENABLED=false
+CHANGEPLANE_REPAIR_GENERATION=1
+GITHUB_APP_ID=positive-integer-app-id
+GITHUB_APP_PRIVATE_KEY=server-only-rsa-private-key
+CHANGEPLANE_CONTROLLER_SECRET=independent-32-plus-character-secret
+```
+
+`CHANGEPLANE_REPAIR_REPOSITORY` must exactly equal `CHANGEPLANE_CANARY_REPOSITORY`. `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` must identify the same private, repository-scoped App. Its installation must grant Actions (read), Checks (write), Contents (write), and Pull requests (read), and an installation token request must return only the exact disposable repository. Never give the model or repository workflow the App private key, controller master secret, Check authority, or merge authority.
+
+Provision these GitHub Actions values only in that disposable repository:
+
+```text
+Repository variables:
+CHANGEPLANE_CONTROLLER_INSTALLATION_ID=<positive installation id>
+CHANGEPLANE_REPAIR_ENABLED=false
+CHANGEPLANE_REPAIR_GENERATION=1
+CHANGEPLANE_REPAIR_PUBLIC_KEYS=<PS256 key-id to SPKI public-key JSON map>
+
+Repository secrets:
+CHANGEPLANE_CONTROLLER_HMAC=<repository-bound derived secret>
+DEEPSEEK_API_KEY=<verified BYOK key; evidence repair only>
+```
+
+The repository HMAC is derived from the server master secret plus the exact installation ID, repository ID, and repository name; it is not the Vercel `CHANGEPLANE_CONTROLLER_SECRET`. Keep `DEEPSEEK_API_KEY` absent for a deterministic scope-only canary. Plaintext secret material must move through an approved secret-input path and must not appear in shell history, logs, screenshots, pull requests, or documentation.
+
+Install `examples/changeplane-repair-guard.yml` and `examples/changeplane-repair.yml` together in one reviewed setup pull request. Replace every `__CHANGEPLANE_RELEASE_SHA__` occurrence in both files with the same reviewed 40-character Git commit that backs the live Vercel Production deployment; never use `main`, a tag, a shortened SHA, or the template placeholder. Verify the full deployment source SHA independently and confirm its first 12 characters equal readiness `release` before merging the setup PR.
+
+The private disposable repository on GitHub Free cannot enable branch protection. It may therefore collect owner-controlled canary evidence only: require a manually reviewed pull request, prohibit direct pushes by procedure, and never present this run as production enforcement or make its result a customer merge gate. This limitation does not relax the protected-`main` release gate for the ChangePlane source repository.
+
+Activation is deliberately two-sided. Keep both repository and Vercel repair switches false while provisioning, checking static fail-closed tests, and verifying that repair endpoints return `503`. Then set the repository switch true and deploy the same reviewed source commit with the Vercel switch true. A readiness response is repair-ready only when `repairController.enabled` and `repairController.configured` are both true and every nested repair check is true. Run a deterministic scope canary first; that live run must create the App-signed ledger anchor and prove stale-head, path, replay, attempt, and deadline controls before any evidence repair. If any identity, generation, repository, release, or evidence differs, restore the repository switch to false, cancel active repair runs, disable the Vercel switch, advance the generation, and deploy the disabled configuration before retrying.
+
 No ChangePlane CLI or TUI is required. The platform lead uses the web installer once; developers keep their current IDE, coding-agent CLI, and GitHub workflow. The operator flow is:
 
 1. Install ChangePlane on the GitHub account or organization and choose the repositories it may access.
@@ -109,9 +146,9 @@ The policy can require existing GitHub checks on the same head revision:
 }
 ```
 
-The self-serve starter policy leaves `requiredChecks` empty because ChangePlane cannot safely guess which repository check proves behavior. Its first receipts therefore prove revision identity, declared scope, and protected-path policy only. A repository owner must add at least one meaningful deterministic check before treating the pilot as behavioral assurance or proposing enforcement.
+The installer leaves `requiredChecks` empty when the owner explicitly chooses scope-only; if the owner confirms a meaningful recent Check, the setup PR binds that exact name and publisher. ChangePlane never treats its name-based suggestion as proof. Scope-only receipts prove revision identity, declared scope, and protected-path policy, but not code behavior.
 
-The setup pull request contains the activation recipe: open an existing pull request's **Checks** tab, copy the exact meaningful check name and publisher, and add them to `.changeplane.json`. GitHub Actions uses the publisher slug `github-actions`. Repositories without automated tests may remain scope-only, but ChangePlane will not claim that their code works.
+The installer suggests recent Checks by exact name and publisher. This name-based suggestion is a convenience, not proof that the Check is meaningful: the repository owner confirms behavioral evidence or uses scope-only. Manual entry remains under Advanced; GitHub Actions usually uses the publisher slug `github-actions`. Repositories without automated tests may remain scope-only, but ChangePlane will not claim that their code works.
 
 Use exact check names and GitHub App slugs. A policy may list at most 20 checks, may not list `ChangePlane / guard`, and may wait from 0 to 240 seconds. Strings remain accepted in observe mode for migration, but enforce requires every item to use `{ "name", "appSlug" }`. Missing, pending, failed, or wrong-source evidence becomes part of the receipt; observe mode still concludes neutrally.
 

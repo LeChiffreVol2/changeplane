@@ -3,6 +3,7 @@ import { createHash, generateKeyPairSync, verify } from "node:crypto";
 import test from "node:test";
 
 import {
+  buildTrustedRepairCandidate,
   claimDeliveryId,
   claimTrustedRepair,
   createGitHubAppJwt,
@@ -88,6 +89,68 @@ function fixtureRequest() {
   };
 }
 
+function automaticFixture({
+  contract,
+  files,
+  policy,
+  repairKind,
+  allowedPaths,
+  instructions,
+}) {
+  const plan = { scope: contract.scope, ...(contract.goal ? { goal: contract.goal } : {}) };
+  const authority = {
+    contractDigest: digest(plan),
+    policyDigest: digest(policy),
+    evaluatorVersion: "0.3.0",
+    inputDigest: digest({ plan, files }),
+    controllerSha: BASE_SHA,
+    policyPath: ".changeplane.json",
+  };
+  const idempotencyKey = digest({
+    repository: REPOSITORY,
+    pullRequestNumber: PULL_REQUEST_NUMBER,
+    headSha: HEAD_SHA,
+    inputDigest: authority.inputDigest,
+    attempt: 1,
+  });
+  return {
+    policy,
+    request: {
+      schemaVersion: 3,
+      issuer: "changeplane-guard",
+      idempotencyKey,
+      change: {
+        repository: REPOSITORY,
+        repositoryId: REPOSITORY_ID,
+        installationId: INSTALLATION_ID,
+        pullRequestNumber: PULL_REQUEST_NUMBER,
+        baseRef: "main",
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+        headRef: "agent/fix",
+        headRepository: REPOSITORY,
+      },
+      authority,
+      contract,
+      attempt: 1,
+      repairKind,
+      allowedPaths,
+      instructions,
+    },
+  };
+}
+
+function automaticReceipt(plan, login = "github-actions[bot]") {
+  const encodedPlan = Buffer.from(canonicalJson(plan)).toString("base64url");
+  return {
+    user: { login },
+    body: [
+      `<!-- changeplane-receipt:v2 contract=${digest(plan)} input=${"d".repeat(64)} head=${"e".repeat(40)} -->`,
+      `<!-- changeplane-contract:v1 source=first-head plan=${encodedPlan} -->`,
+    ].join("\n"),
+  };
+}
+
 function sha(counter) {
   return counter.toString(16).padStart(40, "0");
 }
@@ -97,14 +160,19 @@ function fakeGitHub(policy, {
   failDispatchBeforeAcceptOnce = false,
   failLedgerAnchorOnce = false,
   loseLedgerAnchorResponseOnce = false,
+  pullRequestBody = '<!-- changeplane\n{"scope":["src/payments/**"]}\n-->',
+  pullRequestTitle = "Repair payment scope",
+  pullRequestFiles = [{ filename: "docs/oops.md" }],
+  issueComments = [],
+  initialChecks = [],
 } = {}) {
   let objectCounter = 1;
-  let checkCounter = 1;
+  let checkCounter = Math.max(0, ...initialChecks.map((check) => check.id ?? 0)) + 1;
   const refs = new Map();
   const blobs = new Map();
   const trees = new Map();
   const commits = new Map();
-  const checks = [];
+  const checks = structuredClone(initialChecks);
   const dispatches = [];
   const tokenRequests = [];
   const workflowRuns = new Map();
@@ -129,8 +197,9 @@ function fakeGitHub(policy, {
         id: PULL_REQUEST_ID,
         number: PULL_REQUEST_NUMBER,
         state: "open",
-        changed_files: 1,
-        body: '<!-- changeplane\n{"scope":["src/payments/**"]}\n-->',
+        changed_files: pullRequestFiles.length,
+        body: pullRequestBody,
+        title: pullRequestTitle,
         base: { ref: "main", sha: BASE_SHA },
         head: { ref: "agent/fix", sha: HEAD_SHA, repo: { full_name: REPOSITORY } },
       };
@@ -140,7 +209,10 @@ function fakeGitHub(policy, {
       return { type: "file", encoding: "base64", content: Buffer.from(JSON.stringify(policy)).toString("base64") };
     }
     if (path === `/repos/acme/payments/pulls/${PULL_REQUEST_NUMBER}/files?per_page=100&page=1`) {
-      return [{ filename: "docs/oops.md" }];
+      return structuredClone(pullRequestFiles);
+    }
+    if (path === `/repos/acme/payments/issues/${PULL_REQUEST_NUMBER}/comments?per_page=100&page=1`) {
+      return structuredClone(issueComments);
     }
     if (path.includes("/commits/") && path.includes("/check-runs?")) {
       const head = path.split("/commits/")[1].split("/check-runs")[0];
@@ -248,8 +320,202 @@ test("GitHub App JWT and repository token stay narrowly scoped", async () => {
     checks: "write",
     contents: "write",
     pull_requests: "read",
-    statuses: "read",
   });
+});
+
+test("automatic first-head contract authorizes bounded evidence repair before its receipt exists", async () => {
+  const title = "Make checkout retries idempotent";
+  const contract = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+  };
+  const diagnostic = "Checkout race failed\nExpected one charge, observed two";
+  const { request } = automaticFixture({
+    contract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: contract.scope,
+    instructions: [{
+      code: "EVIDENCE_FAILED",
+      path: "check:checkout-race",
+      pathKind: "evidence",
+      action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+      diagnostic,
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
+    initialChecks: [{
+      id: 91,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: {
+        title: "Checkout race failed",
+        summary: "Expected one charge, observed two",
+        annotations_count: 0,
+      },
+    }],
+  });
+
+  const candidate = await buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  });
+
+  assert.equal(candidate.repairKind, "evidence");
+  assert.deepEqual(candidate.declaredScope, contract.scope);
+  assert.deepEqual(candidate.allowedPaths, contract.scope);
+  assert.deepEqual(candidate.instructions, [{
+    code: "EVIDENCE_FAILED",
+    path: "check:checkout-race",
+    pathKind: "evidence",
+    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    diagnostic,
+  }]);
+});
+
+test("trusted prior GitHub Actions receipt preserves the first-head contract across later path drift", async () => {
+  const title = "Make checkout retries idempotent";
+  const plan = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [] },
+  };
+  const { request } = automaticFixture({
+    contract: plan,
+    files,
+    policy,
+    repairKind: "scope",
+    allowedPaths: ["docs/oops.md"],
+    instructions: [{
+      code: "OUTSIDE_PLANNED_SCOPE",
+      path: "docs/oops.md",
+      pathKind: "current",
+      action: "REVERT_OR_MOVE_INTO_DECLARED_SCOPE",
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
+    issueComments: [automaticReceipt(plan)],
+  });
+
+  const candidate = await buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  });
+
+  assert.equal(candidate.repairKind, "scope");
+  assert.deepEqual(candidate.declaredScope, plan.scope);
+  assert.deepEqual(candidate.allowedPaths, ["docs/oops.md"]);
+});
+
+test("trusted first-head receipt prevents rebinding to the expanded current file set", async () => {
+  const title = "Make checkout retries idempotent";
+  const firstHeadPlan = { scope: ["src/payments/retry.js"], goal: title };
+  const expandedContract = { scope: ["docs/oops.md", "src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+  };
+  const { request } = automaticFixture({
+    contract: expandedContract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: expandedContract.scope,
+    instructions: [{
+      code: "EVIDENCE_FAILED",
+      path: "check:checkout-race",
+      pathKind: "evidence",
+      action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
+    issueComments: [automaticReceipt(firstHeadPlan)],
+    initialChecks: [{
+      id: 92,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: { title: "Checkout race failed", annotations_count: 0 },
+    }],
+  });
+
+  await assert.rejects(buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  }), /trusted automatic contract/u);
+});
+
+test("attacker-authored automatic receipt cannot authorize a later path-drift repair", async () => {
+  const title = "Make checkout retries idempotent";
+  const plan = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [] },
+  };
+  const { request } = automaticFixture({
+    contract: plan,
+    files,
+    policy,
+    repairKind: "scope",
+    allowedPaths: ["docs/oops.md"],
+    instructions: [{
+      code: "OUTSIDE_PLANNED_SCOPE",
+      path: "docs/oops.md",
+      pathKind: "current",
+      action: "REVERT_OR_MOVE_INTO_DECLARED_SCOPE",
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
+    issueComments: [automaticReceipt(plan, "octocat")],
+  });
+
+  await assert.rejects(buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  }), /trusted automatic contract/u);
 });
 
 test("controller and claim HMACs are repository-bound and tamper evident", () => {
