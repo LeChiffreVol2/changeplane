@@ -281,7 +281,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <div className="auth-message">
             <p className="auth-kicker"><span /> GitHub safety checks for agent-written code</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Before you trust an agent&apos;s pull request, ChangePlane checks the exact code revision against your project&apos;s rules and any required test results, then posts a receipt in GitHub. The pilot observes only—it cannot block a merge or change code. Best for GitHub projects that already run automated tests on pull requests.</p>
+            <p>Before you trust an agent&apos;s pull request, ChangePlane checks the exact commit against your project&apos;s rules and required test results, then posts a receipt in GitHub. The pilot observes only—it cannot block a merge or change code. Best for projects that use pull requests and already run at least one automated test; direct-publish projects should start with the example.</p>
           </div>
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">
@@ -293,10 +293,10 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               <div>
                 <strong>{exampleOnly
                   ? "See a duplicate-charge bug caught, returned to an agent, and checked again."
-                  : "ChangePlane checks the exact revision against project rules and required evidence."}</strong>
+                  : "ChangePlane checks the exact commit against project rules and required evidence."}</strong>
                 <span>{exampleOnly
-                  ? "Controlled example · no GitHub access"
-                  : "Any coding agent → exact revision → receipt in GitHub"}</span>
+                  ? "Model proposes · deterministic harness decides · GitHub remains authority"
+                  : "Any coding agent → exact commit → receipt in GitHub"}</span>
               </div>
               <span className="auth-pass-label">{exampleOnly ? "Target workflow · not a live repair claim" : "Pilot cannot block or change code"}</span>
             </div>
@@ -305,10 +305,10 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{controlledCanary ? "Owner-controlled canary" : exampleOnly ? "Controlled example · no GitHub access" : "One-time GitHub setup"}</p>
-            <h2 id="sign-in-title">{controlledCanary ? "See the workflow. Owner access stays private." : exampleOnly ? "See the target repair loop." : "Connect once. Then stay in GitHub."}</h2>
+            <p className="auth-eyebrow">{controlledCanary ? "Private canary · no GitHub access" : exampleOnly ? "Controlled example · no GitHub access" : "One-time GitHub setup"}</p>
+            <h2 id="sign-in-title">{controlledCanary ? "Try the workflow without connecting GitHub." : exampleOnly ? "See the target repair loop." : "Connect once. Then stay in GitHub."}</h2>
             <p>{controlledCanary
-              ? "Explore the complete workflow with fictional repository data. The live GitHub connection is limited to ChangePlane's isolated canary while this service runs on Vercel Hobby."
+              ? "Explore the complete workflow with fictional repository data. Live GitHub access is limited to ChangePlane's isolated test repository."
               : exampleOnly
               ? "Run a fictional checkout failure from detection through re-check. Today's connected pilot observes real pull requests and posts receipts; it does not dispatch repair or block merges."
               : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update in that project triggers ChangePlane automatically."}</p>
@@ -345,14 +345,14 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
             )}
 
             <p className="auth-security"><LockKey size={15} /> {controlledCanary
-              ? "The example never accesses GitHub. Owner sign-in can see only the pre-authorized disposable canary."
+              ? "The example never accesses GitHub. Private canary access can see only the pre-authorized disposable repository."
               : exampleOnly
               ? "No GitHub account needed. This opens a fictional project and changes nothing."
               : authMode === "github_app"
                 ? "Choose the repositories ChangePlane may see. The installer writes only to the one you select, through one setup PR."
                 : "Pilot access lists writable repositories; writes happen only to the one you select, through one setup PR."}</p>
             {controlledCanary ? (
-              <p className="auth-deployment-note">New GitHub App installations stay closed until the production plan is enabled.</p>
+              <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>
             ) : exampleOnly ? (
               <p className="auth-deployment-note">This share link uses fictional repository data and cannot access GitHub.</p>
             ) : configured === false && !checking && (
@@ -363,8 +363,8 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <footer className="auth-footer">
-            <span>Exact revision · project rules · GitHub receipt</span>
-            <span>{checking ? "Checking connection" : controlledCanary ? "Owner-controlled canary" : configured ? authMode === "github_app" ? "GitHub App ready" : "GitHub OAuth pilot" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+            <span>Exact commit · project rules · GitHub receipt</span>
+            <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App ready" : "GitHub OAuth pilot" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
           </footer>
         </div>
       </section>
@@ -567,12 +567,17 @@ function GitHubSetup({
   onSignOut,
 }) {
   const [query, setQuery] = useState("");
+  const [evidenceMode, setEvidenceMode] = useState("behavior");
+  const [checkName, setCheckName] = useState(session.isPreview ? "test" : "");
+  const [checkPublisher, setCheckPublisher] = useState("github-actions");
   const matchingRepositories = repositories.filter((repository) => (
     repository.fullName.toLowerCase().includes(query.trim().toLowerCase())
   ));
   const selected = repositories.find(({ fullName }) => fullName === selectedRepository);
   const complete = Boolean(installResult);
   const preflightReady = preflightStatus === "ready" && preflight?.installable;
+  const pendingSetup = preflight?.setup?.state === "pending" && preflight.setup.pullRequest?.url;
+  const evidenceReady = pendingSetup || evidenceMode === "scope" || (checkName.trim() && checkPublisher.trim());
   const repositoryMutationBusy = installStatus === "installing" || byokSaving;
 
   return (
@@ -608,6 +613,12 @@ function GitHubSetup({
                   : "A repository is the project folder that contains your code. ChangePlane will only access the one you choose and will never overwrite existing files."}</p>
 
                 <SetupJourney />
+
+                {session.isPreview && (
+                  <button className="setup-skip-action" type="button" onClick={onOpenWorkspace}>
+                    Skip setup · See the checkout failure <ArrowRight size={15} />
+                  </button>
+                )}
 
                 {repositoryStatus === "loading" && (
                   <div className="setup-state" role="status">
@@ -689,14 +700,18 @@ function GitHubSetup({
                             : preflightStatus === "loading"
                             ? "Checking the repository boundary"
                             : preflightReady
-                              ? "Safe to install · scope-only receipt"
+                              ? pendingSetup ? "Setup PR already ready" : "Safe to install · choose evidence below"
                               : "Setup needs attention"}</strong>
                           <span>{!selected
                             ? "Nothing is accessed until you make a selection."
                             : preflightStatus === "loading"
                             ? "Read-only checks only. Nothing is being changed."
                             : preflightReady
-                              ? "The starter records the exact revision, changed files, and protected paths. No automated test is required yet, so it does not prove the code works."
+                              ? pendingSetup
+                                ? preflight.setup.requiredCheck
+                                  ? `The existing PR binds ${preflight.setup.requiredCheck.name} from ${preflight.setup.requiredCheck.appSlug}. Open it to review and merge; no new write is needed.`
+                                  : "The existing PR is explicitly scope-only. Open it to review and merge; no new write is needed."
+                                : "Every receipt records the exact commit, changed files, and protected paths. Bind one existing test below to prove behavior, or explicitly choose scope-only."
                               : preflight?.setup?.message || preflightError || (preflight?.conflicts?.length
                                 ? `Existing ChangePlane paths found: ${preflight.conflicts.join(", ")}`
                                 : "This repository is not eligible for the observe rollout.")}</span>
@@ -717,19 +732,28 @@ function GitHubSetup({
                       )}
                     </div>
 
-                    {preflightReady && (
-                      <details className="runtime-optional evidence-recipe">
-                        <summary>
-                          <span><strong>Make the first receipt prove behavior</strong><small>Recommended before merging the setup PR</small></span>
-                          <CaretDown size={16} aria-hidden="true" />
-                        </summary>
-                        <ol>
-                          <li>Open an existing pull request&apos;s <strong>Checks</strong> tab.</li>
-                          <li>Copy the exact meaningful test name and its publisher. GitHub Actions uses <code>github-actions</code>.</li>
-                          <li>In the setup PR, edit <code>.changeplane.json</code> and add that name and publisher under <code>requiredChecks</code>.</li>
-                        </ol>
-                        <p>No automated tests yet? You can still start scope-only. The receipt will verify the exact revision and allowed paths, but not whether the code works.</p>
-                      </details>
+                    {preflightReady && !pendingSetup && (
+                      <fieldset className="evidence-choice">
+                        <legend>Choose what the first receipt proves</legend>
+                        <label className={evidenceMode === "behavior" ? "is-selected" : ""}>
+                          <input type="radio" name="evidence-mode" value="behavior" checked={evidenceMode === "behavior"} onChange={() => setEvidenceMode("behavior")} />
+                          <span><strong>Code behavior</strong><small>Recommended · bind one existing automated test</small></span>
+                        </label>
+                        {evidenceMode === "behavior" && (
+                          <div className="evidence-fields">
+                            <label><span>Exact check name</span><input value={checkName} onChange={(event) => setCheckName(event.target.value)} placeholder="For example: test" maxLength={100} /></label>
+                            <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => setCheckPublisher(event.target.value)} placeholder="github-actions" maxLength={100} /></label>
+                            <details>
+                              <summary>Where do I find this?</summary>
+                              <p>Open a recent pull request in GitHub, choose <strong>Checks</strong>, and copy the meaningful test name. GitHub Actions usually uses <code>github-actions</code> as the publisher.</p>
+                            </details>
+                          </div>
+                        )}
+                        <label className={evidenceMode === "scope" ? "is-selected" : ""}>
+                          <input type="radio" name="evidence-mode" value="scope" checked={evidenceMode === "scope"} onChange={() => setEvidenceMode("scope")} />
+                          <span><strong>Commit and file scope only</strong><small>Does not prove the code works</small></span>
+                        </label>
+                      </fieldset>
                     )}
 
                     <p className="install-note install-note-provider">No provider key or repair funding is needed for the observe pilot.</p>
@@ -756,17 +780,25 @@ function GitHubSetup({
 
                     {installError && <p className="install-error" role="alert"><Warning size={16} weight="fill" /> {installError}</p>}
 
-                    <button className="primary-action install-action" type="button" onClick={onInstall} disabled={!selected || !preflightReady || installStatus === "installing"}>
-                      {installStatus === "installing" ? <ArrowsClockwise className="spin" size={17} weight="bold" /> : <GitBranch size={17} weight="bold" />}
-                      {installStatus === "installing"
-                        ? session.isPreview ? "Preparing installation flow…" : "Creating installation pull request…"
-                        : session.isPreview
-                          ? "Prepare observe setup"
-                          : preflight?.setup?.state === "pending" ? "Open existing setup PR" : "Create observe setup PR"}
-                    </button>
+                    {pendingSetup ? (
+                      <a className="primary-action install-action" href={preflight.setup.pullRequest.url} target="_blank" rel="noreferrer">
+                        <GitBranch size={17} weight="bold" /> Open existing setup PR <ArrowRight size={16} />
+                      </a>
+                    ) : (
+                      <button className="primary-action install-action" type="button" onClick={() => onInstall({
+                        requiredCheck: evidenceMode === "behavior"
+                          ? { name: checkName.trim(), appSlug: checkPublisher.trim() }
+                          : null,
+                      })} disabled={!selected || !preflightReady || !evidenceReady || installStatus === "installing"}>
+                        {installStatus === "installing" ? <ArrowsClockwise className="spin" size={17} weight="bold" /> : <GitBranch size={17} weight="bold" />}
+                        {installStatus === "installing"
+                          ? session.isPreview ? "Preparing installation flow…" : "Creating installation pull request…"
+                          : session.isPreview ? "Prepare observe setup" : "Create observe setup PR"}
+                      </button>
+                    )}
                     <p className="install-note">{session.isPreview
                       ? "No repository is accessed. The production action creates the same single setup pull request."
-                      : preflight?.setup?.state === "pending"
+                      : pendingSetup
                         ? "No repository write is needed. ChangePlane will reopen the verified setup pull request. Nothing runs until you review and merge it."
                         : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation, and GitHub may retain the unmerged branch until you delete it."}</p>
                   </>
@@ -798,7 +830,7 @@ function GitHubSetup({
                 )}
                 {!installResult.preview && <p className="install-note">After merging, the next agent-created or agent-updated pull request receives a ChangePlane receipt automatically.</p>}
                 <section className="activation-checklist" aria-labelledby="activation-title">
-                  <strong id="activation-title">What happens after merge</strong>
+                  <strong id="activation-title">{installResult.preview ? "In a real installation, after merge" : "After this setup PR is merged"}</strong>
                   <ol>
                     <li><span>1</span><p>Open or update a normal pull request. No ChangePlane handoff is needed.</p></li>
                     <li><span>2</span><p>In GitHub, open <strong>Checks</strong> and choose <code>ChangePlane / guard</code>.</p></li>
@@ -1244,7 +1276,9 @@ function MetaRows({ change }) {
     ["Base", change.base],
     ["Head", change.head],
     ["Risk", `${change.risk} · ${change.riskLabel}`],
-    ["Policy", "Release Governance v3"],
+    ["Policy", "Release Governance v3 · protected paths"],
+    ["Evidence source", change.id === "payment" ? "checkout-race · github-actions" : "configured checks · github-actions"],
+    ["Evaluator", "ChangePlane guard v1"],
     ["Attempts", change.id === "payment" && change.status === "passed" ? "1 / 2" : "0 / 2"],
     ["Human", change.status === "blocked" ? "Required" : "0 actions"],
   ];
@@ -1750,7 +1784,7 @@ export function App() {
     }
   }
 
-  async function installRepository() {
+  async function installRepository({ requiredCheck = null } = {}) {
     if (!selectedRepository || preflightStatus !== "ready" || !preflight?.installable || installStatus === "installing") return;
     setInstallStatus("installing");
     setInstallError("");
@@ -1774,7 +1808,7 @@ export function App() {
           "content-type": "application/json",
           "x-changeplane-csrf": session.csrf,
         },
-        body: JSON.stringify({ repository: selectedRepository }),
+        body: JSON.stringify({ repository: selectedRepository, requiredCheck }),
       }));
       setInstallResult(payload);
       setInstallStatus("complete");
@@ -1980,7 +2014,7 @@ export function App() {
 
   return (
     <div className="app-stage">
-      <div className="product-shell">
+      <div className={`product-shell ${session.isPreview ? "has-preview-boundary" : ""}`}>
         <header className="topbar">
           <div className="brand-block">
             <a className="brand" href="#top" aria-label="ChangePlane home">ChangePlane</a>
@@ -2008,7 +2042,7 @@ export function App() {
               )}
             </div>
             <span className="topbar-divider" aria-hidden="true" />
-            <span className="connection-label"><i /> {session.isPreview ? "Example workspace" : "GitHub connected"}</span>
+            <span className="connection-label"><i /> {session.isPreview ? "Fictional workflow" : "GitHub connected"}</span>
             <span className="date-label"><CalendarBlank size={18} /> Jul 18, 2026 · 10:24 UTC</span>
             <span className="topbar-divider" aria-hidden="true" />
             <button className="icon-button" type="button" aria-label="Assurance workflow" onClick={() => setGuideOpen(true)}><Question size={19} /></button>
@@ -2024,6 +2058,10 @@ export function App() {
             </div>
           </div>
         </header>
+
+        {session.isPreview && (
+          <div className="preview-boundary-banner">Fictional target workflow · live pilot posts observe-only receipts</div>
+        )}
 
         <div className="app-grid" id="top">
           <Queue changes={changes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setInspectedFile(null); }} filter={filter} onFilter={setFilter} />

@@ -177,9 +177,8 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.doesNotMatch(actionInputs, /^  (mode|agent_dispatch|agent_webhook_url|agent_webhook_token|max_remediation_attempts):/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   assert.match(installerSource, /\*\*Behavior checks: none configured\*\*/u);
-  assert.match(installerSource, /receipts prove revision and scope only/u);
-  assert.match(installerSource, /Make the first receipt prove behavior/u);
-  assert.match(installerSource, /publisher slug is `github-actions`/u);
+  assert.match(installerSource, /receipts prove the exact commit and file scope only/u);
+  assert.match(installerSource, /\*\*Behavior check configured:\*\*/u);
   assert.match(installerSource, /The receipt will not claim that the code works/u);
   const policy = JSON.parse(files.get(".changeplane.json"));
   assert.equal(policy.version, 1);
@@ -192,6 +191,25 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
     effort: "high",
     managedSubscription: "reserved",
   });
+
+  const behaviorFiles = new Map(buildPilotFiles({
+    name: "CI / test",
+    appSlug: "github-actions",
+  }).map((file) => [file.path, file.content]));
+  assert.deepEqual(JSON.parse(behaviorFiles.get(".changeplane.json")).evidence, {
+    requiredChecks: [{ name: "CI / test", appSlug: "github-actions" }],
+    timeoutSeconds: 120,
+  });
+  for (const appSlug of ["not a valid slug", "bad.slug", "bad_slug", "bad-"]) {
+    assert.throws(
+      () => buildPilotFiles({ name: "test", appSlug }),
+      /valid GitHub App slug/u,
+    );
+  }
+  assert.throws(
+    () => buildPilotFiles({ name: "ChangePlane / guard", appSlug: "github-actions" }),
+    /cannot be ChangePlane \/ guard/u,
+  );
 });
 
 test("observe setup retries reuse the one GitHub-native setup pull request without writes", async () => {
@@ -203,15 +221,20 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       csrf: "alice-csrf",
       authMode: "oauth",
     }, SECRET);
-    const files = buildPilotFiles();
-    const fileContents = new Map(files.map(({ path, content }) => [path, content]));
+    const configuredCheck = { name: "test", appSlug: "github-actions" };
+    let files = buildPilotFiles(configuredCheck);
+    let fileContents = new Map(files.map(({ path, content }) => [path, content]));
     const baseSha = "a".repeat(40);
     const headSha = "b".repeat(40);
     const treeSha = "c".repeat(40);
     let setupBranchHead = headSha;
     const blobSha = (content) => createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
     const scope = files.map(({ path }) => path === "changeplane/package.json" ? "changeplane/**" : path);
-    const plan = { goal: "Install the ChangePlane observe-mode pilot", scope: [...new Set(scope)] };
+    let plan = {
+      goal: "Install the ChangePlane observe-mode pilot",
+      scope: [...new Set(scope)],
+      requiredCheck: configuredCheck,
+    };
     const calls = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input, options = {}) => {
@@ -288,7 +311,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       throw new Error(`Unexpected request: ${options.method ?? "GET"} ${url}`);
     };
     try {
-      const response = responseRecorder();
+      const implicitScopeResponse = responseRecorder();
       await handler({
         method: "POST",
         url: "/api/github?action=install",
@@ -299,6 +322,38 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
           "x-changeplane-csrf": "alice-csrf",
         },
         body: { repository: "alice/service" },
+      }, implicitScopeResponse);
+      assert.equal(implicitScopeResponse.statusCode, 400);
+      assert.match(JSON.parse(implicitScopeResponse.body).error, /explicitly continue/u);
+      assert.equal(calls.length, 0);
+
+      const conflictingScopeResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: null },
+      }, conflictingScopeResponse);
+      assert.equal(conflictingScopeResponse.statusCode, 409);
+      assert.match(JSON.parse(conflictingScopeResponse.body).error, /different evidence choice/u);
+      assert.equal(calls.every(({ method }) => method === "GET"), true);
+
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: configuredCheck },
       }, response);
       assert.equal(response.statusCode, 201);
       assert.equal(JSON.parse(response.body).branch, "changeplane/observe-setup");
@@ -316,6 +371,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       assert.deepEqual(JSON.parse(pendingPreflight.body).setup, {
         state: "pending",
         pullRequest: { number: 17, url: "https://github.com/alice/service/pull/17" },
+        requiredCheck: configuredCheck,
       });
 
       fileContents.set(files[0].path, "tampered setup payload\n");
@@ -340,7 +396,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
           "content-type": "application/json",
           "x-changeplane-csrf": "alice-csrf",
         },
-        body: { repository: "alice/service" },
+        body: { repository: "alice/service", requiredCheck: configuredCheck },
       }, tamperedResponse);
       assert.equal(tamperedResponse.statusCode, 409);
       assert.match(JSON.parse(tamperedResponse.body).error, /existing setup file was modified/u);
@@ -357,10 +413,29 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
           "content-type": "application/json",
           "x-changeplane-csrf": "alice-csrf",
         },
-        body: { repository: "alice/service" },
+        body: { repository: "alice/service", requiredCheck: configuredCheck },
       }, forgedResponse);
       assert.equal(forgedResponse.statusCode, 409);
       assert.match(JSON.parse(forgedResponse.body).error, /not bound to the setup branch head/u);
+
+      setupBranchHead = headSha;
+      files = buildPilotFiles();
+      fileContents = new Map(files.map(({ path, content }) => [path, content]));
+      plan = { goal: "Install the ChangePlane observe-mode pilot", scope: [...new Set(scope)] };
+      const conflictingBehaviorResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: configuredCheck },
+      }, conflictingBehaviorResponse);
+      assert.equal(conflictingBehaviorResponse.statusCode, 409);
+      assert.match(JSON.parse(conflictingBehaviorResponse.body).error, /different evidence choice/u);
     } finally {
       globalThis.fetch = originalFetch;
     }
