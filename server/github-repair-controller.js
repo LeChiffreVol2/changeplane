@@ -431,42 +431,6 @@ function inferAutomaticContract(actualFiles, title) {
   return normalizeContract({ scope, ...(goal ? { goal } : {}) }, "The inferred ChangePlane contract");
 }
 
-function trustedAutomaticContractFromComments(comments) {
-  if (!Array.isArray(comments)) throw new Error("GitHub returned an invalid pull-request comment list");
-  const contracts = comments.flatMap((comment) => {
-    if (comment?.user?.login !== "github-actions[bot]") return [];
-    const body = String(comment.body ?? "");
-    const receipt = body.match(/<!-- changeplane-receipt:v2 contract=([a-f0-9]{64}) input=[a-f0-9]{64} head=[a-f0-9]{40} -->/u);
-    const marker = body.match(/<!-- changeplane-contract:v1 source=first-head plan=([A-Za-z0-9_-]+) -->/u);
-    if (!receipt || !marker || marker[1].length > 20_000) return [];
-    try {
-      const plan = normalizeContract(
-        JSON.parse(Buffer.from(marker[1], "base64url").toString("utf8")),
-        "The trusted automatic ChangePlane contract",
-      );
-      return [{ contractDigest: receipt[1], plan }];
-    } catch {
-      return [];
-    }
-  });
-  if (contracts.length > 1) throw new Error("A unique trusted automatic ChangePlane contract is unavailable");
-  return contracts[0] ?? null;
-}
-
-async function readTrustedAutomaticContract(repository, pullRequestNumber, token, request) {
-  const comments = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const batch = await request(
-      `/repos/${encodedRepository(repository)}/issues/${pullRequestNumber}/comments?per_page=100&page=${page}`,
-      token,
-    );
-    if (!Array.isArray(batch)) throw new Error("GitHub returned an invalid pull-request comment list");
-    comments.push(...batch);
-    if (batch.length < 100) break;
-  }
-  return trustedAutomaticContractFromComments(comments);
-}
-
 function boundedEvidenceText(value, limit = MAX_DIAGNOSTIC_LENGTH) {
   return String(value ?? "").replaceAll(/[\u0000-\u001f\u007f]+/gu, " ").replaceAll(/\s+/gu, " ").trim().slice(0, limit);
 }
@@ -530,8 +494,11 @@ export async function buildTrustedRepairCandidate({
   installationToken,
   appId,
   publisherReleaseSha,
+  generation,
+  publicKeys,
   request,
   expectedRepository,
+  now = Date.now(),
 }) {
   const input = validateControllerRequest(controllerRequest);
   const { change, authority, contract } = input;
@@ -568,22 +535,48 @@ export async function buildTrustedRepairCandidate({
   const actualFiles = await readChangedFiles(change.repository, pullRequest, installationToken, request);
   const plan = { scope: contract.scope, ...(contract.goal ? { goal: contract.goal } : {}) };
   const computedContractDigest = digest(plan);
+  const numericAppId = Number(appId);
+  if (!validPositiveInteger(numericAppId) || !validSha(publisherReleaseSha)) {
+    throw new Error("Repair publisher identity or release is invalid");
+  }
   const declaredPlan = declaredContractFromPullRequest(pullRequest.body, { optional: true });
   if (declaredPlan) {
     if (canonicalJson(declaredPlan) !== canonicalJson(plan)) {
       throw new Error("Repair controller contract does not match the live pull-request declaration");
     }
   } else {
-    const trusted = await readTrustedAutomaticContract(
-      change.repository,
-      change.pullRequestNumber,
-      installationToken,
+    if (!validPositiveInteger(generation) || Object.keys(plainObject(publicKeys, "Repair ledger public keys")).length < 1) {
+      throw new Error("Automatic repair contracts require generation-bound ledger authority");
+    }
+    const reference = repairLedgerReference({ pullRequestId: pullRequest.id, generation });
+    const expected = {
+      appId: numericAppId,
+      installationId: change.installationId,
+      repositoryId: change.repositoryId,
+      repository: change.repository,
+      pullRequestId: pullRequest.id,
+      pullRequestNumber: change.pullRequestNumber,
+      contractDigest: computedContractDigest,
+      generation,
+      baseSha: change.baseSha,
+      publicKeys,
+      now: new Date(now).getTime(),
+    };
+    const snapshot = await readGitHubRepairLedger({
       request,
-    );
-    if (trusted
-      ? trusted.contractDigest !== computedContractDigest || canonicalJson(trusted.plan) !== canonicalJson(plan)
-      : canonicalJson(inferAutomaticContract(actualFiles, pullRequest.title)) !== canonicalJson(plan)) {
-      throw new Error("Repair controller contract does not match the trusted automatic contract");
+      token: installationToken,
+      repository: change.repository,
+      reference,
+      expected,
+    });
+    await assertLedgerAnchor({ request, token: installationToken, repository: change.repository, expected, snapshot });
+    if (snapshot.tipSha) {
+      if (snapshot.envelopes.length < 1) {
+        throw new Error("The automatic repair contract lacks a signed ledger authorization");
+      }
+    } else if (input.attempt !== 1
+      || canonicalJson(inferAutomaticContract(actualFiles, pullRequest.title)) !== canonicalJson(plan)) {
+      throw new Error("Repair controller contract does not match the first-head automatic contract");
     }
   }
   const computedPolicyDigest = digest(policy);
@@ -647,10 +640,6 @@ export async function buildTrustedRepairCandidate({
       ? { diagnostic: finding.diagnostic.slice(0, MAX_DIAGNOSTIC_LENGTH) }
       : {}),
   }));
-  const numericAppId = Number(appId);
-  if (!validPositiveInteger(numericAppId) || !validSha(publisherReleaseSha)) {
-    throw new Error("Repair publisher identity or release is invalid");
-  }
   return {
     attempt: input.attempt,
     authorizationId: input.idempotencyKey,
@@ -1040,16 +1029,20 @@ export async function publishTrustedRepair({
     request,
     now: new Date(now).getTime(),
   });
+  const publicKey = createPublicKey(key);
+  const keyId = repairLedgerKeyId(publicKey);
+  const publicKeys = { [keyId]: repairLedgerPublicKeyValue(publicKey) };
   const candidate = await buildTrustedRepairCandidate({
     controllerRequest: input,
     installationToken,
     appId,
     publisherReleaseSha,
+    generation,
+    publicKeys,
     request,
     expectedRepository,
+    now,
   });
-  const keyId = repairLedgerKeyId(createPublicKey(key));
-  const publicKeys = { [keyId]: repairLedgerPublicKeyValue(createPublicKey(key)) };
   const reference = repairLedgerReference({ pullRequestId: candidate.pullRequestId, generation });
   const expected = {
     appId: candidate.appId,

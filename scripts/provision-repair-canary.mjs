@@ -101,6 +101,10 @@ async function main() {
     method: "POST",
     body: {
       repository_ids: [REPOSITORY_ID],
+      permissions: {
+        secrets: "write",
+        variables: "write",
+      },
     },
   });
   if (installation.repositories?.length !== 1 || installation.repositories[0]?.id !== REPOSITORY_ID) {
@@ -121,15 +125,17 @@ async function main() {
   const keyId = repairLedgerKeyId(publicKey);
   const publicKeys = JSON.stringify({ [keyId]: repairLedgerPublicKeyValue(publicKey) });
 
+  // Make every partial provisioning state inert before writing any secret.
+  await upsertVariable("CHANGEPLANE_REPAIR_ENABLED", "false", installation.token);
+  await upsertVariable("CHANGEPLANE_CONTROLLER_INSTALLATION_ID", String(INSTALLATION_ID), installation.token);
+  await upsertVariable("CHANGEPLANE_REPAIR_GENERATION", "1", installation.token);
+  await upsertVariable("CHANGEPLANE_REPAIR_PUBLIC_KEYS", publicKeys, installation.token);
+
   await putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC", value: repositorySecret, token: installation.token });
   const deepSeekPath = process.env.CHANGEPLANE_DEEPSEEK_KEY_PATH;
   if (deepSeekPath) {
     await putEncryptedSecret({ name: "DEEPSEEK_API_KEY", value: readSecretFile("CHANGEPLANE_DEEPSEEK_KEY_PATH"), token: installation.token });
   }
-  await upsertVariable("CHANGEPLANE_CONTROLLER_INSTALLATION_ID", String(INSTALLATION_ID), installation.token);
-  await upsertVariable("CHANGEPLANE_REPAIR_GENERATION", "1", installation.token);
-  await upsertVariable("CHANGEPLANE_REPAIR_ENABLED", "false", installation.token);
-  await upsertVariable("CHANGEPLANE_REPAIR_PUBLIC_KEYS", publicKeys, installation.token);
 
   process.stdout.write(JSON.stringify({
     repository: REPOSITORY,

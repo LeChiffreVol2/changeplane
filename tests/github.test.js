@@ -473,6 +473,7 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   const guardWorkflow = readFileSync(new URL("../examples/changeplane-repair-guard.yml", import.meta.url), "utf8");
   const grantVerifier = readFileSync(new URL("../examples/changeplane-grant.js", import.meta.url), "utf8");
   const claimClient = readFileSync(new URL("../examples/changeplane-claim.js", import.meta.url), "utf8");
+  const provisioner = readFileSync(new URL("../scripts/provision-repair-canary.mjs", import.meta.url), "utf8");
   const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
   assert.match(workflow, /Inactive controlled-canary template/u);
   assert.match(workflow, /cancel-in-progress: false/u);
@@ -540,6 +541,12 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
   assert.match(guardWorkflow, /ref: __CHANGEPLANE_RELEASE_SHA__/u);
   assert.doesNotMatch(guardWorkflow, /statuses: read/u);
+  assert.match(provisioner, /repository_ids: \[REPOSITORY_ID\][\s\S]*?secrets: "write"[\s\S]*?variables: "write"/u);
+  assert.ok(
+    provisioner.indexOf('upsertVariable("CHANGEPLANE_REPAIR_ENABLED", "false"')
+      < provisioner.indexOf('putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC"'),
+    "a partial provisioning run must be disabled before any secret is written",
+  );
 });
 
 test("session reports whether the real GitHub connector is configured", async () => {

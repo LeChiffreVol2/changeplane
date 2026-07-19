@@ -63,8 +63,9 @@
 ## Required before enforcement or agent repair
 
 - [ ] Replace broad OAuth repository access with a least-privilege GitHub App and short-lived installation tokens.
-- [ ] Confirm `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` belong to the same dedicated App; its installation grants Actions (read), Checks (write), Contents (write), and Pull requests (read).
-- [ ] Mint a short-lived token constrained by `repository_ids` and confirm GitHub returns exactly the disposable repository ID, active and unarchived, before provisioning or dispatch.
+- [ ] Confirm `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` belong to the same dedicated App. Provisioning requests Secrets (write) and Variables (write); the live controller separately requests only Actions (read), Checks (write), Contents (write), and Pull requests (read). Workflow write, if used, is installer-only.
+- [ ] Mint each short-lived token with its phase-specific permissions and constrain it by `repository_ids`; confirm GitHub returns exactly the disposable repository ID, active and unarchived, before provisioning or dispatch.
+- [ ] Provision `CHANGEPLANE_REPAIR_ENABLED=false` before any secret so interruption or permission failure leaves an inert, safely rerunnable repository configuration.
 - [ ] Confirm Vercel `CHANGEPLANE_REPAIR_REPOSITORY` exactly equals `CHANGEPLANE_CANARY_REPOSITORY`, both generations are the same positive integer, and both repair switches remain false.
 - [ ] Derive `CHANGEPLANE_CONTROLLER_HMAC` from the independent 32+ character Vercel master secret plus the exact installation ID, repository ID, and repository name; never copy the master secret into GitHub.
 - [ ] Confirm the repository PS256 public-key map contains the App private key's expected key ID and no unreviewed key, and that the private key remains Vercel-only.

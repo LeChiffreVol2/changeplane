@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync, verify } from "node:crypto";
+import { createHash, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -17,7 +17,11 @@ import {
   verifyClaimRequest,
   verifyControllerRequest,
 } from "../server/github-repair-controller.js";
-import { canonicalJson } from "../server/repair-ledger.js";
+import {
+  canonicalJson,
+  repairLedgerKeyId,
+  repairLedgerPublicKeyValue,
+} from "../server/repair-ledger.js";
 
 const APP_ID = 101;
 const INSTALLATION_ID = 202;
@@ -26,6 +30,7 @@ const PULL_REQUEST_ID = 404;
 const PULL_REQUEST_NUMBER = 42;
 const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
+const NEXT_HEAD_SHA = "f".repeat(40);
 const RELEASE_SHA = "c".repeat(40);
 const REPOSITORY = "acme/payments";
 
@@ -96,6 +101,8 @@ function automaticFixture({
   repairKind,
   allowedPaths,
   instructions,
+  attempt = 1,
+  headSha = HEAD_SHA,
 }) {
   const plan = { scope: contract.scope, ...(contract.goal ? { goal: contract.goal } : {}) };
   const authority = {
@@ -109,9 +116,9 @@ function automaticFixture({
   const idempotencyKey = digest({
     repository: REPOSITORY,
     pullRequestNumber: PULL_REQUEST_NUMBER,
-    headSha: HEAD_SHA,
+    headSha,
     inputDigest: authority.inputDigest,
-    attempt: 1,
+    attempt,
   });
   return {
     policy,
@@ -126,13 +133,13 @@ function automaticFixture({
         pullRequestNumber: PULL_REQUEST_NUMBER,
         baseRef: "main",
         baseSha: BASE_SHA,
-        headSha: HEAD_SHA,
+        headSha,
         headRef: "agent/fix",
         headRepository: REPOSITORY,
       },
       authority,
       contract,
-      attempt: 1,
+      attempt,
       repairKind,
       allowedPaths,
       instructions,
@@ -140,15 +147,10 @@ function automaticFixture({
   };
 }
 
-function automaticReceipt(plan, login = "github-actions[bot]") {
-  const encodedPlan = Buffer.from(canonicalJson(plan)).toString("base64url");
-  return {
-    user: { login },
-    body: [
-      `<!-- changeplane-receipt:v2 contract=${digest(plan)} input=${"d".repeat(64)} head=${"e".repeat(40)} -->`,
-      `<!-- changeplane-contract:v1 source=first-head plan=${encodedPlan} -->`,
-    ].join("\n"),
-  };
+function ledgerPublicKeys(privateKey) {
+  const publicKey = createPublicKey(privateKey);
+  const keyId = repairLedgerKeyId(publicKey);
+  return { [keyId]: repairLedgerPublicKeyValue(publicKey) };
 }
 
 function sha(counter) {
@@ -163,6 +165,7 @@ function fakeGitHub(policy, {
   pullRequestBody = '<!-- changeplane\n{"scope":["src/payments/**"]}\n-->',
   pullRequestTitle = "Repair payment scope",
   pullRequestFiles = [{ filename: "docs/oops.md" }],
+  pullRequestHeadSha = HEAD_SHA,
   issueComments = [],
   initialChecks = [],
 } = {}) {
@@ -176,6 +179,11 @@ function fakeGitHub(policy, {
   const dispatches = [];
   const tokenRequests = [];
   const workflowRuns = new Map();
+  const requests = [];
+  let livePullRequestBody = pullRequestBody;
+  let livePullRequestTitle = pullRequestTitle;
+  let livePullRequestFiles = structuredClone(pullRequestFiles);
+  let livePullRequestHeadSha = pullRequestHeadSha;
 
   function error(status, message) {
     const value = new Error(message);
@@ -185,6 +193,7 @@ function fakeGitHub(policy, {
 
   const request = async (path, token, options = {}) => {
     const method = options.method ?? "GET";
+    requests.push({ method, path });
     if (path === `/app/installations/${INSTALLATION_ID}/access_tokens` && method === "POST") {
       tokenRequests.push(structuredClone(options.body));
       return { token: "installation-token", repositories: [{ id: REPOSITORY_ID }] };
@@ -197,11 +206,11 @@ function fakeGitHub(policy, {
         id: PULL_REQUEST_ID,
         number: PULL_REQUEST_NUMBER,
         state: "open",
-        changed_files: pullRequestFiles.length,
-        body: pullRequestBody,
-        title: pullRequestTitle,
+        changed_files: livePullRequestFiles.length,
+        body: livePullRequestBody,
+        title: livePullRequestTitle,
         base: { ref: "main", sha: BASE_SHA },
-        head: { ref: "agent/fix", sha: HEAD_SHA, repo: { full_name: REPOSITORY } },
+        head: { ref: "agent/fix", sha: livePullRequestHeadSha, repo: { full_name: REPOSITORY } },
       };
     }
     if (path === "/repos/acme/payments/git/ref/heads/main") return { object: { sha: BASE_SHA } };
@@ -209,7 +218,7 @@ function fakeGitHub(policy, {
       return { type: "file", encoding: "base64", content: Buffer.from(JSON.stringify(policy)).toString("base64") };
     }
     if (path === `/repos/acme/payments/pulls/${PULL_REQUEST_NUMBER}/files?per_page=100&page=1`) {
-      return structuredClone(pullRequestFiles);
+      return structuredClone(livePullRequestFiles);
     }
     if (path === `/repos/acme/payments/issues/${PULL_REQUEST_NUMBER}/comments?per_page=100&page=1`) {
       return structuredClone(issueComments);
@@ -294,7 +303,13 @@ function fakeGitHub(policy, {
     }
     throw new Error(`Unhandled fake GitHub request: ${method} ${path}`);
   };
-  return { request, refs, commits, checks, dispatches, tokenRequests, workflowRuns };
+  const setPullRequest = ({ body, title, files, headSha } = {}) => {
+    if (body !== undefined) livePullRequestBody = body;
+    if (title !== undefined) livePullRequestTitle = title;
+    if (files !== undefined) livePullRequestFiles = structuredClone(files);
+    if (headSha !== undefined) livePullRequestHeadSha = headSha;
+  };
+  return { request, refs, commits, checks, dispatches, tokenRequests, workflowRuns, requests, setPullRequest };
 }
 
 test("GitHub App JWT and repository token stay narrowly scoped", async () => {
@@ -324,6 +339,7 @@ test("GitHub App JWT and repository token stay narrowly scoped", async () => {
 });
 
 test("automatic first-head contract authorizes bounded evidence repair before its receipt exists", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const title = "Make checkout retries idempotent";
   const contract = { scope: ["src/payments/retry.js"], goal: title };
   const files = [{ path: "src/payments/retry.js" }];
@@ -371,6 +387,8 @@ test("automatic first-head contract authorizes bounded evidence repair before it
     installationToken: "installation-token",
     appId: APP_ID,
     publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    publicKeys: ledgerPublicKeys(privateKey),
     expectedRepository: REPOSITORY,
     request: github.request,
   });
@@ -385,9 +403,11 @@ test("automatic first-head contract authorizes bounded evidence repair before it
     action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
     diagnostic,
   }]);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
-test("trusted prior GitHub Actions receipt preserves the first-head contract across later path drift", async () => {
+test("github-actions bot comments cannot authorize an automatic contract", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const title = "Make checkout retries idempotent";
   const plan = { scope: ["src/payments/retry.js"], goal: title };
   const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
@@ -413,51 +433,57 @@ test("trusted prior GitHub Actions receipt preserves the first-head contract acr
     pullRequestBody: "",
     pullRequestTitle: title,
     pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
-    issueComments: [automaticReceipt(plan)],
+    issueComments: [{
+      user: { login: "github-actions[bot]" },
+      body: [
+        `<!-- changeplane-receipt:v2 contract=${digest(plan)} input=${"d".repeat(64)} head=${"e".repeat(40)} -->`,
+        `<!-- changeplane-contract:v1 source=first-head plan=${Buffer.from(canonicalJson(plan)).toString("base64url")} -->`,
+      ].join("\n"),
+    }],
   });
 
-  const candidate = await buildTrustedRepairCandidate({
+  await assert.rejects(buildTrustedRepairCandidate({
     controllerRequest: request,
     installationToken: "installation-token",
     appId: APP_ID,
     publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    publicKeys: ledgerPublicKeys(privateKey),
     expectedRepository: REPOSITORY,
     request: github.request,
-  });
-
-  assert.equal(candidate.repairKind, "scope");
-  assert.deepEqual(candidate.declaredScope, plan.scope);
-  assert.deepEqual(candidate.allowedPaths, ["docs/oops.md"]);
+  }), /first-head automatic contract/u);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
-test("trusted first-head receipt prevents rebinding to the expanded current file set", async () => {
+test("signed generation ledger preserves the first-head contract across a later head", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const title = "Make checkout retries idempotent";
-  const firstHeadPlan = { scope: ["src/payments/retry.js"], goal: title };
-  const expandedContract = { scope: ["docs/oops.md", "src/payments/retry.js"], goal: title };
-  const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  const contract = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }];
   const policy = {
     version: 1,
     protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
     evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
   };
-  const { request } = automaticFixture({
-    contract: expandedContract,
+  const instructions = [{
+    code: "EVIDENCE_FAILED",
+    path: "check:checkout-race",
+    pathKind: "evidence",
+    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    diagnostic: "Checkout race failed",
+  }];
+  const first = automaticFixture({
+    contract,
     files,
     policy,
     repairKind: "evidence",
-    allowedPaths: expandedContract.scope,
-    instructions: [{
-      code: "EVIDENCE_FAILED",
-      path: "check:checkout-race",
-      pathKind: "evidence",
-      action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
-    }],
+    allowedPaths: contract.scope,
+    instructions,
   });
   const github = fakeGitHub(policy, {
     pullRequestBody: "",
     pullRequestTitle: title,
-    pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
-    issueComments: [automaticReceipt(firstHeadPlan)],
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
     initialChecks: [{
       id: 92,
       name: "checkout-race",
@@ -469,53 +495,140 @@ test("trusted first-head receipt prevents rebinding to the expanded current file
     }],
   });
 
-  await assert.rejects(buildTrustedRepairCandidate({
-    controllerRequest: request,
-    installationToken: "installation-token",
+  const options = {
     appId: APP_ID,
+    privateKey,
     publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    enabled: true,
     expectedRepository: REPOSITORY,
     request: github.request,
-  }), /trusted automatic contract/u);
+  };
+  const firstPublished = await publishTrustedRepair({
+    ...options,
+    controllerRequest: first.request,
+    now: new Date("2026-07-19T00:00:00.000Z"),
+  });
+  assert.equal(firstPublished.attempt, 1);
+
+  github.setPullRequest({ headSha: NEXT_HEAD_SHA });
+  github.checks.push({
+    id: 191,
+    name: "checkout-race",
+    head_sha: NEXT_HEAD_SHA,
+    status: "completed",
+    conclusion: "failure",
+    app: { slug: "github-actions" },
+    output: { title: "Checkout race failed", annotations_count: 0 },
+  });
+  const second = automaticFixture({
+    contract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: contract.scope,
+    instructions,
+    attempt: 2,
+    headSha: NEXT_HEAD_SHA,
+  });
+  const secondPublished = await publishTrustedRepair({
+    ...options,
+    controllerRequest: second.request,
+    now: new Date("2026-07-19T00:01:00.000Z"),
+  });
+
+  assert.equal(secondPublished.attempt, 2);
+  assert.equal(github.dispatches.length, 2);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
-test("attacker-authored automatic receipt cannot authorize a later path-drift repair", async () => {
+test("signed generation ledger rejects rebinding to an expanded contract", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const title = "Make checkout retries idempotent";
-  const plan = { scope: ["src/payments/retry.js"], goal: title };
-  const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  const firstContract = { scope: ["src/payments/retry.js"], goal: title };
+  const firstFiles = [{ path: "src/payments/retry.js" }];
   const policy = {
     version: 1,
     protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
   };
-  const { request } = automaticFixture({
-    contract: plan,
-    files,
+  const evidenceInstruction = [{
+    code: "EVIDENCE_FAILED",
+    path: "check:checkout-race",
+    pathKind: "evidence",
+    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    diagnostic: "Checkout race failed",
+  }];
+  const first = automaticFixture({
+    contract: firstContract,
+    files: firstFiles,
     policy,
-    repairKind: "scope",
-    allowedPaths: ["docs/oops.md"],
-    instructions: [{
-      code: "OUTSIDE_PLANNED_SCOPE",
-      path: "docs/oops.md",
-      pathKind: "current",
-      action: "REVERT_OR_MOVE_INTO_DECLARED_SCOPE",
-    }],
+    repairKind: "evidence",
+    allowedPaths: firstContract.scope,
+    instructions: evidenceInstruction,
   });
   const github = fakeGitHub(policy, {
     pullRequestBody: "",
     pullRequestTitle: title,
-    pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
-    issueComments: [automaticReceipt(plan, "octocat")],
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
+    initialChecks: [{
+      id: 93,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: { title: "Checkout race failed", annotations_count: 0 },
+    }],
   });
-
-  await assert.rejects(buildTrustedRepairCandidate({
-    controllerRequest: request,
-    installationToken: "installation-token",
+  const options = {
     appId: APP_ID,
+    privateKey,
     publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    enabled: true,
     expectedRepository: REPOSITORY,
     request: github.request,
-  }), /trusted automatic contract/u);
+  };
+  await publishTrustedRepair({
+    ...options,
+    controllerRequest: first.request,
+    now: new Date("2026-07-19T00:00:00.000Z"),
+  });
+
+  const expandedContract = { scope: ["docs/oops.md", "src/payments/retry.js"], goal: title };
+  const expandedFiles = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  github.setPullRequest({
+    headSha: NEXT_HEAD_SHA,
+    files: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
+  });
+  github.checks.push({
+    id: 192,
+    name: "checkout-race",
+    head_sha: NEXT_HEAD_SHA,
+    status: "completed",
+    conclusion: "failure",
+    app: { slug: "github-actions" },
+    output: { title: "Checkout race failed", annotations_count: 0 },
+  });
+  const expanded = automaticFixture({
+    contract: expandedContract,
+    files: expandedFiles,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: expandedContract.scope,
+    instructions: evidenceInstruction,
+    attempt: 2,
+    headSha: NEXT_HEAD_SHA,
+  });
+
+  await assert.rejects(publishTrustedRepair({
+    ...options,
+    controllerRequest: expanded.request,
+    now: new Date("2026-07-19T00:01:00.000Z"),
+  }), /ledger document identity/u);
+  assert.equal(github.dispatches.length, 1);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
 test("controller and claim HMACs are repository-bound and tamper evident", () => {

@@ -70,7 +70,7 @@ GITHUB_APP_PRIVATE_KEY=server-only-rsa-private-key
 CHANGEPLANE_CONTROLLER_SECRET=independent-32-plus-character-secret
 ```
 
-`CHANGEPLANE_REPAIR_REPOSITORY` must exactly equal `CHANGEPLANE_CANARY_REPOSITORY`. `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` must identify the same private, repository-scoped App. Its installation must grant Actions (read), Checks (write), Contents (write), and Pull requests (read), and an installation token request must return only the exact disposable repository. Never give the model or repository workflow the App private key, controller master secret, Check authority, or merge authority.
+`CHANGEPLANE_REPAIR_REPOSITORY` must exactly equal `CHANGEPLANE_CANARY_REPOSITORY`. `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` must identify the same private, repository-scoped App. The App installation grants two separated authority sets: provisioning needs Secrets (write) and Variables (write), while the live controller requests a new repository-bound token limited to Actions (read), Checks (write), Contents (write), and Pull requests (read). Workflow write remains installer-only when the App creates the reviewed setup PR; it is never requested by the live repair controller. Every installation-token request must return only the exact disposable repository. Never give the model or repository workflow the App private key, controller master secret, Check authority, or merge authority.
 
 Provision these GitHub Actions values only in that disposable repository:
 
@@ -86,7 +86,7 @@ CHANGEPLANE_CONTROLLER_HMAC=<repository-bound derived secret>
 DEEPSEEK_API_KEY=<verified BYOK key; evidence repair only>
 ```
 
-The repository HMAC is derived from the server master secret plus the exact installation ID, repository ID, and repository name; it is not the Vercel `CHANGEPLANE_CONTROLLER_SECRET`. Keep `DEEPSEEK_API_KEY` absent for a deterministic scope-only canary. Plaintext secret material must move through an approved secret-input path and must not appear in shell history, logs, screenshots, pull requests, or documentation.
+The repository HMAC is derived from the server master secret plus the exact installation ID, repository ID, and repository name; it is not the Vercel `CHANGEPLANE_CONTROLLER_SECRET`. The provisioner first writes `CHANGEPLANE_REPAIR_ENABLED=false` and the non-secret variables with a token constrained to Secrets (write), Variables (write), and the exact repository, then writes secrets. A failed or partial provisioning run therefore remains inert and safe to rerun. Keep `DEEPSEEK_API_KEY` absent for a deterministic scope-only canary. Plaintext secret material must move through an approved secret-input path and must not appear in shell history, logs, screenshots, pull requests, or documentation.
 
 Install `examples/changeplane-repair-guard.yml` and `examples/changeplane-repair.yml` together in one reviewed setup pull request. Replace every `__CHANGEPLANE_RELEASE_SHA__` occurrence in both files with the same reviewed 40-character Git commit that backs the live Vercel Production deployment; never use `main`, a tag, a shortened SHA, or the template placeholder. Verify the full deployment source SHA independently and confirm its first 12 characters equal readiness `release` before merging the setup PR.
 
@@ -114,7 +114,7 @@ The PR installs:
 
 ## Automatic pull-request contract and evidence
 
-Ordinary pull requests need no ChangePlane syntax. On the first eligible event, ChangePlane binds the PR title and up to 50 exact changed paths into a trusted receipt comment. Later commits can modify those files, but a new path becomes scope drift. This makes Codex, Claude Code, Cursor, and other agent-authored PRs work without a handoff or template change.
+Ordinary pull requests need no ChangePlane syntax. On the first eligible event, ChangePlane binds the PR title and up to 50 exact changed paths into the GitHub receipt. Later commits can modify those files, but a new path becomes scope drift. The receipt comment is an audit surface, not repair authority: the controlled repair controller infers attempt one directly from the live first head, then locks every continuation to the exact contract digest in its App-signed, App-anchored generation ledger. This makes Codex, Claude Code, Cursor, and other agent-authored PRs work without a handoff or template change.
 
 For intentionally broad work, the coding agent can declare a prefix contract in the pull-request body:
 
