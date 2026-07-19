@@ -115,7 +115,7 @@ const PREVIEW_PREFLIGHT = {
   installable: true,
   conflicts: [],
   setupFiles: 6,
-  evidenceOptions: [{ name: "test", appSlug: "github-actions", recommended: true }],
+  evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
   boundary: {
     defaultBranchWrite: false,
     pullRequestOnly: true,
@@ -606,6 +606,7 @@ function GitHubSetup({
   preflightStatus,
   preflight,
   preflightError,
+  onRetryPreflight,
   installStatus,
   installError,
   installResult,
@@ -625,6 +626,7 @@ function GitHubSetup({
   const [evidenceMode, setEvidenceMode] = useState("behavior");
   const [checkName, setCheckName] = useState(session.isPreview ? "test" : "");
   const [checkPublisher, setCheckPublisher] = useState("github-actions");
+  const [behaviorConfirmed, setBehaviorConfirmed] = useState(false);
   const evidenceOptions = Array.isArray(preflight?.evidenceOptions) ? preflight.evidenceOptions : [];
   const matchingRepositories = repositories.filter((repository) => (
     repository.fullName.toLowerCase().includes(query.trim().toLowerCase())
@@ -633,7 +635,8 @@ function GitHubSetup({
   const complete = Boolean(installResult);
   const preflightReady = preflightStatus === "ready" && preflight?.installable;
   const pendingSetup = preflight?.setup?.state === "pending" && preflight.setup.pullRequest?.url;
-  const evidenceReady = pendingSetup || evidenceMode === "scope" || (checkName.trim() && checkPublisher.trim());
+  const evidenceReady = pendingSetup || evidenceMode === "scope"
+    || (checkName.trim() && checkPublisher.trim() && behaviorConfirmed);
   const repositoryMutationBusy = installStatus === "installing" || byokSaving;
 
   useEffect(() => {
@@ -641,12 +644,14 @@ function GitHubSetup({
       setEvidenceMode("behavior");
       setCheckName("");
       setCheckPublisher("github-actions");
+      setBehaviorConfirmed(false);
       return;
     }
-    const recommended = evidenceOptions.find((option) => option.recommended);
-    setEvidenceMode("behavior");
-    setCheckName(recommended?.name ?? "");
-    setCheckPublisher(recommended?.appSlug ?? "github-actions");
+    const suggested = evidenceOptions.find((option) => option.suggested) ?? evidenceOptions[0];
+    setEvidenceMode(suggested ? "behavior" : "scope");
+    setCheckName(suggested?.name ?? "");
+    setCheckPublisher(suggested?.appSlug ?? "github-actions");
+    setBehaviorConfirmed(false);
   }, [preflight, preflightStatus, selectedRepository]);
 
   return (
@@ -781,8 +786,10 @@ function GitHubSetup({
                                   ? `The existing PR binds ${preflight.setup.requiredCheck.name} from ${preflight.setup.requiredCheck.appSlug}. Open it to review and merge; no new write is needed.`
                                   : "The existing PR is explicitly scope-only. Open it to review and merge; no new write is needed."
                                 : evidenceOptions.length > 0
-                                  ? `Found ${evidenceOptions.length} existing GitHub check${evidenceOptions.length === 1 ? "" : "s"}. The recommended choice is already selected below.`
-                                  : "Every receipt records the exact commit, changed files, and protected paths. Bind one existing test below to prove behavior, or explicitly choose scope-only."
+                                  ? `Found ${evidenceOptions.length} recent GitHub check${evidenceOptions.length === 1 ? "" : "s"}. A likely test is selected; confirm what it protects below.`
+                                  : preflight?.evidenceDiscovery?.state === "unavailable"
+                                    ? "GitHub checks could not be read right now. Scope-only is selected safely; retry discovery or add a check manually."
+                                    : "No existing checks were found. Scope-only is selected; add a real automated test later to prove behavior."
                               : preflight?.setup?.message || preflightError || (preflight?.conflicts?.length
                                 ? `Existing ChangePlane paths found: ${preflight.conflicts.join(", ")}`
                                 : "This repository is not eligible for the observe rollout.")}</span>
@@ -801,6 +808,11 @@ function GitHubSetup({
                           Open PR #{preflight.setup.pullRequest.number}, choose Close pull request, then Delete branch <ArrowRight size={13} />
                         </a>
                       )}
+                      {preflightReady && preflight?.evidenceDiscovery?.state === "unavailable" && (
+                        <button className="evidence-retry" type="button" onClick={onRetryPreflight}>
+                          <ArrowsClockwise size={13} weight="bold" /> Try check discovery again
+                        </button>
+                      )}
                     </div>
 
                     {preflightReady && !pendingSetup && (
@@ -808,7 +820,7 @@ function GitHubSetup({
                         <legend>Choose what the first receipt proves</legend>
                         <label className={evidenceMode === "behavior" ? "is-selected" : ""}>
                           <input type="radio" name="evidence-mode" value="behavior" checked={evidenceMode === "behavior"} onChange={() => setEvidenceMode("behavior")} />
-                          <span><strong>Code behavior</strong><small>Recommended · {evidenceOptions.length > 0 ? "use a test ChangePlane found in GitHub" : "bind one existing automated test"}</small></span>
+                          <span><strong>Code behavior</strong><small>{evidenceOptions.length > 0 ? "Suggested from recent GitHub runs" : "Advanced · bind an existing automated test"}</small></span>
                         </label>
                         {evidenceMode === "behavior" && (
                           <div className="evidence-fields">
@@ -821,33 +833,29 @@ function GitHubSetup({
                                     const [name, appSlug] = event.target.value.split("\0");
                                     setCheckName(name);
                                     setCheckPublisher(appSlug);
+                                    setBehaviorConfirmed(false);
                                   }}
                                 >
                                   {evidenceOptions.map((option) => (
                                     <option key={`${option.name}\0${option.appSlug}`} value={`${option.name}\0${option.appSlug}`}>
-                                      {option.name} · {option.appSlug}{option.recommended ? " (recommended)" : ""}
+                                      {option.name} · {option.appSlug}{option.suggested ? " (suggested)" : ""}
                                     </option>
                                   ))}
                                 </select>
                               </label>
                             )}
-                            {evidenceOptions.length === 0 && (
-                              <>
-                                <label><span>Exact check name</span><input value={checkName} onChange={(event) => setCheckName(event.target.value)} placeholder="For example: test" maxLength={100} /></label>
-                                <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => setCheckPublisher(event.target.value)} placeholder="github-actions" maxLength={100} /></label>
-                              </>
-                            )}
                             <details>
-                              <summary>{evidenceOptions.length > 0 ? "Advanced · use a different check" : "Where do I find this?"}</summary>
-                              {evidenceOptions.length > 0 ? (
-                                <div className="evidence-manual">
-                                  <label><span>Exact check name</span><input value={checkName} onChange={(event) => setCheckName(event.target.value)} maxLength={100} /></label>
-                                  <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => setCheckPublisher(event.target.value)} maxLength={100} /></label>
-                                </div>
-                              ) : (
-                                <p>Open a recent pull request in GitHub, choose <strong>Checks</strong>, and copy the meaningful test name. GitHub Actions usually uses <code>github-actions</code> as the publisher.</p>
-                              )}
+                              <summary>{evidenceOptions.length > 0 ? "Advanced · use a different check" : "Advanced · add a check manually"}</summary>
+                              {evidenceOptions.length === 0 && <p>Open a recent pull request in GitHub, choose <strong>Checks</strong>, and copy the meaningful test name. GitHub Actions usually uses <code>github-actions</code> as the publisher.</p>}
+                              <div className="evidence-manual">
+                                <label><span>Exact check name</span><input value={checkName} onChange={(event) => { setCheckName(event.target.value); setBehaviorConfirmed(false); }} placeholder="For example: test" maxLength={100} /></label>
+                                <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => { setCheckPublisher(event.target.value); setBehaviorConfirmed(false); }} placeholder="github-actions" maxLength={100} /></label>
+                              </div>
                             </details>
+                            <label className="evidence-confirmation">
+                              <input type="checkbox" checked={behaviorConfirmed} onChange={(event) => setBehaviorConfirmed(event.target.checked)} />
+                              <span>This check fails when important code behavior breaks.</span>
+                            </label>
                           </div>
                         )}
                         <label className={evidenceMode === "scope" ? "is-selected" : ""}>
@@ -912,7 +920,7 @@ function GitHubSetup({
                 <h2 id="setup-title">{installResult.preview ? "Observe-mode setup prepared" : "One last step in GitHub"}</h2>
                 <p>{installResult.preview
                   ? "In production, the next GitHub pull request update starts ChangePlane automatically. This example did not access or change a repository."
-                  : "Open the setup pull request, review the six new ChangePlane files, then choose Merge pull request. ChangePlane does not start until GitHub shows the PR as merged."}</p>
+                  : "Open the setup pull request, review the six ChangePlane files, and merge it. The setup PR itself is not checked; the first normal pull request opened or updated afterward receives ChangePlane / guard."}</p>
 
                 <dl className="install-result-facts">
                   <div><dt>Repository</dt><dd>{installResult.repository}</dd></div>
@@ -929,15 +937,20 @@ function GitHubSetup({
                     Open setup PR on GitHub <ArrowRight size={17} />
                   </a>
                 )}
-                {!installResult.preview && <p className="install-note">After merging, the next agent-created or agent-updated pull request receives a ChangePlane receipt automatically.</p>}
+                {!installResult.preview && <p className="install-note">Setup is working when <code>ChangePlane / guard</code> appears on the latest commit of a normal pull request.</p>}
                 <section className="activation-checklist" aria-labelledby="activation-title">
-                  <strong id="activation-title">{installResult.preview ? "In a real installation, after merge" : "After this setup PR is merged"}</strong>
+                  <strong id="activation-title">{installResult.preview ? "In a real installation, after merge" : "Finish activation in GitHub"}</strong>
                   <ol>
-                    <li><span>1</span><p>Open or update a normal pull request. No ChangePlane handoff is needed.</p></li>
-                    <li><span>2</span><p>In GitHub, open <strong>Checks</strong> and choose <code>ChangePlane / guard</code>.</p></li>
-                    <li><span>3</span><p><strong>Neutral</strong> means observe-only. The receipt says <strong>scope-only</strong> when no behavioral test is configured, or lists the exact test evidence when it is.</p></li>
+                    <li><span>1</span><p>Merge the setup pull request.</p></li>
+                    <li><span>2</span><p>Open or update one normal pull request, then open its <strong>Checks</strong> tab.</p></li>
+                    <li><span>3</span><p>Choose <code>ChangePlane / guard</code>. <strong>Neutral</strong> reports what it found without changing merge rules. <strong>Scope only</strong> means files and protected paths were checked, but no behavior test was bound.</p></li>
                   </ol>
                 </section>
+                {!installResult.preview && (
+                  <a className="text-action install-pulls-link" href={`https://github.com/${installResult.repository}/pulls`} target="_blank" rel="noreferrer">
+                    After merging: open this project’s pull requests <ArrowRight size={13} />
+                  </a>
+                )}
                 <button className="text-action" type="button" onClick={onResetInstall}>Choose another repository</button>
               </div>
             )}
@@ -1643,6 +1656,7 @@ export function App() {
   const [preflightStatus, setPreflightStatus] = useState("idle");
   const [preflight, setPreflight] = useState(null);
   const [preflightError, setPreflightError] = useState("");
+  const [preflightRefresh, setPreflightRefresh] = useState(0);
   const [installStatus, setInstallStatus] = useState("idle");
   const [installError, setInstallError] = useState("");
   const [installResult, setInstallResult] = useState(null);
@@ -1732,7 +1746,7 @@ export function App() {
         setPreflightStatus("error");
       });
     return () => { cancelled = true; };
-  }, [session, selectedRepository]);
+  }, [session, selectedRepository, preflightRefresh]);
 
   useEffect(() => {
     if (!session || !selectedRepository) {
@@ -2115,6 +2129,7 @@ export function App() {
         preflightStatus={preflightStatus}
         preflight={preflight}
         preflightError={preflightError}
+        onRetryPreflight={() => setPreflightRefresh((value) => value + 1)}
         installStatus={installStatus}
         installError={installError}
         installResult={installResult}

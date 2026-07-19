@@ -341,10 +341,12 @@ export function checkDiagnostic(check, annotations = []) {
   return sections.join("\n").slice(0, 6_000);
 }
 
-async function evidenceSnapshot(repository, headSha, policy, token) {
+export async function evidenceSnapshot(repository, headSha, policy, token, { includeCommitStatuses = true } = {}) {
   const [checkRuns, combinedStatus] = await Promise.all([
     api(`/repos/${repository}/commits/${encodeURIComponent(headSha)}/check-runs?filter=latest&per_page=100`, token),
-    api(`/repos/${repository}/commits/${encodeURIComponent(headSha)}/status?per_page=100`, token),
+    includeCommitStatuses
+      ? api(`/repos/${repository}/commits/${encodeURIComponent(headSha)}/status?per_page=100`, token)
+      : null,
   ]);
   const requiredChecks = policy.evidence?.requiredChecks ?? [];
   const required = requiredChecks.map((item) => (
@@ -475,14 +477,14 @@ export async function discoverPreview(repository, headSha, token) {
   return { status: statusReadFailed ? "UNAVAILABLE" : "MISSING" };
 }
 
-async function waitForEvidence(repository, headSha, policy, token) {
+async function waitForEvidence(repository, headSha, policy, token, { includeCommitStatuses = true } = {}) {
   const requiredChecks = policy.evidence?.requiredChecks ?? [];
   if (requiredChecks.length === 0) return evaluateEvidence();
   const deadline = Date.now() + (policy.evidence?.timeoutSeconds ?? 0) * 1000;
   for (;;) {
     const result = evaluateEvidence({
       requiredChecks,
-      checks: await evidenceSnapshot(repository, headSha, policy, token),
+      checks: await evidenceSnapshot(repository, headSha, policy, token, { includeCommitStatuses }),
     });
     const onlyPending = result.reasons.length > 0
       && result.reasons.every(({ code }) => code === "EVIDENCE_PENDING" || code === "EVIDENCE_MISSING");
@@ -1087,7 +1089,9 @@ export async function run() {
   if (mode === "enforce" && (policy.evidence?.requiredChecks ?? []).some((requirement) => typeof requirement === "string")) {
     throw new Error("Enforce mode requires every evidence.requiredChecks entry to declare its expected GitHub App with { name, appSlug }.");
   }
-  const evidenceResult = await waitForEvidence(repository, pullRequest.head.sha, policy, token);
+  const evidenceResult = await waitForEvidence(repository, pullRequest.head.sha, policy, token, {
+    includeCommitStatuses: mode !== "enforce",
+  });
   const preview = await discoverPreview(repository, pullRequest.head.sha, token);
   const boundContractDigest = boundReceipt?.contractDigest ?? contractDigest;
   const contractReasons = boundContractDigest !== contractDigest

@@ -9,6 +9,7 @@ import {
   discoverOpenPullRequestOverlaps,
   digest,
   eligibleReviewCandidates,
+  evidenceSnapshot,
   headCheckPayload,
   inferPlan,
   githubRetryDelayMs,
@@ -51,6 +52,79 @@ test("builds bounded exact-check diagnostics from output and annotations", () =>
   assert.match(diagnostic, /Checkout race failed/u);
   assert.match(diagnostic, /src\/payments\/retry\.js:line 42 — duplicate charge/u);
   assert.equal(diagnostic.length <= 6_000, true);
+});
+
+test("enforce evidence excludes legacy commit statuses without querying them", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    requested.push(url.pathname);
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { check_runs: [] }; },
+    };
+  };
+  try {
+    const checks = await evidenceSnapshot(
+      "acme/payments",
+      "a".repeat(40),
+      { evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions" }] } },
+      "token",
+      { includeCommitStatuses: false },
+    );
+    assert.deepEqual(checks, []);
+    assert.equal(requested.length, 1);
+    assert.match(requested[0], /\/check-runs$/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("observe evidence keeps legacy commit statuses during migration", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    requested.push(url.pathname);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return url.pathname.endsWith("/check-runs")
+          ? { check_runs: [] }
+          : {
+              statuses: [{
+                context: "legacy-ci",
+                state: "success",
+                creator: { login: "ci-user" },
+              }],
+            };
+      },
+    };
+  };
+  try {
+    const checks = await evidenceSnapshot(
+      "acme/payments",
+      "a".repeat(40),
+      { evidence: { requiredChecks: [{ name: "legacy-ci" }] } },
+      "token",
+    );
+    assert.deepEqual(checks, [{
+      name: "legacy-ci",
+      status: "completed",
+      conclusion: "success",
+      createdAt: undefined,
+      completedAt: undefined,
+      source: "ci-user",
+    }]);
+    assert.equal(requested.length, 2);
+    assert.match(requested[0], /\/check-runs$/u);
+    assert.match(requested[1], /\/status$/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("accepts observe and enforce modes and defaults to observe", () => {

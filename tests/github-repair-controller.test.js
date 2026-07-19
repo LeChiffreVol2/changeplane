@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync, verify } from "node:crypto";
+import { createHash, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import test from "node:test";
 
 import {
+  buildTrustedRepairCandidate,
   claimDeliveryId,
   claimTrustedRepair,
   createGitHubAppJwt,
@@ -16,7 +17,11 @@ import {
   verifyClaimRequest,
   verifyControllerRequest,
 } from "../server/github-repair-controller.js";
-import { canonicalJson } from "../server/repair-ledger.js";
+import {
+  canonicalJson,
+  repairLedgerKeyId,
+  repairLedgerPublicKeyValue,
+} from "../server/repair-ledger.js";
 
 const APP_ID = 101;
 const INSTALLATION_ID = 202;
@@ -25,6 +30,7 @@ const PULL_REQUEST_ID = 404;
 const PULL_REQUEST_NUMBER = 42;
 const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
+const NEXT_HEAD_SHA = "f".repeat(40);
 const RELEASE_SHA = "c".repeat(40);
 const REPOSITORY = "acme/payments";
 
@@ -88,6 +94,65 @@ function fixtureRequest() {
   };
 }
 
+function automaticFixture({
+  contract,
+  files,
+  policy,
+  repairKind,
+  allowedPaths,
+  instructions,
+  attempt = 1,
+  headSha = HEAD_SHA,
+}) {
+  const plan = { scope: contract.scope, ...(contract.goal ? { goal: contract.goal } : {}) };
+  const authority = {
+    contractDigest: digest(plan),
+    policyDigest: digest(policy),
+    evaluatorVersion: "0.3.0",
+    inputDigest: digest({ plan, files }),
+    controllerSha: BASE_SHA,
+    policyPath: ".changeplane.json",
+  };
+  const idempotencyKey = digest({
+    repository: REPOSITORY,
+    pullRequestNumber: PULL_REQUEST_NUMBER,
+    headSha,
+    inputDigest: authority.inputDigest,
+    attempt,
+  });
+  return {
+    policy,
+    request: {
+      schemaVersion: 3,
+      issuer: "changeplane-guard",
+      idempotencyKey,
+      change: {
+        repository: REPOSITORY,
+        repositoryId: REPOSITORY_ID,
+        installationId: INSTALLATION_ID,
+        pullRequestNumber: PULL_REQUEST_NUMBER,
+        baseRef: "main",
+        baseSha: BASE_SHA,
+        headSha,
+        headRef: "agent/fix",
+        headRepository: REPOSITORY,
+      },
+      authority,
+      contract,
+      attempt,
+      repairKind,
+      allowedPaths,
+      instructions,
+    },
+  };
+}
+
+function ledgerPublicKeys(privateKey) {
+  const publicKey = createPublicKey(privateKey);
+  const keyId = repairLedgerKeyId(publicKey);
+  return { [keyId]: repairLedgerPublicKeyValue(publicKey) };
+}
+
 function sha(counter) {
   return counter.toString(16).padStart(40, "0");
 }
@@ -97,17 +162,28 @@ function fakeGitHub(policy, {
   failDispatchBeforeAcceptOnce = false,
   failLedgerAnchorOnce = false,
   loseLedgerAnchorResponseOnce = false,
+  pullRequestBody = '<!-- changeplane\n{"scope":["src/payments/**"]}\n-->',
+  pullRequestTitle = "Repair payment scope",
+  pullRequestFiles = [{ filename: "docs/oops.md" }],
+  pullRequestHeadSha = HEAD_SHA,
+  issueComments = [],
+  initialChecks = [],
 } = {}) {
   let objectCounter = 1;
-  let checkCounter = 1;
+  let checkCounter = Math.max(0, ...initialChecks.map((check) => check.id ?? 0)) + 1;
   const refs = new Map();
   const blobs = new Map();
   const trees = new Map();
   const commits = new Map();
-  const checks = [];
+  const checks = structuredClone(initialChecks);
   const dispatches = [];
   const tokenRequests = [];
   const workflowRuns = new Map();
+  const requests = [];
+  let livePullRequestBody = pullRequestBody;
+  let livePullRequestTitle = pullRequestTitle;
+  let livePullRequestFiles = structuredClone(pullRequestFiles);
+  let livePullRequestHeadSha = pullRequestHeadSha;
 
   function error(status, message) {
     const value = new Error(message);
@@ -117,6 +193,7 @@ function fakeGitHub(policy, {
 
   const request = async (path, token, options = {}) => {
     const method = options.method ?? "GET";
+    requests.push({ method, path });
     if (path === `/app/installations/${INSTALLATION_ID}/access_tokens` && method === "POST") {
       tokenRequests.push(structuredClone(options.body));
       return { token: "installation-token", repositories: [{ id: REPOSITORY_ID }] };
@@ -129,10 +206,11 @@ function fakeGitHub(policy, {
         id: PULL_REQUEST_ID,
         number: PULL_REQUEST_NUMBER,
         state: "open",
-        changed_files: 1,
-        body: '<!-- changeplane\n{"scope":["src/payments/**"]}\n-->',
+        changed_files: livePullRequestFiles.length,
+        body: livePullRequestBody,
+        title: livePullRequestTitle,
         base: { ref: "main", sha: BASE_SHA },
-        head: { ref: "agent/fix", sha: HEAD_SHA, repo: { full_name: REPOSITORY } },
+        head: { ref: "agent/fix", sha: livePullRequestHeadSha, repo: { full_name: REPOSITORY } },
       };
     }
     if (path === "/repos/acme/payments/git/ref/heads/main") return { object: { sha: BASE_SHA } };
@@ -140,7 +218,10 @@ function fakeGitHub(policy, {
       return { type: "file", encoding: "base64", content: Buffer.from(JSON.stringify(policy)).toString("base64") };
     }
     if (path === `/repos/acme/payments/pulls/${PULL_REQUEST_NUMBER}/files?per_page=100&page=1`) {
-      return [{ filename: "docs/oops.md" }];
+      return structuredClone(livePullRequestFiles);
+    }
+    if (path === `/repos/acme/payments/issues/${PULL_REQUEST_NUMBER}/comments?per_page=100&page=1`) {
+      return structuredClone(issueComments);
     }
     if (path.includes("/commits/") && path.includes("/check-runs?")) {
       const head = path.split("/commits/")[1].split("/check-runs")[0];
@@ -222,7 +303,13 @@ function fakeGitHub(policy, {
     }
     throw new Error(`Unhandled fake GitHub request: ${method} ${path}`);
   };
-  return { request, refs, commits, checks, dispatches, tokenRequests, workflowRuns };
+  const setPullRequest = ({ body, title, files, headSha } = {}) => {
+    if (body !== undefined) livePullRequestBody = body;
+    if (title !== undefined) livePullRequestTitle = title;
+    if (files !== undefined) livePullRequestFiles = structuredClone(files);
+    if (headSha !== undefined) livePullRequestHeadSha = headSha;
+  };
+  return { request, refs, commits, checks, dispatches, tokenRequests, workflowRuns, requests, setPullRequest };
 }
 
 test("GitHub App JWT and repository token stay narrowly scoped", async () => {
@@ -248,8 +335,300 @@ test("GitHub App JWT and repository token stay narrowly scoped", async () => {
     checks: "write",
     contents: "write",
     pull_requests: "read",
-    statuses: "read",
   });
+});
+
+test("automatic first-head contract authorizes bounded evidence repair before its receipt exists", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const title = "Make checkout retries idempotent";
+  const contract = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+  };
+  const diagnostic = "Checkout race failed\nExpected one charge, observed two";
+  const { request } = automaticFixture({
+    contract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: contract.scope,
+    instructions: [{
+      code: "EVIDENCE_FAILED",
+      path: "check:checkout-race",
+      pathKind: "evidence",
+      action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+      diagnostic,
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
+    initialChecks: [{
+      id: 91,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: {
+        title: "Checkout race failed",
+        summary: "Expected one charge, observed two",
+        annotations_count: 0,
+      },
+    }],
+  });
+
+  const candidate = await buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    publicKeys: ledgerPublicKeys(privateKey),
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  });
+
+  assert.equal(candidate.repairKind, "evidence");
+  assert.deepEqual(candidate.declaredScope, contract.scope);
+  assert.deepEqual(candidate.allowedPaths, contract.scope);
+  assert.deepEqual(candidate.instructions, [{
+    code: "EVIDENCE_FAILED",
+    path: "check:checkout-race",
+    pathKind: "evidence",
+    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    diagnostic,
+  }]);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
+});
+
+test("github-actions bot comments cannot authorize an automatic contract", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const title = "Make checkout retries idempotent";
+  const plan = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [] },
+  };
+  const { request } = automaticFixture({
+    contract: plan,
+    files,
+    policy,
+    repairKind: "scope",
+    allowedPaths: ["docs/oops.md"],
+    instructions: [{
+      code: "OUTSIDE_PLANNED_SCOPE",
+      path: "docs/oops.md",
+      pathKind: "current",
+      action: "REVERT_OR_MOVE_INTO_DECLARED_SCOPE",
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
+    issueComments: [{
+      user: { login: "github-actions[bot]" },
+      body: [
+        `<!-- changeplane-receipt:v2 contract=${digest(plan)} input=${"d".repeat(64)} head=${"e".repeat(40)} -->`,
+        `<!-- changeplane-contract:v1 source=first-head plan=${Buffer.from(canonicalJson(plan)).toString("base64url")} -->`,
+      ].join("\n"),
+    }],
+  });
+
+  await assert.rejects(buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    publicKeys: ledgerPublicKeys(privateKey),
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  }), /first-head automatic contract/u);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
+});
+
+test("signed generation ledger preserves the first-head contract across a later head", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const title = "Make checkout retries idempotent";
+  const contract = { scope: ["src/payments/retry.js"], goal: title };
+  const files = [{ path: "src/payments/retry.js" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+  };
+  const instructions = [{
+    code: "EVIDENCE_FAILED",
+    path: "check:checkout-race",
+    pathKind: "evidence",
+    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    diagnostic: "Checkout race failed",
+  }];
+  const first = automaticFixture({
+    contract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: contract.scope,
+    instructions,
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
+    initialChecks: [{
+      id: 92,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: { title: "Checkout race failed", annotations_count: 0 },
+    }],
+  });
+
+  const options = {
+    appId: APP_ID,
+    privateKey,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  };
+  const firstPublished = await publishTrustedRepair({
+    ...options,
+    controllerRequest: first.request,
+    now: new Date("2026-07-19T00:00:00.000Z"),
+  });
+  assert.equal(firstPublished.attempt, 1);
+
+  github.setPullRequest({ headSha: NEXT_HEAD_SHA });
+  github.checks.push({
+    id: 191,
+    name: "checkout-race",
+    head_sha: NEXT_HEAD_SHA,
+    status: "completed",
+    conclusion: "failure",
+    app: { slug: "github-actions" },
+    output: { title: "Checkout race failed", annotations_count: 0 },
+  });
+  const second = automaticFixture({
+    contract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: contract.scope,
+    instructions,
+    attempt: 2,
+    headSha: NEXT_HEAD_SHA,
+  });
+  const secondPublished = await publishTrustedRepair({
+    ...options,
+    controllerRequest: second.request,
+    now: new Date("2026-07-19T00:01:00.000Z"),
+  });
+
+  assert.equal(secondPublished.attempt, 2);
+  assert.equal(github.dispatches.length, 2);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
+});
+
+test("signed generation ledger rejects rebinding to an expanded contract", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const title = "Make checkout retries idempotent";
+  const firstContract = { scope: ["src/payments/retry.js"], goal: title };
+  const firstFiles = [{ path: "src/payments/retry.js" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+  };
+  const evidenceInstruction = [{
+    code: "EVIDENCE_FAILED",
+    path: "check:checkout-race",
+    pathKind: "evidence",
+    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+    diagnostic: "Checkout race failed",
+  }];
+  const first = automaticFixture({
+    contract: firstContract,
+    files: firstFiles,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: firstContract.scope,
+    instructions: evidenceInstruction,
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
+    initialChecks: [{
+      id: 93,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: { title: "Checkout race failed", annotations_count: 0 },
+    }],
+  });
+  const options = {
+    appId: APP_ID,
+    privateKey,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  };
+  await publishTrustedRepair({
+    ...options,
+    controllerRequest: first.request,
+    now: new Date("2026-07-19T00:00:00.000Z"),
+  });
+
+  const expandedContract = { scope: ["docs/oops.md", "src/payments/retry.js"], goal: title };
+  const expandedFiles = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
+  github.setPullRequest({
+    headSha: NEXT_HEAD_SHA,
+    files: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
+  });
+  github.checks.push({
+    id: 192,
+    name: "checkout-race",
+    head_sha: NEXT_HEAD_SHA,
+    status: "completed",
+    conclusion: "failure",
+    app: { slug: "github-actions" },
+    output: { title: "Checkout race failed", annotations_count: 0 },
+  });
+  const expanded = automaticFixture({
+    contract: expandedContract,
+    files: expandedFiles,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: expandedContract.scope,
+    instructions: evidenceInstruction,
+    attempt: 2,
+    headSha: NEXT_HEAD_SHA,
+  });
+
+  await assert.rejects(publishTrustedRepair({
+    ...options,
+    controllerRequest: expanded.request,
+    now: new Date("2026-07-19T00:01:00.000Z"),
+  }), /ledger document identity/u);
+  assert.equal(github.dispatches.length, 1);
+  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
 test("controller and claim HMACs are repository-bound and tamper evident", () => {

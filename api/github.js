@@ -1435,6 +1435,7 @@ async function preflight(req, res) {
   let installable = target.installable;
   let setup = { state: "none" };
   let evidenceOptions = [];
+  let evidenceDiscovery = { state: "unavailable" };
   try {
     let recentPulls = [];
     try {
@@ -1477,10 +1478,14 @@ async function preflight(req, res) {
       .map(({ check, score }, index) => ({
         name: check.name,
         appSlug: check.app.slug,
-        recommended: score > 0 && index === 0,
+        suggested: score > 0 && index === 0,
       }));
+    evidenceDiscovery = {
+      state: evidenceOptions.length > 0 ? "found" : "empty",
+      checkedHeads: candidateHeads.length,
+    };
   } catch {
-    // Evidence discovery is optional and read-only; manual selection remains available.
+    // Evidence discovery is optional and read-only; the UI falls back to explicit scope-only assurance.
   }
   if (target.installable) {
     const existingPullRequest = await findObserveSetupPullRequest(target.encodedRepository, target.repo, session.token, files);
@@ -1520,6 +1525,7 @@ async function preflight(req, res) {
     setupFiles: files.length,
     setup,
     evidenceOptions,
+    evidenceDiscovery,
     boundary: {
       defaultBranchWrite: false,
       pullRequestOnly: true,

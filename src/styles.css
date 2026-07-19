@@ -1393,6 +1393,48 @@ button {
   gap: 5px;
 }
 
+.evidence-fields > .evidence-confirmation {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #3f5750;
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.evidence-confirmation input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: #276d69;
+}
+
+.evidence-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0 29px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #315e60;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.install-pulls-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 14px;
+}
+
 .preview-boundary-banner {
   display: flex;
   height: 30px;
