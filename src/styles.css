@@ -1352,7 +1352,8 @@ button {
   text-transform: uppercase;
 }
 
-.evidence-fields input {
+.evidence-fields input,
+.evidence-fields select {
   min-width: 0;
   height: 36px;
   padding: 0 10px;
@@ -1361,6 +1362,13 @@ button {
   background: #fff;
   color: var(--ink);
   font: 11px "SFMono-Regular", Consolas, monospace;
+}
+
+.evidence-detected { grid-column: 1 / -1; }
+
+.evidence-fields select {
+  width: 100%;
+  cursor: pointer;
 }
 
 .evidence-fields details {
@@ -1372,6 +1380,18 @@ button {
 .evidence-fields summary { color: #315e60; cursor: pointer; }
 .evidence-fields p { margin: 7px 0 0; line-height: 1.5; }
 .evidence-fields code { font-family: "SFMono-Regular", Consolas, monospace; }
+
+.evidence-manual {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.65fr);
+  gap: 9px;
+  margin-top: 9px;
+}
+
+.evidence-manual > label {
+  display: grid;
+  gap: 5px;
+}
 
 .preview-boundary-banner {
   display: flex;

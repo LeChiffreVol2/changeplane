@@ -4,7 +4,6 @@ import test from 'node:test';
 import {
   AUTONOMOUS_DECISION,
   DECISION,
-  REMEDIATION_BUDGET_MS,
   buildRemediationRequest,
   detectFileOverlap,
   evaluateChange,
@@ -27,6 +26,27 @@ const policy = {
   requireApproval: ['.github/workflows/**'],
   block: ['secrets/**'],
 };
+
+function remediationContext(overrides = {}) {
+  return {
+    repository: 'example-org/payments-api',
+    repositoryId: 1001,
+    installationId: 2002,
+    pullRequestNumber: 421,
+    baseRef: 'main',
+    baseSha: 'a'.repeat(40),
+    headSha: 'b'.repeat(40),
+    headRef: 'agent/payment-retry',
+    headRepository: 'example-org/payments-api',
+    controllerSha: 'a'.repeat(40),
+    contract: { scope: ['src/payments/**'], goal: null },
+    contractDigest: '1'.repeat(64),
+    policyDigest: '2'.repeat(64),
+    evaluatorVersion: '0.3.0',
+    inputDigest: '3'.repeat(64),
+    ...overrides,
+  };
+}
 
 test('normalizes simple repository paths and matches exact or prefix rules', () => {
   assert.equal(normalizeRepoPath('./src//payments/service.js'), 'src/payments/service.js');
@@ -241,15 +261,8 @@ test('routes a completed failed check into a bounded in-scope repair contract', 
 
   const request = buildRemediationRequest({
     idempotencyKey: 'f'.repeat(64),
-    repository: 'example-org/payments-api',
-    pullRequestNumber: 421,
-    baseSha: 'a'.repeat(40),
-    headSha: 'b'.repeat(40),
-    headRef: 'agent/payment-retry',
-    headRepository: 'example-org/payments-api',
-    plannedPaths: ['src/payments/**'],
+    ...remediationContext(),
     plan,
-    now: new Date('2026-07-18T00:00:00Z'),
   });
 
   assert.equal(request.repairKind, 'evidence');
@@ -319,27 +332,19 @@ test('builds a bounded and idempotent remediation contract', () => {
   const plan = planAutonomousDecision({ result, agentConfigured: true });
   const request = buildRemediationRequest({
     idempotencyKey: 'f'.repeat(64),
-    repository: 'example-org/payments-api',
-    pullRequestNumber: 421,
-    baseSha: 'a'.repeat(40),
-    headSha: 'b'.repeat(40),
-    headRef: 'agent/payment-retry',
-    headRepository: 'example-org/payments-api',
-    plannedPaths: ['src/payments/**'],
+    ...remediationContext(),
     plan,
-    now: new Date('2026-07-18T00:00:00Z'),
   });
 
-  assert.equal(request.schemaVersion, 2);
+  assert.equal(request.schemaVersion, 3);
   assert.equal(request.issuer, 'changeplane-guard');
   assert.equal(request.attempt, 1);
-  assert.equal(request.budget.attempt, 1);
-  assert.equal(request.budget.maxAttempts, 2);
-  assert.equal(request.budget.startedAt, '2026-07-18T00:00:00.000Z');
-  assert.equal(request.budget.expiresAt, '2026-07-18T00:15:00.000Z');
-  assert.equal(request.limits.totalDeadlineSeconds, 900);
-  assert.equal(request.limits.mayEditOutsideDeclaredScope, false);
-  assert.equal(request.expiresAt, '2026-07-18T00:15:00.000Z');
+  assert.equal(Object.hasOwn(request, 'budget'), false);
+  assert.equal(Object.hasOwn(request, 'limits'), false);
+  assert.equal(Object.hasOwn(request, 'expiresAt'), false);
+  assert.equal(request.change.repositoryId, 1001);
+  assert.equal(request.change.installationId, 2002);
+  assert.equal(request.authority.controllerSha, 'a'.repeat(40));
   assert.equal(request.change.headRef, 'agent/payment-retry');
   assert.equal(request.repairKind, 'scope');
   assert.deepEqual(request.allowedPaths, ['docs/release-note.md']);
@@ -351,7 +356,7 @@ test('builds a bounded and idempotent remediation contract', () => {
   }]);
 });
 
-test('keeps attempt two inside the first attempt shared deadline', () => {
+test('keeps attempt authority out of the unsigned controller request', () => {
   const result = evaluateChange({
     ...revision,
     plannedPaths: ['src/payments/**'],
@@ -359,47 +364,18 @@ test('keeps attempt two inside the first attempt shared deadline', () => {
     protectedPaths: policy,
   });
   const plan = planAutonomousDecision({ result, agentConfigured: true, attempt: 1, maxAttempts: 2 });
-  const startedAt = new Date('2026-07-18T00:00:00Z');
-  const expiresAt = new Date(startedAt.getTime() + REMEDIATION_BUDGET_MS);
   const request = buildRemediationRequest({
     idempotencyKey: 'e'.repeat(64),
-    repository: 'example-org/payments-api',
-    pullRequestNumber: 421,
-    baseSha: 'a'.repeat(40),
-    headSha: 'c'.repeat(40),
-    headRef: 'agent/payment-retry',
-    headRepository: 'example-org/payments-api',
-    plannedPaths: ['src/payments/**'],
+    ...remediationContext({ headSha: 'c'.repeat(40) }),
     plan,
-    budgetStartedAt: startedAt,
-    budgetExpiresAt: expiresAt,
-    now: new Date('2026-07-18T00:14:00Z'),
   });
 
-  assert.equal(request.budget.attempt, 2);
-  assert.equal(request.budget.startedAt, startedAt.toISOString());
-  assert.equal(request.expiresAt, expiresAt.toISOString());
+  assert.equal(request.attempt, 2);
+  assert.equal(Object.hasOwn(request, 'budget'), false);
+  assert.equal(Object.hasOwn(request, 'expiresAt'), false);
   assert.throws(() => buildRemediationRequest({
-    idempotencyKey: 'c'.repeat(64),
-    repository: 'example-org/payments-api',
-    pullRequestNumber: 421,
-    baseSha: 'a'.repeat(40),
-    headSha: 'c'.repeat(40),
-    headRef: 'agent/payment-retry',
-    headRepository: 'example-org/payments-api',
-    plannedPaths: ['src/payments/**'],
+    idempotencyKey: 'not-a-digest',
+    ...remediationContext({ headSha: 'c'.repeat(40) }),
     plan,
-    now: new Date('2026-07-18T00:14:00Z'),
-  }), /requires the original shared budget/u);
-  assert.throws(() => buildRemediationRequest({
-    ...request.change,
-    idempotencyKey: 'd'.repeat(64),
-    repository: request.change.repository,
-    pullRequestNumber: request.change.pullRequestNumber,
-    plannedPaths: request.declaredScope,
-    plan,
-    budgetStartedAt: startedAt,
-    budgetExpiresAt: expiresAt,
-    now: expiresAt,
-  }), /budget is not active/u);
+  }), /idempotencyKey/u);
 });

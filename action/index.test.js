@@ -63,9 +63,9 @@ test("accepts observe and enforce modes and defaults to observe", () => {
 
 test("selects an explicit repair adapter and keeps remediation off by default", () => {
   assert.equal(parseAgentDispatch(), "none");
-  assert.equal(parseAgentDispatch("repository"), "repository");
   assert.equal(parseAgentDispatch("", "https://agent.example/repair"), "webhook");
   assert.throws(() => parseAgentDispatch("webhook"), /agent_webhook_url/);
+  assert.throws(() => parseAgentDispatch("repository"), /none or webhook/u);
 });
 
 test("webhook repair adapters reject local, IP-literal, and credential-bearing endpoints", () => {

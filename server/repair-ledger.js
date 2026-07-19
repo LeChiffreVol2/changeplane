@@ -10,13 +10,15 @@ import {
 
 import { matchesPathRule, normalizeRepoPath } from "../src/lib/changeplane.js";
 
-const DOMAIN = "changeplane:repair-ledger:v2\0";
+const DOMAIN = "changeplane:repair-ledger:v3\0";
 const BUDGET_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 2;
 const MAX_CLOCK_SKEW_MS = 30 * 1000;
+const MAX_ENTRY_BYTES = 32 * 1024;
 const { RSA_PKCS1_PSS_PADDING, RSA_PSS_SALTLEN_DIGEST } = constants;
 const ENTRY_KEYS = [
   "allowedPaths",
+  "appId",
   "attempt",
   "authorizationId",
   "baseRef",
@@ -45,6 +47,12 @@ const ENTRY_KEYS = [
   "repository",
   "schemaVersion",
   "evaluatorVersion",
+  "evaluationDigest",
+  "installationId",
+  "priorHeadSha",
+  "publisherReleaseSha",
+  "pullRequestId",
+  "repositoryId",
 ].sort();
 const RESERVED_REPAIR_RULES = [".github/**", ".changeplane.json", "changeplane/**"];
 
@@ -163,8 +171,14 @@ function validateInstructions(entry) {
   }
   for (const instruction of instructions) {
     plainObject(instruction, "Repair instruction");
+    const expectedKeys = ["action", "code", "path", "pathKind", ...(Object.hasOwn(instruction, "diagnostic") ? ["diagnostic"] : [])].sort();
+    exactKeys(instruction, expectedKeys, "Repair instruction");
     if (typeof instruction.code !== "string" || typeof instruction.path !== "string" || typeof instruction.pathKind !== "string") {
       throw new Error("Repair instruction is incomplete");
+    }
+    if (Object.hasOwn(instruction, "diagnostic")
+      && (typeof instruction.diagnostic !== "string" || instruction.diagnostic.length < 1 || instruction.diagnostic.length > 6_000)) {
+      throw new Error("Repair instruction diagnostic is invalid");
     }
     if (entry.repairKind === "evidence") {
       if (instruction.action !== "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE" || !/^check:[^\s]{1,200}$/u.test(instruction.path)) {
@@ -198,20 +212,29 @@ export function validateRepairLedgerEntry(entry, {
   allowExpired = false,
 } = {}) {
   exactKeys(entry, ENTRY_KEYS, "Repair ledger entry");
-  if (entry.schemaVersion !== 2 || entry.issuer !== "changeplane-guard") throw new Error("Repair ledger schema or issuer is invalid");
+  if (entry.schemaVersion !== 3 || entry.issuer !== "changeplane-guard") throw new Error("Repair ledger schema or issuer is invalid");
   for (const [name, value] of [
     ["campaignId", entry.campaignId],
     ["authorizationId", entry.authorizationId],
     ["contractDigest", entry.contractDigest],
     ["inputDigest", entry.inputDigest],
+    ["evaluationDigest", entry.evaluationDigest],
     ["policyDigest", entry.policyDigest],
     ["nonce", entry.nonce],
   ]) if (!validDigest(value)) throw new Error(`${name} is invalid`);
   if (entry.priorEntryDigest !== null && !validDigest(entry.priorEntryDigest)) throw new Error("priorEntryDigest is invalid");
   validateRepository(entry.repository);
+  for (const [name, value] of [
+    ["appId", entry.appId],
+    ["installationId", entry.installationId],
+    ["repositoryId", entry.repositoryId],
+    ["pullRequestId", entry.pullRequestId],
+  ]) if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} is invalid`);
   if (entry.headRepository !== entry.repository) throw new Error("Cross-repository repair is forbidden");
   if (!Number.isSafeInteger(entry.pullRequestNumber) || entry.pullRequestNumber < 1) throw new Error("pullRequestNumber is invalid");
-  if (!validSha(entry.baseSha) || !validSha(entry.headSha) || !validSha(entry.controllerSha)) throw new Error("Repair ledger revision is invalid");
+  if (!validSha(entry.baseSha) || !validSha(entry.headSha) || !validSha(entry.controllerSha)
+    || !validSha(entry.publisherReleaseSha)) throw new Error("Repair ledger revision is invalid");
+  if (entry.priorHeadSha !== null && !validSha(entry.priorHeadSha)) throw new Error("Repair ledger prior head is invalid");
   validateRef(entry.baseRef, "Repair ledger base ref");
   validateRef(entry.headRef, "Repair ledger head ref");
   if (typeof entry.evaluatorVersion !== "string" || !/^[A-Za-z0-9._-]{1,64}$/u.test(entry.evaluatorVersion)) {
@@ -238,7 +261,10 @@ export function validateRepairLedgerEntry(entry, {
   if (entry.attempt === 1 && (issuedAt !== firstIssuedAt || entry.priorEntryDigest !== null)) {
     throw new Error("First repair attempt must start the campaign");
   }
-  if (entry.attempt === 2 && entry.priorEntryDigest === null) throw new Error("Second repair attempt must continue the signed ledger");
+  if (entry.attempt === 1 && entry.priorHeadSha !== null) throw new Error("First repair attempt cannot declare a prior head");
+  if (entry.attempt === 2 && (entry.priorEntryDigest === null || entry.priorHeadSha === null || entry.priorHeadSha === entry.headSha)) {
+    throw new Error("Second repair attempt must continue the signed ledger from a different head");
+  }
   if (!Number.isFinite(now) || issuedAt > now + MAX_CLOCK_SKEW_MS) throw new Error("Repair ledger entry is issued in the future");
   if (!allowExpired && now >= deadlineAt) throw new Error("Repair ledger campaign is expired");
 
@@ -254,6 +280,7 @@ export function validateRepairLedgerEntry(entry, {
 
 export function signRepairLedgerEntry(entry, privateKey) {
   validateRepairLedgerEntry(entry, { now: Date.parse(entry.issuedAt), allowExpired: true });
+  if (Buffer.byteLength(canonicalJson(entry)) > MAX_ENTRY_BYTES) throw new Error("Repair ledger entry exceeds the signed size limit");
   const key = privateKey?.type === "private" ? privateKey : createPrivateKey(privateKey);
   if (key.asymmetricKeyType !== "rsa") throw new TypeError("Repair ledger signing key must be RSA");
   const publicKey = createPublicKey(key);
@@ -317,8 +344,11 @@ export function reduceVerifiedRepairLedger(envelopes, publicKeys, options = {}) 
   const seenNonces = new Set();
   const seenAuthorizations = new Set();
   for (const { entry } of entries) {
-    for (const field of ["campaignId", "repository", "pullRequestNumber", "contractDigest", "policyDigest", "evaluatorVersion", "baseRef", "controllerSha", "firstIssuedAt", "deadlineAt", "generation"]) {
+    for (const field of ["campaignId", "appId", "installationId", "repositoryId", "pullRequestId", "repository", "pullRequestNumber", "contractDigest", "policyDigest", "evaluatorVersion", "baseRef", "baseSha", "controllerSha", "publisherReleaseSha", "headRef", "headRepository", "repairKind", "firstIssuedAt", "deadlineAt", "generation"]) {
       if (entry[field] !== campaign[field]) throw new Error("Repair ledger campaign fork detected");
+    }
+    if (canonicalJson(entry.declaredScope) !== canonicalJson(campaign.declaredScope)) {
+      throw new Error("Repair ledger declared scope changed");
     }
     if (canonicalJson(entry.protectedPaths) !== canonicalJson(campaign.protectedPaths)) throw new Error("Repair ledger protected-path policy changed");
     if (seenNonces.has(entry.nonce) || seenAuthorizations.has(entry.authorizationId)) throw new Error("Repair ledger replay detected");
@@ -332,6 +362,9 @@ export function reduceVerifiedRepairLedger(envelopes, publicKeys, options = {}) 
     const next = entries.filter(({ entry }) => entry.priorEntryDigest === tip.digest);
     if (next.length !== 1) throw new Error("Repair ledger is forked or has a gap");
     if (next[0].entry.attempt !== ordered.length + 1) throw new Error("Repair ledger attempts are not monotonic");
+    if (next[0].entry.priorHeadSha !== tip.entry.headSha || next[0].entry.headSha === tip.entry.headSha) {
+      throw new Error("Repair ledger head lineage is invalid");
+    }
     ordered.push(next[0]);
   }
   if (new Set(ordered.map(({ digest: value }) => value)).size !== entries.length) throw new Error("Repair ledger contains an unattached entry");
@@ -346,6 +379,39 @@ export function reduceVerifiedRepairLedger(envelopes, publicKeys, options = {}) 
 
 function randomDigest() {
   return randomBytes(32).toString("hex");
+}
+
+function assertCandidateContinuesCampaign(candidate, state) {
+  if (state.attemptsUsed === 0) return;
+  const campaign = state.entries[0];
+  for (const field of [
+    "appId",
+    "installationId",
+    "repositoryId",
+    "pullRequestId",
+    "repository",
+    "pullRequestNumber",
+    "contractDigest",
+    "policyDigest",
+    "evaluatorVersion",
+    "baseRef",
+    "baseSha",
+    "controllerSha",
+    "publisherReleaseSha",
+    "headRef",
+    "headRepository",
+    "repairKind",
+  ]) {
+    if (candidate[field] !== campaign[field]) {
+      throw new Error(`Repair grant ${field} changed within the immutable campaign`);
+    }
+  }
+  if (canonicalJson(candidate.declaredScope) !== canonicalJson(campaign.declaredScope)) {
+    throw new Error("Repair grant declared scope changed within the immutable campaign");
+  }
+  if (canonicalJson(candidate.protectedPaths) !== canonicalJson(campaign.protectedPaths)) {
+    throw new Error("Repair grant protected-path policy changed within the immutable campaign");
+  }
 }
 
 export async function issueRepairGrant({
@@ -372,32 +438,45 @@ export async function issueRepairGrant({
     expectedGeneration: generation,
   });
   if (state.attemptsUsed >= MAX_ATTEMPTS) throw new Error("Repair ledger attempt budget is exhausted");
+  const nextAttempt = state.attemptsUsed + 1;
+  if (candidate.attempt !== nextAttempt) throw new Error("Repair grant attempt does not match the signed ledger tip");
+  if (candidate.authorizationId != null && !validDigest(candidate.authorizationId)) {
+    throw new Error("Repair grant authorization ID is invalid");
+  }
+  assertCandidateContinuesCampaign(candidate, state);
 
   const firstIssuedAt = state.attemptsUsed === 0 ? issuedAt.toISOString() : state.entries[0].firstIssuedAt;
   const deadlineAt = state.attemptsUsed === 0
     ? new Date(issuedAt.getTime() + BUDGET_MS).toISOString()
     : state.deadlineAt;
   const entry = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     issuer: "changeplane-guard",
+    appId: candidate.appId,
+    installationId: candidate.installationId,
+    repositoryId: candidate.repositoryId,
+    pullRequestId: candidate.pullRequestId,
     campaignId: state.campaignId ?? randomId(),
     generation,
-    authorizationId: randomId(),
+    authorizationId: candidate.authorizationId ?? randomId(),
     repository: candidate.repository,
     pullRequestNumber: candidate.pullRequestNumber,
     contractDigest: candidate.contractDigest,
     policyDigest: candidate.policyDigest,
     evaluatorVersion: candidate.evaluatorVersion,
     inputDigest: candidate.inputDigest,
+    evaluationDigest: candidate.evaluationDigest,
     firstIssuedAt,
     issuedAt: issuedAt.toISOString(),
     deadlineAt,
-    attempt: state.attemptsUsed + 1,
+    attempt: nextAttempt,
     maxAttempts: MAX_ATTEMPTS,
     baseRef: candidate.baseRef,
     baseSha: candidate.baseSha,
     controllerSha: candidate.controllerSha,
+    publisherReleaseSha: candidate.publisherReleaseSha,
     headSha: candidate.headSha,
+    priorHeadSha: state.attemptsUsed === 0 ? null : state.entries.at(-1).headSha,
     headRef: candidate.headRef,
     headRepository: candidate.headRepository,
     repairKind: candidate.repairKind,

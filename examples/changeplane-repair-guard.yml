@@ -1,0 +1,47 @@
+# Inactive controlled-canary template. The setup PR pins the exact ChangePlane release.
+name: ChangePlane guard (controlled repair canary)
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+  pull_request_review:
+    types: [submitted, dismissed]
+  deployment_status:
+  repository_dispatch:
+    types: [changeplane_recheck]
+
+permissions:
+  checks: write
+  contents: read
+  deployments: read
+  pull-requests: write
+  statuses: read
+
+concurrency:
+  group: changeplane-guard-${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.deployment.sha || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the pinned ChangePlane controller
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: LeChiffreVol2/changeplane
+          ref: __CHANGEPLANE_RELEASE_SHA__
+          path: controller
+          persist-credentials: false
+
+      - name: Evaluate the exact pull-request revision
+        env:
+          INPUT_AGENT_DISPATCH: webhook
+          INPUT_AGENT_WEBHOOK_TOKEN: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          INPUT_AGENT_WEBHOOK_URL: "https://changeplane.vercel.app/api/github?action=repair"
+          INPUT_CONTROLLER_INSTALLATION_ID: ${{ vars.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
+          INPUT_MODE: enforce
+          INPUT_POLICY_PATH: .changeplane.json
+          INPUT_TOKEN: ${{ github.token }}
+        run: /usr/bin/node controller/action/index.js

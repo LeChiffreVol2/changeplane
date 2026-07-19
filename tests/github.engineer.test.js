@@ -138,7 +138,7 @@ test("controlled canary remains bound to the verified GitHub App installation", 
   });
 });
 
-test("observe onboarding does not require optional Checks or Actions Secrets permissions", async () => {
+test("observe onboarding requires Checks read but keeps Actions Secrets optional", async () => {
   await withEnvironment({ GITHUB_APP_SLUG: "changeplane-test" }, async () => {
     const state = "s".repeat(32);
     const oauthCookie = seal({
@@ -166,7 +166,7 @@ test("observe onboarding does not require optional Checks or Actions Secrets per
             return {
               installations: [{
                 id: 12345,
-                permissions: { contents: "write", pull_requests: "write", workflows: "write" },
+                permissions: { contents: "write", pull_requests: "write", workflows: "write", checks: "read" },
               }],
             };
           },

@@ -34,6 +34,7 @@ export function verifyRepairGrantEnvironment({
   repository,
   baseRef,
   controllerSha,
+  publisherReleaseSha,
   expectedDigest,
   now = Date.now(),
 }) {
@@ -46,6 +47,9 @@ export function verifyRepairGrantEnvironment({
     expectedBaseRef: baseRef,
     expectedControllerSha: controllerSha,
   });
+  if (entry.publisherReleaseSha !== publisherReleaseSha) {
+    throw new Error("The repair grant publisher release does not match the pinned controller checkout.");
+  }
   const grantDigest = repairLedgerEntryDigest(event.client_payload);
   if (expectedDigest && grantDigest !== expectedDigest) {
     throw new Error("The verified repair grant changed between jobs.");
@@ -80,6 +84,7 @@ function runCli() {
     repository: process.env.GITHUB_REPOSITORY,
     baseRef: process.env.CHANGEPLANE_BASE_REF,
     controllerSha: process.env.CHANGEPLANE_CONTROLLER_SHA,
+    publisherReleaseSha: process.env.CHANGEPLANE_PUBLISHER_RELEASE_SHA,
     expectedDigest: process.env.CHANGEPLANE_EXPECTED_GRANT_DIGEST,
   });
   const outputPath = process.env.GITHUB_OUTPUT;

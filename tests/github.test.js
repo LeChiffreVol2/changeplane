@@ -36,6 +36,12 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_SESSION_SECRET",
     "CHANGEPLANE_APP_ORIGIN",
     "CHANGEPLANE_CANARY_REPOSITORY",
+    "CHANGEPLANE_REPAIR_REPOSITORY",
+    "CHANGEPLANE_REPAIR_ENABLED",
+    "CHANGEPLANE_REPAIR_GENERATION",
+    "CHANGEPLANE_CONTROLLER_SECRET",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_GIT_PROVIDER",
@@ -62,6 +68,12 @@ async function withOAuthEnvironment(callback) {
   delete process.env.VERCEL_GIT_COMMIT_SHA;
   delete process.env.VERCEL_DEPLOYMENT_ID;
   delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+  delete process.env.CHANGEPLANE_REPAIR_REPOSITORY;
+  delete process.env.CHANGEPLANE_REPAIR_ENABLED;
+  delete process.env.CHANGEPLANE_REPAIR_GENERATION;
+  delete process.env.CHANGEPLANE_CONTROLLER_SECRET;
+  delete process.env.GITHUB_APP_ID;
+  delete process.env.GITHUB_APP_PRIVATE_KEY;
   try {
     return await callback();
   } finally {
@@ -458,7 +470,9 @@ test("GitHub retries honor server rate-limit headers and fail fast on a distant 
 
 test("controlled repair canary keeps DeepSeek proposal access separate from forge write", () => {
   const workflow = readFileSync(new URL("../examples/changeplane-repair.yml", import.meta.url), "utf8");
+  const guardWorkflow = readFileSync(new URL("../examples/changeplane-repair-guard.yml", import.meta.url), "utf8");
   const grantVerifier = readFileSync(new URL("../examples/changeplane-grant.js", import.meta.url), "utf8");
+  const claimClient = readFileSync(new URL("../examples/changeplane-claim.js", import.meta.url), "utf8");
   const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
   assert.match(workflow, /Inactive controlled-canary template/u);
   assert.match(workflow, /cancel-in-progress: false/u);
@@ -467,37 +481,64 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.match(workflow, /CHANGEPLANE_REPAIR_PUBLIC_KEYS/u);
   assert.match(workflow, /CHANGEPLANE_CONTROLLER_SHA: \$\{\{ github\.sha \}\}/u);
   assert.match(workflow, /CHANGEPLANE_BASE_REF: \$\{\{ github\.event\.repository\.default_branch \}\}/u);
-  assert.equal((workflow.match(/ref: \$\{\{ github\.sha \}\}/gu) ?? []).length, 2);
+  assert.equal((workflow.match(/ref: __CHANGEPLANE_RELEASE_SHA__/gu) ?? []).length, 2);
+  assert.equal((workflow.match(/repository: LeChiffreVol2\/changeplane/gu) ?? []).length, 2);
+  assert.match(workflow, /CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__/u);
   assert.equal((workflow.match(/changeplane-grant\.js verify/gu) ?? []).length, 3);
   assert.match(workflow, /changeplane-grant\.js verify/u);
   assert.match(workflow, /grant-digest/u);
   assert.match(workflow, /listArtifactsForRepo/u);
   assert.match(grantVerifier, /changeplane-claim-/u);
+  assert.match(claimClient, /signClaimRequest/u);
+  const repairEndpoint = "https://changeplane.vercel.app/api/github?action=repair";
+  const claimEndpoint = "https://changeplane.vercel.app/api/github?action=repair-claim";
+  const validateEndpoint = "https://changeplane.vercel.app/api/github?action=repair-validate";
+  assert.equal(guardWorkflow.includes(`INPUT_AGENT_WEBHOOK_URL: "${repairEndpoint}"`), true);
+  assert.doesNotMatch(guardWorkflow, /CHANGEPLANE_REPAIR_URL/u);
+  assert.equal(workflow.split(claimEndpoint).length - 1, 1);
+  assert.equal(workflow.split(validateEndpoint).length - 1, 3);
+  assert.equal((workflow.match(/changeplane-claim\.js claim/gu) ?? []).length, 1);
+  assert.equal((workflow.match(/changeplane-claim\.js validate/gu) ?? []).length, 3);
+  assert.doesNotMatch(workflow, /vars\.CHANGEPLANE_CLAIM_URL/u);
+  const controllerClaimIndex = workflow.indexOf("Claim the App-authored grant before provider access");
   const claimIndex = workflow.indexOf("Reserve the one-time claim before provider access");
+  const providerValidateIndex = workflow.indexOf("Revalidate server authority immediately before provider access");
+  const providerHeadIndex = workflow.indexOf("Re-check the exact pull-request head immediately before DeepSeek");
   const providerIndex = workflow.indexOf("Ask DeepSeek V4 Flash for a patch proposal");
-  assert.ok(claimIndex > 0 && providerIndex > claimIndex, "one-time claim must be reserved before provider access");
+  assert.ok(controllerClaimIndex > 0 && claimIndex > controllerClaimIndex
+    && providerValidateIndex > claimIndex && providerHeadIndex > providerValidateIndex
+    && providerIndex > providerHeadIndex,
+  "server authority and the exact head must be rechecked immediately before provider access");
   assert.match(workflow, /CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash/u);
   assert.match(workflow, /DEEPSEEK_API_KEY: \$\{\{ secrets\.DEEPSEEK_API_KEY \}\}/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.base-sha \}\}[\s\S]*?path: trusted/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.head-sha \}\}[\s\S]*?path: workspace/u);
-  assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/trusted\/examples\/changeplane-proposal\.js propose/u);
+  assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/controller\/examples\/changeplane-proposal\.js propose/u);
   assert.doesNotMatch(workflow, /run: \/usr\/bin\/node examples\/changeplane-proposal\.js/u);
   assert.match(workflow, /jobs:\n  repair:[\s\S]*?permissions:\n      actions: read\n      contents: read/u);
   assert.match(workflow, /\n  apply:[\s\S]*?permissions:\n      contents: write/u);
   assert.doesNotMatch(workflow.match(/jobs:\n  repair:[\s\S]*?\n  apply:/u)?.[0] ?? "", /contents: write/u);
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /DEEPSEEK_API_KEY/u);
-  assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/trusted\/examples\/changeplane-proposal\.js validate/u);
+  assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/controller\/examples\/changeplane-proposal\.js validate/u);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|main|master)$/mu);
   assert.match(workflow, /git apply --check --index/u);
   const finalVerifyIndex = workflow.lastIndexOf("changeplane-grant.js verify");
+  const applyValidateIndex = workflow.indexOf("Revalidate server authority immediately before clean apply");
+  const applyIndex = workflow.indexOf("Apply and independently validate only the granted paths");
+  const finalValidateIndex = workflow.lastIndexOf("changeplane-claim.js validate");
   const pushIndex = workflow.indexOf("git -c core.hooksPath=/dev/null push");
   assert.ok(finalVerifyIndex > 0 && pushIndex > finalVerifyIndex, "grant deadline must be rechecked at the write boundary");
+  assert.ok(applyValidateIndex > 0 && applyIndex > applyValidateIndex, "server authority must be rechecked before clean apply");
+  assert.ok(finalValidateIndex > finalVerifyIndex && pushIndex > finalValidateIndex, "the server kill switch must be rechecked immediately before push");
   assert.match(workflow, /Clean apply did not restore granted paths to the trusted merge base/u);
   assert.match(repairLedger, /RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_KIND/u);
   assert.match(workflow, /allowedPaths/u);
   assert.match(workflow, /event_type: 'changeplane_recheck'/u);
   assert.equal(workflow.includes("github.event.client_payload.change."), false);
+  assert.match(guardWorkflow, /INPUT_MODE: enforce/u);
+  assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
+  assert.match(guardWorkflow, /ref: __CHANGEPLANE_RELEASE_SHA__/u);
 });
 
 test("session reports whether the real GitHub connector is configured", async () => {
@@ -577,6 +618,19 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
       rolloutMode: "self_serve",
       release: "dpl_test_release_identifier",
       managedRuntime: "reserved",
+      repairController: {
+        enabled: false,
+        configured: false,
+        checks: {
+          enabled: false,
+          repository: false,
+          canaryBound: false,
+          appId: false,
+          appPrivateKey: false,
+          controllerSecret: false,
+          generation: false,
+        },
+      },
     });
     assert.match(response.getHeader("x-request-id"), /^[a-f0-9]{24}$/u);
     assert.equal(response.getHeader("x-frame-options"), "DENY");
@@ -612,7 +666,65 @@ test("readiness exposes the exact Vercel source commit without secret values", a
       rolloutMode: "self_serve",
       release: "aaaaaaaaaaaa",
       managedRuntime: "reserved",
+      repairController: {
+        enabled: false,
+        configured: false,
+        checks: {
+          enabled: false,
+          repository: false,
+          canaryBound: false,
+          appId: false,
+          appPrivateKey: false,
+          controllerSecret: false,
+          generation: false,
+        },
+      },
     });
+  });
+});
+
+test("repair stays disabled when its repository differs from the disposable canary", async () => {
+  await withGitHubAppEnvironment(async () => {
+    Object.assign(process.env, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
+      CHANGEPLANE_CANARY_REPOSITORY: "alice/disposable-canary",
+      CHANGEPLANE_REPAIR_REPOSITORY: "alice/different-repository",
+      CHANGEPLANE_REPAIR_ENABLED: "true",
+      CHANGEPLANE_REPAIR_GENERATION: "1",
+      CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
+      GITHUB_APP_ID: "101",
+      GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nnot-used-by-readiness\n-----END PRIVATE KEY-----",
+    });
+    const readinessResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+    const readinessBody = JSON.parse(readinessResponse.body);
+    assert.equal(readinessBody.repairController.configured, false);
+    assert.equal(readinessBody.repairController.checks.canaryBound, false);
+
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      externalCalls += 1;
+      throw new Error("GitHub must not be called");
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=repair",
+        headers: { "content-type": "application/json" },
+      }, response);
+      assert.equal(response.statusCode, 503);
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
@@ -967,6 +1079,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       csrf: "alice-csrf",
     }, SECRET);
     const headSha = "a".repeat(40);
+    const pullHeadSha = "b".repeat(40);
     const calls = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
@@ -990,6 +1103,29 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       if (requestUrl.pathname === "/repos/alice/private-service/git/ref/heads/main") {
         return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
       }
+      if (requestUrl.pathname === `/repos/alice/private-service/commits/${headSha}/check-runs`) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              check_runs: [
+                { name: "Vercel deployment", app: { slug: "vercel" } },
+                { name: "ChangePlane / guard", app: { slug: "changeplane" } },
+              ],
+            };
+          },
+        };
+      }
+      if (requestUrl.pathname === `/repos/alice/private-service/commits/${pullHeadSha}/check-runs`) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { check_runs: [{ name: "unit tests", app: { slug: "github-actions" } }] };
+          },
+        };
+      }
       if (requestUrl.pathname.startsWith("/repos/alice/private-service/contents/")) {
         return {
           ok: false,
@@ -999,6 +1135,15 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
         };
       }
       if (requestUrl.pathname === "/repos/alice/private-service/pulls") {
+        if (requestUrl.searchParams.get("sort") === "updated") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return [{ head: { sha: pullHeadSha, repo: { full_name: "alice/private-service" } } }];
+            },
+          };
+        }
         return { ok: true, status: 200, async json() { return []; } };
       }
       if (requestUrl.pathname === "/repos/alice/private-service/git/ref/heads/changeplane/observe-setup") {
@@ -1025,6 +1170,10 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.equal(payload.setupFiles, 6);
       assert.deepEqual(payload.conflicts, []);
       assert.deepEqual(payload.setup, { state: "none" });
+      assert.deepEqual(payload.evidenceOptions, [
+        { name: "unit tests", appSlug: "github-actions", recommended: true },
+        { name: "Vercel deployment", appSlug: "vercel", recommended: false },
+      ]);
       assert.deepEqual(payload.boundary, {
         defaultBranchWrite: false,
         pullRequestOnly: true,
@@ -1051,7 +1200,11 @@ test("safe GitHub reads retry one transient upstream failure", async () => {
     }, SECRET);
     let calls = 0;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
+    globalThis.fetch = async (input) => {
+      const requestUrl = new URL(String(input));
+      if (requestUrl.pathname !== "/user/repos") {
+        return { ok: true, status: 200, async json() { return []; } };
+      }
       calls += 1;
       if (calls === 1) {
         return {
@@ -1343,6 +1496,7 @@ test("GitHub App onboarding installs first, then verifies the installation throu
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
+                  checks: "read",
                   secrets: "write",
                   checks: "write",
                 },
@@ -1421,6 +1575,7 @@ test("returning GitHub App users authorize without reopening installation settin
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
+                  checks: "read",
                 },
               }],
             };

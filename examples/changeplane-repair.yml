@@ -29,7 +29,8 @@ jobs:
         # actions/checkout v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          repository: LeChiffreVol2/changeplane
+          ref: __CHANGEPLANE_RELEASE_SHA__
           path: controller
           persist-credentials: false
 
@@ -38,6 +39,7 @@ jobs:
         env:
           CHANGEPLANE_BASE_REF: ${{ github.event.repository.default_branch }}
           CHANGEPLANE_CONTROLLER_SHA: ${{ github.sha }}
+          CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
           CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
           CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
           CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
@@ -79,6 +81,13 @@ jobs:
             if (artifacts.total_count !== 0) {
               core.setFailed('This one-time repair grant was already claimed.');
             }
+
+      - name: Claim the App-authored grant before provider access
+        id: controller-claim
+        env:
+          CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-claim"
+          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+        run: /usr/bin/node controller/examples/changeplane-claim.js claim
 
       - name: Materialize the one-time claim
         env:
@@ -144,6 +153,39 @@ jobs:
             writeFileSync(process.env.CHANGEPLANE_PATCH, patch, {mode: 0o600});
           '
 
+      - name: Revalidate server authority immediately before provider access
+        if: steps.grant.outputs.repair-kind == 'evidence'
+        env:
+          CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
+          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+        run: /usr/bin/node controller/examples/changeplane-claim.js validate
+
+      - name: Re-check the exact pull-request head immediately before DeepSeek
+        if: steps.grant.outputs.repair-kind == 'evidence'
+        # actions/github-script v7.0.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          CHANGEPLANE_BASE_SHA: ${{ steps.grant.outputs.base-sha }}
+          CHANGEPLANE_BASE_REF: ${{ steps.grant.outputs.base-ref }}
+          CHANGEPLANE_HEAD_REF: ${{ steps.grant.outputs.head-ref }}
+          CHANGEPLANE_HEAD_SHA: ${{ steps.grant.outputs.head-sha }}
+          CHANGEPLANE_PULL_REQUEST: ${{ steps.grant.outputs.pull-request-number }}
+          CHANGEPLANE_REPOSITORY: ${{ steps.grant.outputs.repository }}
+        with:
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.CHANGEPLANE_PULL_REQUEST),
+            });
+            if (pull.state !== 'open' || pull.base.ref !== process.env.CHANGEPLANE_BASE_REF
+              || pull.base.sha !== process.env.CHANGEPLANE_BASE_SHA
+              || pull.head.sha !== process.env.CHANGEPLANE_HEAD_SHA
+              || pull.head.ref !== process.env.CHANGEPLANE_HEAD_REF
+              || pull.head.repo?.full_name !== process.env.CHANGEPLANE_REPOSITORY) {
+              core.setFailed('The pull-request head changed immediately before provider access.');
+            }
+
       - name: Ask DeepSeek V4 Flash for a patch proposal
         if: steps.grant.outputs.repair-kind == 'evidence'
         working-directory: workspace
@@ -151,7 +193,7 @@ jobs:
           CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
           CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: /usr/bin/node ../trusted/examples/changeplane-proposal.js propose
+        run: /usr/bin/node ../controller/examples/changeplane-proposal.js propose
 
       - name: Validate and package the candidate patch
         working-directory: workspace
@@ -168,7 +210,7 @@ jobs:
           NODE_OPTIONS: ""
         run: |
           if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
-            /usr/bin/node ../trusted/examples/changeplane-proposal.js validate
+            /usr/bin/node ../controller/examples/changeplane-proposal.js validate
           fi
           /usr/bin/git apply --check --whitespace=error "$CHANGEPLANE_PATCH"
 
@@ -196,7 +238,8 @@ jobs:
         # actions/checkout v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          repository: LeChiffreVol2/changeplane
+          ref: __CHANGEPLANE_RELEASE_SHA__
           path: controller
           persist-credentials: false
 
@@ -205,6 +248,7 @@ jobs:
         env:
           CHANGEPLANE_BASE_REF: ${{ github.event.repository.default_branch }}
           CHANGEPLANE_CONTROLLER_SHA: ${{ github.sha }}
+          CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
           CHANGEPLANE_EXPECTED_GRANT_DIGEST: ${{ needs.repair.outputs.grant-digest }}
           CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
           CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
@@ -261,6 +305,12 @@ jobs:
           name: changeplane-patch-${{ steps.grant.outputs.authorization-id }}
           path: ${{ runner.temp }}
 
+      - name: Revalidate server authority immediately before clean apply
+        env:
+          CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
+          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+        run: /usr/bin/node controller/examples/changeplane-claim.js validate
+
       - name: Apply and independently validate only the granted paths
         id: push
         working-directory: workspace
@@ -268,7 +318,9 @@ jobs:
           CHANGEPLANE_ALLOWED: ${{ toJson(github.event.client_payload.entry.allowedPaths) }}
           CHANGEPLANE_BASE_REF: ${{ github.event.repository.default_branch }}
           CHANGEPLANE_BASE_SHA: ${{ steps.grant.outputs.base-sha }}
+          CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
           CHANGEPLANE_CONTROLLER_SHA: ${{ github.sha }}
+          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
           CHANGEPLANE_EXPECTED_GRANT_DIGEST: ${{ needs.repair.outputs.grant-digest }}
           CHANGEPLANE_HEAD_REF: ${{ steps.current.outputs.head-ref }}
           CHANGEPLANE_HEAD_SHA: ${{ steps.grant.outputs.head-sha }}
@@ -278,9 +330,10 @@ jobs:
           CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
           CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
           CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
+          CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
         run: |
           if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
-            /usr/bin/node ../trusted/examples/changeplane-proposal.js validate
+            /usr/bin/node ../controller/examples/changeplane-proposal.js validate
           fi
           /usr/bin/git apply --check --index --whitespace=error "$CHANGEPLANE_PATCH"
           /usr/bin/git apply --index --whitespace=error "$CHANGEPLANE_PATCH"
@@ -306,6 +359,7 @@ jobs:
           /usr/bin/git config user.email "changeplane[bot]@users.noreply.github.com"
           /usr/bin/git -c core.hooksPath=/dev/null commit -m "chore: apply bounded ChangePlane repair"
           /usr/bin/node ../controller/examples/changeplane-grant.js verify
+          /usr/bin/node ../controller/examples/changeplane-claim.js validate
           /usr/bin/git -c core.hooksPath=/dev/null push \
             --force-with-lease="refs/heads/$CHANGEPLANE_HEAD_REF:$CHANGEPLANE_HEAD_SHA" \
             origin "HEAD:refs/heads/$CHANGEPLANE_HEAD_REF"

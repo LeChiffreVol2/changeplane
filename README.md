@@ -37,7 +37,7 @@ Callback URL: https://YOUR_DOMAIN/api/github?action=callback
 Setup URL:    https://YOUR_DOMAIN/api/github?action=installation
 ```
 
-Keep “Request user authorization during installation” off: ChangePlane starts the installation, validates the state at the Setup URL, then performs PKCE user authorization and verifies that the installation belongs to that user. For observe-only onboarding, grant Contents (read/write), Pull requests (read/write), and Workflows (read/write). Add Secrets (read/write) only if the optional Enterprise BYOK flow is enabled. The connector does not require Checks or Deployments permission; the installed repository workflow receives its own least-privilege `GITHUB_TOKEN`. Do not subscribe the App to webhook events until the trusted App controller exists.
+Keep “Request user authorization during installation” off: ChangePlane starts the installation, validates the state at the Setup URL, then performs PKCE user authorization and verifies that the installation belongs to that user. For observe-only onboarding, grant Contents (read/write), Pull requests (read/write), Workflows (read/write), and Checks (read). Checks read lets setup discover a meaningful existing test without asking users to copy its publisher slug. Add Secrets (read/write) only if the optional Enterprise BYOK flow is enabled. The installed repository workflow receives its own least-privilege `GITHUB_TOKEN`; the connector does not need Deployments permission. Do not subscribe the App to webhook events until the trusted App controller exists.
 
 Configure these server-side environment variables:
 

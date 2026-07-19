@@ -10,12 +10,24 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import sodium from "libsodium-wrappers";
 
+import {
+  claimTrustedRepair,
+  deriveControllerSecret,
+  publishTrustedRepair,
+  validateTrustedRepair,
+  validateClaimRequest,
+  validateControllerRequest,
+  verifyClaimRequest,
+  verifyControllerRequest,
+} from "../server/github-repair-controller.js";
+
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
 const OAUTH_COOKIE = "__Host-changeplane_oauth";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024;
+const MAX_REPAIR_BODY_BYTES = 128 * 1024;
 const RUNTIME_PROVIDER = "deepseek";
 const RUNTIME_MODEL = "deepseek-v4-flash";
 const RUNTIME_EFFORT = "high";
@@ -37,7 +49,12 @@ const PILOT_RESERVED_PATHS = ["changeplane", ".changeplane.json", ".github/workf
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
 const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
-const REQUIRED_GITHUB_APP_PERMISSIONS = ["contents", "pull_requests", "workflows"];
+const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
+  contents: "write",
+  pull_requests: "write",
+  workflows: "write",
+  checks: "read",
+});
 const OBSERVE_SETUP_BRANCH = "changeplane/observe-setup";
 const GUARD_CHECK_NAME = "ChangePlane / guard";
 const ROUTE_METHODS = new Map([
@@ -52,6 +69,9 @@ const ROUTE_METHODS = new Map([
   ["runtime", ["GET"]],
   ["byok", ["POST", "DELETE"]],
   ["install", ["POST"]],
+  ["repair", ["POST"]],
+  ["repair-claim", ["POST"]],
+  ["repair-validate", ["POST"]],
   ["logout", ["POST"]],
 ]);
 
@@ -139,6 +159,40 @@ function hasValidCanaryRepository() {
   return !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
 }
 
+function repairControllerConfiguration() {
+  const canaryRepository = configuredCanaryRepository();
+  let repository = null;
+  try {
+    repository = validateRepository(process.env.CHANGEPLANE_REPAIR_REPOSITORY ?? "");
+  } catch {
+    // A missing or invalid repository keeps repair fail-closed without affecting observe readiness.
+  }
+  const generation = Number(process.env.CHANGEPLANE_REPAIR_GENERATION);
+  const enabled = process.env.CHANGEPLANE_REPAIR_ENABLED === "true";
+  const checks = {
+    enabled,
+    repository: Boolean(repository),
+    canaryBound: Boolean(
+      canaryRepository
+      && repository
+      && canaryRepository.toLowerCase() === repository.toLowerCase()
+    ),
+    appId: /^[1-9][0-9]{0,19}$/u.test(process.env.GITHUB_APP_ID ?? ""),
+    appPrivateKey: typeof process.env.GITHUB_APP_PRIVATE_KEY === "string"
+      && process.env.GITHUB_APP_PRIVATE_KEY.includes("PRIVATE KEY"),
+    controllerSecret: typeof process.env.CHANGEPLANE_CONTROLLER_SECRET === "string"
+      && process.env.CHANGEPLANE_CONTROLLER_SECRET.length >= 32,
+    generation: Number.isSafeInteger(generation) && generation > 0,
+  };
+  return {
+    enabled,
+    configured: enabled && Boolean(githubAppSlug()) && Object.values(checks).every(Boolean),
+    checks,
+    generation,
+    repository,
+  };
+}
+
 function readiness() {
   const appSlug = githubAppSlug();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
@@ -162,6 +216,7 @@ function readiness() {
       || process.env.VERCEL_DEPLOYMENT_ID?.slice(0, 64)
       || "development",
     managedRuntime: process.env[MANAGED_API_KEY_NAME] ? "provider_configured" : "reserved",
+    repairController: repairControllerConfiguration(),
   };
 }
 
@@ -869,13 +924,13 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
   }
 }
 
-async function readJson(req) {
+async function readJson(req, { maxBytes = MAX_BODY_BYTES } = {}) {
   if (req.body && typeof req.body === "object") {
-    if (Buffer.byteLength(JSON.stringify(req.body)) > MAX_BODY_BYTES) throw new HttpError(413, "Request body is too large.");
+    if (Buffer.byteLength(JSON.stringify(req.body)) > maxBytes) throw new HttpError(413, "Request body is too large.");
     return req.body;
   }
   if (typeof req.body === "string") {
-    if (Buffer.byteLength(req.body) > MAX_BODY_BYTES) throw new HttpError(413, "Request body is too large.");
+    if (Buffer.byteLength(req.body) > maxBytes) throw new HttpError(413, "Request body is too large.");
     try {
       const value = JSON.parse(req.body);
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
@@ -888,7 +943,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, "Request body is too large.");
+    if (size > maxBytes) throw new HttpError(413, "Request body is too large.");
     chunks.push(chunk);
   }
   if (size === 0) return {};
@@ -1174,7 +1229,12 @@ async function callback(req, res) {
     if (!installation) {
       throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
-    const missingPermissions = REQUIRED_GITHUB_APP_PERMISSIONS.filter((permission) => installation.permissions?.[permission] !== "write");
+    const missingPermissions = Object.entries(REQUIRED_GITHUB_APP_PERMISSIONS)
+      .filter(([permission, level]) => {
+        const actual = installation.permissions?.[permission];
+        return level === "write" ? actual !== "write" : !["read", "write"].includes(actual);
+      })
+      .map(([permission]) => permission);
     if (missingPermissions.length > 0) {
       throw new HttpError(403, `The GitHub App installation is missing required write permissions: ${missingPermissions.join(", ")}.`);
     }
@@ -1374,6 +1434,54 @@ async function preflight(req, res) {
   let files = buildPilotFiles();
   let installable = target.installable;
   let setup = { state: "none" };
+  let evidenceOptions = [];
+  try {
+    let recentPulls = [];
+    try {
+      const payload = await github(
+        `/repos/${target.encodedRepository}/pulls?state=open&sort=updated&direction=desc&per_page=5`,
+        session.token,
+      );
+      if (Array.isArray(payload)) recentPulls = payload;
+    } catch {
+      // The default branch still provides useful discovery when no pull request can be listed.
+    }
+    const candidateHeads = [...new Set([
+      ...recentPulls
+        .filter((pull) => pull?.head?.repo?.full_name === target.repo.full_name && /^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? ""))
+        .map((pull) => pull.head.sha),
+      target.baseSha,
+    ])].slice(0, 3);
+    const payloads = await Promise.all(candidateHeads.map((headSha) => github(
+      `/repos/${target.encodedRepository}/commits/${headSha}/check-runs?filter=latest&per_page=100`,
+      session.token,
+    )));
+    const seen = new Set();
+    const evidenceScore = (name) => {
+      if (/\b(e2e|integration|unit|tests?|ci)\b/iu.test(name)) return 2;
+      if (/\b(build|typecheck)\b/iu.test(name)) return 1;
+      return 0;
+    };
+    evidenceOptions = payloads.flatMap((payload) => Array.isArray(payload?.check_runs) ? payload.check_runs : [])
+      .filter((check) => typeof check?.name === "string" && check.name.length > 0 && check.name.length <= 100
+        && check.name !== GUARD_CHECK_NAME && typeof check?.app?.slug === "string" && check.app.slug.length > 0)
+      .filter((check) => {
+        const key = `${check.name}\0${check.app.slug}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((check) => ({ check, score: evidenceScore(check.name) }))
+      .sort((left, right) => right.score - left.score || left.check.name.localeCompare(right.check.name))
+      .slice(0, 8)
+      .map(({ check, score }, index) => ({
+        name: check.name,
+        appSlug: check.app.slug,
+        recommended: score > 0 && index === 0,
+      }));
+  } catch {
+    // Evidence discovery is optional and read-only; manual selection remains available.
+  }
   if (target.installable) {
     const existingPullRequest = await findObserveSetupPullRequest(target.encodedRepository, target.repo, session.token, files);
     if (existingPullRequest) {
@@ -1411,6 +1519,7 @@ async function preflight(req, res) {
     conflicts: target.conflicts,
     setupFiles: files.length,
     setup,
+    evidenceOptions,
     boundary: {
       defaultBranchWrite: false,
       pullRequestOnly: true,
@@ -1438,6 +1547,122 @@ async function install(req, res) {
   sendJson(res, 201, result);
 }
 
+async function repair(req, res) {
+  assertJsonRequest(req);
+  const configuration = repairControllerConfiguration();
+  if (!configuration.configured) {
+    throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
+  }
+  const body = await readJson(req, { maxBytes: MAX_REPAIR_BODY_BYTES });
+  try {
+    validateControllerRequest(body);
+  } catch {
+    throw new HttpError(400, "Repair controller request is invalid.");
+  }
+  const deliveryId = header(req, "x-changeplane-delivery");
+  const signature = header(req, "x-changeplane-signature");
+  let controllerSecret;
+  try {
+    controllerSecret = deriveControllerSecret({
+      masterSecret: process.env.CHANGEPLANE_CONTROLLER_SECRET,
+      installationId: body.change.installationId,
+      repositoryId: body.change.repositoryId,
+      repository: body.change.repository,
+    });
+    verifyControllerRequest({ secret: controllerSecret, deliveryId, signature, request: body });
+  } catch {
+    throw new HttpError(403, "Repair controller request authentication failed.");
+  }
+  const result = await publishTrustedRepair({
+    controllerRequest: body,
+    appId: process.env.GITHUB_APP_ID,
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+    publisherReleaseSha: process.env.VERCEL_GIT_COMMIT_SHA,
+    generation: configuration.generation,
+    enabled: configuration.enabled,
+    expectedRepository: configuration.repository,
+    request: github,
+  });
+  sendJson(res, 202, result);
+}
+
+async function repairClaim(req, res) {
+  assertJsonRequest(req);
+  const configuration = repairControllerConfiguration();
+  if (!configuration.configured) {
+    throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
+  }
+  const body = await readJson(req, { maxBytes: MAX_BODY_BYTES });
+  try {
+    validateClaimRequest(body);
+  } catch {
+    throw new HttpError(400, "Repair claim request is invalid.");
+  }
+  const deliveryId = header(req, "x-changeplane-delivery");
+  const signature = header(req, "x-changeplane-signature");
+  try {
+    const secret = deriveControllerSecret({
+      masterSecret: process.env.CHANGEPLANE_CONTROLLER_SECRET,
+      installationId: body.installationId,
+      repositoryId: body.repositoryId,
+      repository: body.repository,
+    });
+    verifyClaimRequest({ secret, deliveryId, signature, request: body });
+  } catch {
+    throw new HttpError(403, "Repair claim authentication failed.");
+  }
+  const result = await claimTrustedRepair({
+    claimRequest: body,
+    appId: process.env.GITHUB_APP_ID,
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+    generation: configuration.generation,
+    enabled: configuration.enabled,
+    expectedRepository: configuration.repository,
+    expectedPublisherReleaseSha: process.env.VERCEL_GIT_COMMIT_SHA,
+    expectedActorLogin: `${githubAppSlug()}[bot]`,
+    request: github,
+  });
+  sendJson(res, 200, result);
+}
+
+async function repairValidate(req, res) {
+  assertJsonRequest(req);
+  const configuration = repairControllerConfiguration();
+  if (!configuration.configured) {
+    throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
+  }
+  const body = await readJson(req, { maxBytes: MAX_BODY_BYTES });
+  try {
+    validateClaimRequest(body);
+    const secret = deriveControllerSecret({
+      masterSecret: process.env.CHANGEPLANE_CONTROLLER_SECRET,
+      installationId: body.installationId,
+      repositoryId: body.repositoryId,
+      repository: body.repository,
+    });
+    verifyClaimRequest({
+      secret,
+      deliveryId: header(req, "x-changeplane-delivery"),
+      signature: header(req, "x-changeplane-signature"),
+      request: body,
+    });
+  } catch {
+    throw new HttpError(403, "Repair validation authentication failed.");
+  }
+  const result = await validateTrustedRepair({
+    claimRequest: body,
+    appId: process.env.GITHUB_APP_ID,
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+    generation: configuration.generation,
+    enabled: configuration.enabled,
+    expectedRepository: configuration.repository,
+    expectedPublisherReleaseSha: process.env.VERCEL_GIT_COMMIT_SHA,
+    expectedActorLogin: `${githubAppSlug()}[bot]`,
+    request: github,
+  });
+  sendJson(res, 200, result);
+}
+
 async function logout(req, res) {
   assertOrigin(req);
   const session = requireSession(req);
@@ -1459,7 +1684,7 @@ export default async function handler(req, res) {
       res.setHeader("allow", allowedMethods.join(", "));
       throw new HttpError(405, "Method not allowed for this API action.");
     }
-    if ((action === "install" || action === "byok") && (method === "POST" || method === "DELETE")) {
+    if ((action === "install" || action === "byok" || action === "repair" || action === "repair-claim" || action === "repair-validate") && (method === "POST" || method === "DELETE")) {
       assertMutationSourceProvenance();
     }
     if (method === "GET" && action === "readiness") {
@@ -1471,6 +1696,11 @@ export default async function handler(req, res) {
         rolloutMode: state.rolloutMode,
         release: state.release,
         managedRuntime: state.managedRuntime,
+        repairController: {
+          enabled: state.repairController.enabled,
+          configured: state.repairController.configured,
+          checks: state.repairController.checks,
+        },
       });
       return;
     }
@@ -1504,6 +1734,9 @@ export default async function handler(req, res) {
     if (method === "POST" && action === "byok") return await configureByok(req, res);
     if (method === "DELETE" && action === "byok") return await disconnectByok(req, res);
     if (method === "POST" && action === "install") return await install(req, res);
+    if (method === "POST" && action === "repair") return await repair(req, res);
+    if (method === "POST" && action === "repair-claim") return await repairClaim(req, res);
+    if (method === "POST" && action === "repair-validate") return await repairValidate(req, res);
     if (method === "POST" && action === "logout") return await logout(req, res);
     throw new HttpError(404, "Unknown GitHub API action.");
   } catch (error) {
