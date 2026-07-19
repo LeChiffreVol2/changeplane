@@ -14,8 +14,8 @@ The source repository is public for product evaluation and pilot transparency. I
 - Enterprise BYOK provisioning that first verifies `deepseek-v4-flash`, then encrypts the customer key with GitHub's repository public key and stores it only as the `DEEPSEEK_API_KEY` Actions Secret. ChangePlane never persists or returns the plaintext key.
 - Optional server-side DeepSeek credential verification for a private canary. Production currently leaves Managed reserved; autonomous execution, spend, metering, limits, and billing are intentionally not enabled in the observe pilot.
 - A readiness endpoint, structured redacted request telemetry, browser security policy, transient-read retry boundary, and immutable-SHA CI workflow for the production shell.
-- A setup PR that vendors the Action, trusted-base workflow, and starter policy in one commit. It never writes directly to the default branch or overwrites reserved ChangePlane paths.
-- A read-only repository preflight that must pass before the setup button is enabled. It verifies the target is active, checks every reserved path for conflicts, and exposes the exact no-impact observe boundary.
+- A setup PR that vendors the Action, trusted-base workflow, managed-file manifest, and starter policy in one commit. It never writes directly to the default branch or overwrites reserved ChangePlane paths.
+- A read-only repository preflight that distinguishes a fresh, current, safely upgradeable, or owner-review installation before enabling a write. Managed upgrades accept only exact known file hashes, preserve the repository-owned `.changeplane.json` policy, and create one reviewed PR bound to the current default-branch revision.
 - A deterministic scope and protected-path evaluator bound to base SHA, head SHA, policy, contract, inputs, and evaluator version. Required evidence can be bound to an expected GitHub App slug, so a same-name check from another source cannot satisfy policy.
 - Zero-touch contracts for ordinary pull requests: the first observed head's exact paths and title are bound into the trusted receipt automatically. Teams can still declare a broader prefix contract explicitly; changes above 50 paths route to a split-or-declare exception.
 - One GitHub-native execution lane per pull request. A new head or review event cancels stale evaluation before it can consume more CI, while deployment events remain exact-SHA bound and stale deployments are skipped.
@@ -108,9 +108,11 @@ Enterprise BYOK is optional for observe-only receipts and required only when a D
 
 The PR installs:
 
-- `changeplane/` — the vendored Action and pure evaluator.
-- `.changeplane.json` — repository policy.
+- `changeplane/` — the vendored Action, pure evaluator, and managed-file manifest.
+- `.changeplane.json` — repository-owned policy; ChangePlane upgrades never overwrite it.
 - `.github/workflows/changeplane.yml` — trusted-base observe workflow.
+
+Later releases update only pristine managed files through one versioned upgrade pull request. If a managed file was customized, is missing, or cannot be matched to a known release, ChangePlane writes nothing and asks a repository owner to review the exact paths.
 
 ## Automatic pull-request contract and evidence
 

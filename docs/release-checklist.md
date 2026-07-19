@@ -16,6 +16,7 @@
 - [ ] Confirm the activation-boundary step finds only `.github/workflows/ci.yml`; observe and repair templates must remain under `examples/`.
 - [ ] From a clean checkout, confirm `npm ci --cache .npm-cache`, `npm run verify`, and `npm run audit:prod` pass with Node `22.18.0`.
 - [ ] Confirm CI serves `dist` only on runner-local `127.0.0.1` and smoke-checks the built root without calling Preview or Production.
+- [ ] Confirm the Chromium onboarding suite passes for controlled-canary isolation plus fresh, upgrade, pending, current, and owner-review repository states without making non-local requests.
 - [ ] Review every dependency or pinned Action SHA change; do not waive a high/critical production audit finding without a written owner and expiry.
 - [ ] Confirm Vercel's Git integration is the only deployment path, `main` is the Production branch, and the install/build/output settings match `vercel.json`.
 

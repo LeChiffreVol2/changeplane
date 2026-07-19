@@ -46,7 +46,32 @@ const VERIFIED_VERCEL_SOURCE = Object.freeze({
   branch: "main",
 });
 const REQUIRED_SCOPES = ["repo", "workflow"];
-const PILOT_RESERVED_PATHS = ["changeplane", ".changeplane.json", ".github/workflows/changeplane.yml"];
+const POLICY_PATH = ".changeplane.json";
+const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
+const MANAGED_VERSION = 1;
+const MANAGED_PATHS = [
+  "changeplane/action.yml",
+  "changeplane/action/index.js",
+  "changeplane/src/lib/changeplane.js",
+  "changeplane/package.json",
+  ".github/workflows/changeplane.yml",
+];
+const PILOT_RESERVED_PATHS = ["changeplane", POLICY_PATH, ".github/workflows/changeplane.yml"];
+// Version zero is the exact observe payload installed before managed manifests existed.
+// Keep these immutable when a future managed version is added so pristine older installs
+// remain distinguishable from repository-owned modifications.
+const LEGACY_MANAGED_HASHES = Object.freeze({
+  "changeplane/action.yml": "bdfa9833c9b0911c58aeba054eb6eab7b3f426c1e2907665bd4a8ecdc936cd9c",
+  "changeplane/action/index.js": "ce15027ce8048c5fb83d7c73422c0646c7ebadfb991f057e0f03c73b673cb579",
+  "changeplane/src/lib/changeplane.js": "4578704217c2c5d3eac50ade6a40ee588ab75d1de736aeb0041fbfe8ce5536e6",
+  "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+  ".github/workflows/changeplane.yml": "5fdd8358d20adec23ce72feb9bebe7c8f6eeea94a47856a1ee01480ae8de8b53",
+});
+// When MANAGED_VERSION advances, retain each prior manifest-backed version here.
+// The installer may upgrade only bytes that match one of these immutable catalogs.
+const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
+  1: LEGACY_MANAGED_HASHES,
+});
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
 const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
@@ -57,6 +82,7 @@ const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
   checks: "read",
 });
 const OBSERVE_SETUP_BRANCH = "changeplane/observe-setup";
+const OBSERVE_UPGRADE_BRANCH = `changeplane/observe-upgrade-v${MANAGED_VERSION}`;
 const GUARD_CHECK_NAME = "ChangePlane / guard";
 const ROUTE_METHODS = new Map([
   ["session", ["GET"]],
@@ -573,17 +599,22 @@ async function inspectInstallTarget(repository, session) {
   const baseRef = await github(`/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`, session.token);
   const baseSha = baseRef?.object?.sha;
   if (!/^[a-f0-9]{40}$/u.test(baseSha ?? "")) throw new Error("GitHub returned an invalid default-branch revision.");
-  const conflicts = (await Promise.all(PILOT_RESERVED_PATHS.map(async (filePath) => (
+  const reservedPaths = (await Promise.all(PILOT_RESERVED_PATHS.map(async (filePath) => (
     await githubPathExists(encodedRepository, filePath, baseSha, session.token) ? filePath : null
   )))).filter(Boolean);
+  const installation = reservedPaths.length === 0
+    ? { state: "fresh", currentVersion: null, targetVersion: MANAGED_VERSION, conflicts: [] }
+    : await inspectManagedInstallation(encodedRepository, baseSha, session.token);
+  const conflicts = installation.conflicts;
   const repositoryState = repo.archived ? "archived" : repo.disabled ? "disabled" : "active";
   return {
     encodedRepository,
     repo,
     baseSha,
     conflicts,
+    installation,
     repositoryState,
-    installable: repositoryState === "active" && conflicts.length === 0,
+    installable: repositoryState === "active" && ["fresh", "outdated"].includes(installation.state),
   };
 }
 
@@ -603,7 +634,25 @@ function validateRequiredCheck(value) {
   return { name, appSlug };
 }
 
-export function buildPilotFiles(requiredCheck = null) {
+function contentDigest(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function managedManifestFromHashes(managedVersion, managedHashes) {
+  return `${JSON.stringify({
+    schemaVersion: 1,
+    managedVersion,
+    managedFiles: managedHashes,
+  }, null, 2)}\n`;
+}
+
+function managedManifestContent(managedFiles) {
+  return managedManifestFromHashes(MANAGED_VERSION, Object.fromEntries(managedFiles.map(({ path: filePath, content }) => (
+    [filePath, contentDigest(content)]
+  ))));
+}
+
+function buildManagedFiles() {
   const workflow = `name: ChangePlane
 
 on:
@@ -643,6 +692,18 @@ jobs:
         with:
           token: \${{ github.token }}
 `;
+  return [
+    { path: "changeplane/action.yml", content: readFileSync(path.join(ROOT, "action.yml"), "utf8") },
+    { path: "changeplane/action/index.js", content: readFileSync(path.join(ROOT, "action/index.js"), "utf8") },
+    { path: "changeplane/src/lib/changeplane.js", content: readFileSync(path.join(ROOT, "src/lib/changeplane.js"), "utf8") },
+    // The vendored ESM action must work even when the host repository is CommonJS.
+    { path: "changeplane/package.json", content: `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n` },
+    { path: ".github/workflows/changeplane.yml", content: workflow },
+  ];
+}
+
+export function buildPilotFiles(requiredCheck = null) {
+  const managedFiles = buildManagedFiles();
   const policy = {
     version: 1,
     protectedPaths: {
@@ -663,15 +724,121 @@ jobs:
     },
   };
 
+  const workflow = managedFiles.find(({ path: filePath }) => filePath === ".github/workflows/changeplane.yml");
   return [
-    { path: "changeplane/action.yml", content: readFileSync(path.join(ROOT, "action.yml"), "utf8") },
-    { path: "changeplane/action/index.js", content: readFileSync(path.join(ROOT, "action/index.js"), "utf8") },
-    { path: "changeplane/src/lib/changeplane.js", content: readFileSync(path.join(ROOT, "src/lib/changeplane.js"), "utf8") },
-    // The vendored ESM action must work even when the host repository is CommonJS.
-    { path: "changeplane/package.json", content: `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n` },
-    { path: ".changeplane.json", content: `${JSON.stringify(policy, null, 2)}\n` },
-    { path: ".github/workflows/changeplane.yml", content: workflow },
+    ...managedFiles.filter(({ path: filePath }) => filePath !== ".github/workflows/changeplane.yml"),
+    { path: MANAGED_MANIFEST_PATH, content: managedManifestContent(managedFiles) },
+    { path: POLICY_PATH, content: `${JSON.stringify(policy, null, 2)}\n` },
+    workflow,
   ];
+}
+
+function parsedManagedManifest(value) {
+  if (typeof value !== "string") return null;
+  try {
+    const manifest = JSON.parse(value);
+    return manifest?.schemaVersion === 1
+      && Number.isSafeInteger(manifest.managedVersion)
+      && manifest.managedVersion > 0
+      && manifest.managedFiles
+      && typeof manifest.managedFiles === "object"
+      && !Array.isArray(manifest.managedFiles)
+      ? manifest
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function classifyManagedInstallation({ files, reservedEntries = [] }) {
+  if (!files || typeof files !== "object" || Array.isArray(files) || !Array.isArray(reservedEntries)) {
+    throw new TypeError("Managed installation inspection is invalid.");
+  }
+  const desiredManagedFiles = buildManagedFiles();
+  const desiredHashes = Object.fromEntries(desiredManagedFiles.map(({ path: filePath, content }) => (
+    [filePath, contentDigest(content)]
+  )));
+  const allowedChangePlaneFiles = new Set([
+    ...MANAGED_PATHS.filter((filePath) => filePath.startsWith("changeplane/")),
+    MANAGED_MANIFEST_PATH,
+  ]);
+  const conflicts = reservedEntries
+    .filter((entry) => typeof entry === "string" && entry.startsWith("changeplane/") && !allowedChangePlaneFiles.has(entry));
+
+  if (typeof files[POLICY_PATH] !== "string") conflicts.push(POLICY_PATH);
+  for (const filePath of MANAGED_PATHS) {
+    if (typeof files[filePath] !== "string") conflicts.push(filePath);
+  }
+
+  const manifest = files[MANAGED_MANIFEST_PATH];
+  if (manifest == null) {
+    for (const filePath of MANAGED_PATHS) {
+      const content = files[filePath];
+      if (typeof content === "string" && contentDigest(content) !== LEGACY_MANAGED_HASHES[filePath]) {
+        conflicts.push(filePath);
+      }
+    }
+    const uniqueConflicts = [...new Set(conflicts)].sort();
+    return uniqueConflicts.length === 0
+      ? { state: "outdated", currentVersion: 0, targetVersion: MANAGED_VERSION, conflicts: [] }
+      : { state: "conflict", currentVersion: null, targetVersion: MANAGED_VERSION, conflicts: uniqueConflicts };
+  }
+
+  const parsedManifest = parsedManagedManifest(manifest);
+  const catalogHashes = parsedManifest?.managedVersion === MANAGED_VERSION
+    ? desiredHashes
+    : KNOWN_MANAGED_VERSION_HASHES[parsedManifest?.managedVersion];
+  const expectedManifest = catalogHashes
+    ? managedManifestFromHashes(parsedManifest.managedVersion, catalogHashes)
+    : null;
+  if (!parsedManifest || parsedManifest.managedVersion > MANAGED_VERSION || manifest !== expectedManifest) {
+    conflicts.push(MANAGED_MANIFEST_PATH);
+  }
+  for (const filePath of MANAGED_PATHS) {
+    const content = files[filePath];
+    if (typeof content === "string" && (!catalogHashes || contentDigest(content) !== catalogHashes[filePath])) {
+      conflicts.push(filePath);
+    }
+  }
+  const uniqueConflicts = [...new Set(conflicts)].sort();
+  if (uniqueConflicts.length > 0) {
+    return { state: "conflict", currentVersion: null, targetVersion: MANAGED_VERSION, conflicts: uniqueConflicts };
+  }
+  return parsedManifest.managedVersion === MANAGED_VERSION
+    ? { state: "current", currentVersion: MANAGED_VERSION, targetVersion: MANAGED_VERSION, conflicts: [] }
+    : { state: "outdated", currentVersion: parsedManifest.managedVersion, targetVersion: MANAGED_VERSION, conflicts: [] };
+}
+
+async function readRepositoryFile(encodedRepository, filePath, ref, token) {
+  try {
+    const payload = await github(
+      `/repos/${encodedRepository}/contents/${encodePath(filePath)}?ref=${encodeURIComponent(ref)}`,
+      token,
+    );
+    if (payload?.type !== "file" || payload.encoding !== "base64" || typeof payload.content !== "string") return false;
+    return Buffer.from(payload.content.replaceAll("\n", ""), "base64").toString("utf8");
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+async function inspectManagedInstallation(encodedRepository, baseSha, token) {
+  const inspectedPaths = [...MANAGED_PATHS, MANAGED_MANIFEST_PATH, POLICY_PATH];
+  const contents = await Promise.all(inspectedPaths.map((filePath) => (
+    readRepositoryFile(encodedRepository, filePath, baseSha, token)
+  )));
+  const files = Object.fromEntries(inspectedPaths.map((filePath, index) => [filePath, contents[index]]));
+  const commit = await github(`/repos/${encodedRepository}/git/commits/${baseSha}`, token);
+  const treeSha = commit?.tree?.sha;
+  if (!/^[a-f0-9]{40}$/u.test(treeSha ?? "")) throw new Error("GitHub returned an invalid default-branch tree.");
+  const tree = await github(`/repos/${encodedRepository}/git/trees/${treeSha}?recursive=1`, token);
+  const reservedEntries = tree?.truncated || !Array.isArray(tree?.tree)
+    ? ["changeplane/**"]
+    : tree.tree
+      .filter((entry) => entry?.type !== "tree" && typeof entry?.path === "string")
+      .map((entry) => entry.path);
+  return classifyManagedInstallation({ files, reservedEntries });
 }
 
 function encodeRepository(repository) {
@@ -686,13 +853,14 @@ function encodeRef(ref) {
   return ref.split("/").map(encodeURIComponent).join("/");
 }
 
-function observeSetupResult(repo, pullRequest) {
+function observeSetupResult(repo, pullRequest, { branch = OBSERVE_SETUP_BRANCH, operation = "install" } = {}) {
   if (!Number.isSafeInteger(pullRequest?.number) || typeof pullRequest?.html_url !== "string") {
     throw new Error("GitHub returned an invalid setup pull request.");
   }
   return {
     repository: repo.full_name,
-    branch: OBSERVE_SETUP_BRANCH,
+    branch,
+    operation,
     pullRequest: {
       number: pullRequest.number,
       url: pullRequest.html_url,
@@ -721,6 +889,26 @@ function readObserveSetupPlan(body, files) {
   }
 }
 
+function observeUpgradePlan(files) {
+  return {
+    goal: `Upgrade ChangePlane observe managed files to version ${MANAGED_VERSION}`,
+    scope: files.map(({ path: filePath }) => filePath),
+    managedVersion: MANAGED_VERSION,
+  };
+}
+
+function readObserveUpgradePlan(body, files) {
+  const match = String(body ?? "").match(/^<!-- changeplane ([^\n]+) -->/u);
+  if (!match) return null;
+  try {
+    const plan = JSON.parse(match[1]);
+    const expected = observeUpgradePlan(files);
+    return JSON.stringify(plan) === JSON.stringify(expected) ? plan : null;
+  } catch {
+    return null;
+  }
+}
+
 async function findObserveSetupPullRequest(encodedRepository, repo, token, files, expectedPlan = null) {
   const owner = repo.full_name.split("/")[0];
   const pulls = await github(
@@ -742,14 +930,37 @@ async function findObserveSetupPullRequest(encodedRepository, repo, token, files
   return matches[0] ?? null;
 }
 
-async function readObserveSetupHead(encodedRepository, token) {
+async function findObserveUpgradePullRequest(encodedRepository, repo, token, files) {
+  const owner = repo.full_name.split("/")[0];
+  const pulls = await github(
+    `/repos/${encodedRepository}/pulls?state=open&base=${encodeURIComponent(repo.default_branch)}&head=${encodeURIComponent(`${owner}:${OBSERVE_UPGRADE_BRANCH}`)}&per_page=10`,
+    token,
+  );
+  if (!Array.isArray(pulls)) throw new Error("GitHub returned an invalid upgrade pull-request list.");
+  const matches = pulls.filter((pullRequest) => (
+    pullRequest?.state === "open"
+      && pullRequest.head?.ref === OBSERVE_UPGRADE_BRANCH
+      && pullRequest.head?.repo?.full_name?.toLowerCase() === repo.full_name.toLowerCase()
+      && pullRequest.base?.ref === repo.default_branch
+      && pullRequest.title === "chore: upgrade ChangePlane observe pilot"
+      && readObserveUpgradePlan(pullRequest?.body, files)
+  ));
+  if (matches.length > 1) throw new HttpError(409, "Multiple ChangePlane upgrade pull requests already exist.");
+  return matches[0] ?? null;
+}
+
+async function readBranchHead(encodedRepository, branch, token) {
   try {
-    const ref = await github(`/repos/${encodedRepository}/git/ref/heads/${encodeRef(OBSERVE_SETUP_BRANCH)}`, token);
+    const ref = await github(`/repos/${encodedRepository}/git/ref/heads/${encodeRef(branch)}`, token);
     return /^[a-f0-9]{40}$/u.test(ref?.object?.sha ?? "") ? ref.object.sha : null;
   } catch (error) {
     if (error instanceof GitHubError && error.status === 404) return null;
     throw error;
   }
+}
+
+async function readObserveSetupHead(encodedRepository, token) {
+  return readBranchHead(encodedRepository, OBSERVE_SETUP_BRANCH, token);
 }
 
 async function assertObserveSetupHead(encodedRepository, headSha, baseSha, expectedTreeSha, token) {
@@ -812,15 +1023,195 @@ async function validateObserveSetupPullRequest(encodedRepository, pullRequest, b
   }));
 }
 
+async function validateObserveUpgradePullRequest(encodedRepository, pullRequest, baseSha, files, expectedStatuses, token) {
+  if (files.some(({ path: filePath }) => filePath === POLICY_PATH)) {
+    throw new Error("ChangePlane policy cannot be part of a managed upgrade.");
+  }
+  const headSha = pullRequest?.head?.sha;
+  if (!/^[a-f0-9]{40}$/u.test(headSha ?? "") || pullRequest?.base?.sha !== baseSha) {
+    throw new HttpError(409, "The existing ChangePlane upgrade pull request has an invalid revision.");
+  }
+  const branchHead = await readBranchHead(encodedRepository, OBSERVE_UPGRADE_BRANCH, token);
+  if (branchHead !== headSha) {
+    throw new HttpError(409, "The existing ChangePlane upgrade pull request is not bound to the upgrade branch head.");
+  }
+  const commit = await github(`/repos/${encodedRepository}/git/commits/${headSha}`, token);
+  const treeSha = commit?.tree?.sha;
+  if (!/^[a-f0-9]{40}$/u.test(treeSha ?? "") || commit?.parents?.length !== 1 || commit.parents[0]?.sha !== baseSha) {
+    throw new HttpError(409, "The existing ChangePlane upgrade pull request is not based on the current default branch.");
+  }
+  const comparison = await github(`/repos/${encodedRepository}/compare/${baseSha}...${headSha}`, token);
+  const expectedPaths = files.map(({ path: filePath }) => filePath).sort();
+  const actualFiles = Array.isArray(comparison?.files) ? comparison.files : [];
+  const actualPaths = actualFiles.map(({ filename }) => filename).sort();
+  if (
+    comparison?.base_commit?.sha !== baseSha
+    || comparison?.merge_base_commit?.sha !== baseSha
+    || comparison?.ahead_by !== 1
+    || comparison?.behind_by !== 0
+    || comparison?.total_commits !== 1
+    || actualPaths.length !== expectedPaths.length
+    || actualPaths.some((filePath, index) => filePath !== expectedPaths[index])
+    || actualFiles.some((file) => file?.status !== expectedStatuses.get(file.filename) || file?.previous_filename != null)
+  ) {
+    throw new HttpError(409, "The existing ChangePlane upgrade pull request contains unexpected files.");
+  }
+  const tree = await github(`/repos/${encodedRepository}/git/trees/${treeSha}?recursive=1`, token);
+  if (tree?.truncated || !Array.isArray(tree?.tree)) {
+    throw new HttpError(409, "The existing ChangePlane upgrade pull request has an unverifiable tree.");
+  }
+  const entries = new Map(tree.tree.map((entry) => [entry?.path, entry]));
+  await Promise.all(files.map(async ({ path: filePath, content }) => {
+    const blobSha = createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
+    const entry = entries.get(filePath);
+    if (entry?.mode !== "100644" || entry?.type !== "blob" || entry?.sha !== blobSha) {
+      throw new HttpError(409, `The existing upgrade tree is invalid: ${filePath}.`);
+    }
+    const remote = await github(`/repos/${encodedRepository}/contents/${encodePath(filePath)}?ref=${headSha}`, token);
+    if (remote?.type !== "file" || remote?.encoding !== "base64" || typeof remote?.content !== "string") {
+      throw new HttpError(409, `The existing upgrade file is invalid: ${filePath}.`);
+    }
+    const decoded = Buffer.from(remote.content.replaceAll("\n", ""), "base64").toString("utf8");
+    if (decoded !== content || remote.sha !== blobSha) {
+      throw new HttpError(409, `The existing upgrade file was modified: ${filePath}.`);
+    }
+  }));
+}
+
+async function managedUpgradeFiles(encodedRepository, baseSha, token) {
+  const desired = buildPilotFiles().filter(({ path: filePath }) => (
+    filePath === MANAGED_MANIFEST_PATH || MANAGED_PATHS.includes(filePath)
+  ));
+  const current = await Promise.all(desired.map(({ path: filePath }) => (
+    readRepositoryFile(encodedRepository, filePath, baseSha, token)
+  )));
+  const files = [];
+  const expectedStatuses = new Map();
+  desired.forEach((file, index) => {
+    if (current[index] === file.content) return;
+    files.push(file);
+    expectedStatuses.set(file.path, current[index] == null ? "added" : "modified");
+  });
+  return { files, expectedStatuses };
+}
+
+async function createObserveUpgradePullRequest(target, session) {
+  const { encodedRepository, repo, baseSha } = target;
+  const token = session.token;
+  const { files, expectedStatuses } = await managedUpgradeFiles(encodedRepository, baseSha, token);
+  if (files.length === 0 || files.some(({ path: filePath }) => filePath === POLICY_PATH)) {
+    throw new HttpError(409, "ChangePlane managed files are already current or cannot be upgraded safely.");
+  }
+  const existingPullRequest = await findObserveUpgradePullRequest(encodedRepository, repo, token, files);
+  if (existingPullRequest) {
+    await validateObserveUpgradePullRequest(encodedRepository, existingPullRequest, baseSha, files, expectedStatuses, token);
+    return observeSetupResult(repo, existingPullRequest, { branch: OBSERVE_UPGRADE_BRANCH, operation: "upgrade" });
+  }
+
+  const currentBaseRef = await github(
+    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
+    token,
+  );
+  if (currentBaseRef?.object?.sha !== baseSha) {
+    throw new HttpError(409, "The default branch changed during upgrade preflight. Retry before creating an upgrade pull request.");
+  }
+
+  const baseCommit = await github(`/repos/${encodedRepository}/git/commits/${baseSha}`, token);
+  const baseTree = baseCommit?.tree?.sha;
+  if (!/^[a-f0-9]{40}$/u.test(baseTree ?? "")) throw new Error("GitHub returned an invalid base tree.");
+  const blobs = await Promise.all(files.map(({ content }) => github(`/repos/${encodedRepository}/git/blobs`, token, {
+    method: "POST",
+    body: { content, encoding: "utf-8" },
+  })));
+  const tree = await github(`/repos/${encodedRepository}/git/trees`, token, {
+    method: "POST",
+    body: {
+      base_tree: baseTree,
+      tree: files.map((file, index) => ({
+        path: file.path,
+        mode: "100644",
+        type: "blob",
+        sha: blobs[index].sha,
+      })),
+    },
+  });
+  if (!/^[a-f0-9]{40}$/u.test(tree?.sha ?? "")) throw new Error("GitHub returned an invalid upgrade tree.");
+
+  let upgradeHead = await readBranchHead(encodedRepository, OBSERVE_UPGRADE_BRANCH, token);
+  if (!upgradeHead) {
+    const commit = await github(`/repos/${encodedRepository}/git/commits`, token, {
+      method: "POST",
+      body: {
+        message: `chore: upgrade ChangePlane observe pilot to v${MANAGED_VERSION}`,
+        tree: tree.sha,
+        parents: [baseSha],
+      },
+    });
+    if (!/^[a-f0-9]{40}$/u.test(commit?.sha ?? "")) throw new Error("GitHub returned an invalid upgrade commit.");
+    try {
+      await github(`/repos/${encodedRepository}/git/refs`, token, {
+        method: "POST",
+        body: { ref: `refs/heads/${OBSERVE_UPGRADE_BRANCH}`, sha: commit.sha },
+      });
+    } catch (error) {
+      if (!(error instanceof GitHubError) || error.status !== 422) throw error;
+    }
+    upgradeHead = await readBranchHead(encodedRepository, OBSERVE_UPGRADE_BRANCH, token);
+  }
+  if (!/^[a-f0-9]{40}$/u.test(upgradeHead ?? "")) throw new Error("GitHub returned an invalid upgrade branch revision.");
+  const upgradeCommit = await github(`/repos/${encodedRepository}/git/commits/${upgradeHead}`, token);
+  if (upgradeCommit?.tree?.sha !== tree.sha || upgradeCommit?.parents?.length !== 1 || upgradeCommit.parents[0]?.sha !== baseSha) {
+    throw new HttpError(409, `Branch ${OBSERVE_UPGRADE_BRANCH} already exists with different content.`);
+  }
+
+  const plan = observeUpgradePlan(files);
+  try {
+    const pullRequest = await github(`/repos/${encodedRepository}/pulls`, token, {
+      method: "POST",
+      body: {
+        title: "chore: upgrade ChangePlane observe pilot",
+        head: OBSERVE_UPGRADE_BRANCH,
+        base: repo.default_branch,
+        body: [
+          `<!-- changeplane ${JSON.stringify(plan)} -->`,
+          "## ChangePlane managed upgrade",
+          "",
+          `This updates only ${files.length} pristine ChangePlane-managed file${files.length === 1 ? "" : "s"} to managed version ${MANAGED_VERSION}.`,
+          "",
+          `The repository-owned \`${POLICY_PATH}\` policy is not changed. No default-branch write occurs until this pull request is reviewed and merged.`,
+          "",
+          "Closing this pull request stops the upgrade.",
+        ].join("\n"),
+      },
+    });
+    await validateObserveUpgradePullRequest(encodedRepository, pullRequest, baseSha, files, expectedStatuses, token);
+    return observeSetupResult(repo, pullRequest, { branch: OBSERVE_UPGRADE_BRANCH, operation: "upgrade" });
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 422) {
+      const pullRequest = await findObserveUpgradePullRequest(encodedRepository, repo, token, files);
+      if (pullRequest) {
+        await validateObserveUpgradePullRequest(encodedRepository, pullRequest, baseSha, files, expectedStatuses, token);
+        return observeSetupResult(repo, pullRequest, { branch: OBSERVE_UPGRADE_BRANCH, operation: "upgrade" });
+      }
+    }
+    throw error;
+  }
+}
+
 async function createObservePullRequest(repository, session, requiredCheck = null) {
   const token = session.token;
-  const { encodedRepository, repo, baseSha, conflicts, repositoryState } = await inspectInstallTarget(repository, session);
+  const target = await inspectInstallTarget(repository, session);
+  const { encodedRepository, repo, baseSha, conflicts, repositoryState, installation } = target;
   if (repositoryState !== "active") {
     throw new HttpError(409, `ChangePlane cannot install into a ${repositoryState} repository.`);
   }
-  if (conflicts.length > 0) {
-    throw new HttpError(409, `ChangePlane will not overwrite existing paths: ${conflicts.join(", ")}`);
+  if (installation.state === "current") {
+    throw new HttpError(409, `ChangePlane managed version ${MANAGED_VERSION} is already installed.`);
   }
+  if (conflicts.length > 0) {
+    throw new HttpError(409, `ChangePlane will not overwrite repository-owned or modified paths: ${conflicts.join(", ")}`);
+  }
+  if (installation.state === "outdated") return createObserveUpgradePullRequest(target, session);
   const baseFiles = buildPilotFiles();
   const existingPullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, baseFiles);
   if (existingPullRequest) {
@@ -897,7 +1288,7 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
           "",
           "This adds reporting only. It cannot block merges, run repair, or execute pull-request code with a write token.",
           "",
-          "**Next:** review the six added files, then merge to activate ChangePlane on future pull-request updates.",
+          `**Next:** review the ${files.length} added files, then merge to activate ChangePlane on future pull-request updates.`,
           "",
           `**Done when:** open or update one normal pull request, open its **Checks** tab, and choose \`ChangePlane / guard\`. **Neutral** means ChangePlane reported findings without changing merge rules. **Scope only** means the exact commit and files were checked, but no behavior test was bound. [Open this repository's pull requests](https://github.com/${repo.full_name}/pulls).`,
           "",
@@ -1435,63 +1826,65 @@ async function preflight(req, res) {
   const session = requireSession(req);
   const repository = validateRepository(queryValue(req, "repository"));
   const target = await inspectInstallTarget(repository, session);
-  let files = buildPilotFiles();
+  let files = target.installation.state === "fresh" ? buildPilotFiles() : [];
   let installable = target.installable;
   let setup = { state: "none" };
   let evidenceOptions = [];
   let evidenceDiscovery = { state: "unavailable" };
-  try {
-    let recentPulls = [];
+  if (target.installation.state === "fresh") {
     try {
-      const payload = await github(
-        `/repos/${target.encodedRepository}/pulls?state=open&sort=updated&direction=desc&per_page=5`,
+      let recentPulls = [];
+      try {
+        const payload = await github(
+          `/repos/${target.encodedRepository}/pulls?state=open&sort=updated&direction=desc&per_page=5`,
+          session.token,
+        );
+        if (Array.isArray(payload)) recentPulls = payload;
+      } catch {
+        // The default branch still provides useful discovery when no pull request can be listed.
+      }
+      const candidateHeads = [...new Set([
+        ...recentPulls
+          .filter((pull) => pull?.head?.repo?.full_name === target.repo.full_name && /^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? ""))
+          .map((pull) => pull.head.sha),
+        target.baseSha,
+      ])].slice(0, 3);
+      const payloads = await Promise.all(candidateHeads.map((headSha) => github(
+        `/repos/${target.encodedRepository}/commits/${headSha}/check-runs?filter=latest&per_page=100`,
         session.token,
-      );
-      if (Array.isArray(payload)) recentPulls = payload;
+      )));
+      const seen = new Set();
+      const evidenceScore = (name) => {
+        if (/\b(e2e|integration|unit|tests?|ci)\b/iu.test(name)) return 2;
+        if (/\b(build|typecheck)\b/iu.test(name)) return 1;
+        return 0;
+      };
+      evidenceOptions = payloads.flatMap((payload) => Array.isArray(payload?.check_runs) ? payload.check_runs : [])
+        .filter((check) => typeof check?.name === "string" && check.name.length > 0 && check.name.length <= 100
+          && check.name !== GUARD_CHECK_NAME && typeof check?.app?.slug === "string" && check.app.slug.length > 0)
+        .filter((check) => {
+          const key = `${check.name}\0${check.app.slug}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((check) => ({ check, score: evidenceScore(check.name) }))
+        .sort((left, right) => right.score - left.score || left.check.name.localeCompare(right.check.name))
+        .slice(0, 8)
+        .map(({ check, score }, index) => ({
+          name: check.name,
+          appSlug: check.app.slug,
+          suggested: score > 0 && index === 0,
+        }));
+      evidenceDiscovery = {
+        state: evidenceOptions.length > 0 ? "found" : "empty",
+        checkedHeads: candidateHeads.length,
+      };
     } catch {
-      // The default branch still provides useful discovery when no pull request can be listed.
+      // Evidence discovery is optional and read-only; the UI falls back to explicit scope-only assurance.
     }
-    const candidateHeads = [...new Set([
-      ...recentPulls
-        .filter((pull) => pull?.head?.repo?.full_name === target.repo.full_name && /^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? ""))
-        .map((pull) => pull.head.sha),
-      target.baseSha,
-    ])].slice(0, 3);
-    const payloads = await Promise.all(candidateHeads.map((headSha) => github(
-      `/repos/${target.encodedRepository}/commits/${headSha}/check-runs?filter=latest&per_page=100`,
-      session.token,
-    )));
-    const seen = new Set();
-    const evidenceScore = (name) => {
-      if (/\b(e2e|integration|unit|tests?|ci)\b/iu.test(name)) return 2;
-      if (/\b(build|typecheck)\b/iu.test(name)) return 1;
-      return 0;
-    };
-    evidenceOptions = payloads.flatMap((payload) => Array.isArray(payload?.check_runs) ? payload.check_runs : [])
-      .filter((check) => typeof check?.name === "string" && check.name.length > 0 && check.name.length <= 100
-        && check.name !== GUARD_CHECK_NAME && typeof check?.app?.slug === "string" && check.app.slug.length > 0)
-      .filter((check) => {
-        const key = `${check.name}\0${check.app.slug}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map((check) => ({ check, score: evidenceScore(check.name) }))
-      .sort((left, right) => right.score - left.score || left.check.name.localeCompare(right.check.name))
-      .slice(0, 8)
-      .map(({ check, score }, index) => ({
-        name: check.name,
-        appSlug: check.app.slug,
-        suggested: score > 0 && index === 0,
-      }));
-    evidenceDiscovery = {
-      state: evidenceOptions.length > 0 ? "found" : "empty",
-      checkedHeads: candidateHeads.length,
-    };
-  } catch {
-    // Evidence discovery is optional and read-only; the UI falls back to explicit scope-only assurance.
   }
-  if (target.installable) {
+  if (target.installable && target.installation.state === "fresh") {
     const existingPullRequest = await findObserveSetupPullRequest(target.encodedRepository, target.repo, session.token, files);
     if (existingPullRequest) {
       try {
@@ -1519,11 +1912,58 @@ async function preflight(req, res) {
         message: `Branch ${OBSERVE_SETUP_BRANCH} already exists without a verifiable setup PR. Delete the branch, then retry.`,
       };
     }
+  } else if (target.installable && target.installation.state === "outdated") {
+    const upgrade = await managedUpgradeFiles(target.encodedRepository, target.baseSha, session.token);
+    files = upgrade.files;
+    const existingPullRequest = await findObserveUpgradePullRequest(target.encodedRepository, target.repo, session.token, files);
+    if (existingPullRequest) {
+      try {
+        await validateObserveUpgradePullRequest(
+          target.encodedRepository,
+          existingPullRequest,
+          target.baseSha,
+          files,
+          upgrade.expectedStatuses,
+          session.token,
+        );
+        setup = {
+          state: "pending",
+          operation: "upgrade",
+          pullRequest: { number: existingPullRequest.number, url: existingPullRequest.html_url },
+        };
+      } catch (error) {
+        if (!(error instanceof HttpError) || error.status !== 409) throw error;
+        installable = false;
+        setup = {
+          state: "stale",
+          operation: "upgrade",
+          pullRequest: { number: existingPullRequest.number, url: existingPullRequest.html_url },
+          message: `Upgrade PR #${existingPullRequest.number} does not match the current installer. Close it and delete ${OBSERVE_UPGRADE_BRANCH}, then retry.`,
+        };
+      }
+    } else if (await readBranchHead(target.encodedRepository, OBSERVE_UPGRADE_BRANCH, session.token)) {
+      installable = false;
+      setup = {
+        state: "stale",
+        operation: "upgrade",
+        message: `Branch ${OBSERVE_UPGRADE_BRANCH} already exists without a verifiable upgrade PR. Delete the branch, then retry.`,
+      };
+    } else {
+      setup = { state: "upgrade_available", operation: "upgrade" };
+    }
+  } else if (target.installation.state === "current") {
+    setup = { state: "current", managedVersion: MANAGED_VERSION };
+  } else if (target.installation.state === "conflict") {
+    setup = {
+      state: "conflict",
+      message: `ChangePlane will not overwrite repository-owned or modified paths: ${target.conflicts.join(", ")}`,
+    };
   }
   sendJson(res, 200, {
     repository: target.repo.full_name,
     defaultBranch: target.repo.default_branch,
     repositoryState: target.repositoryState,
+    installation: target.installation,
     installable,
     conflicts: target.conflicts,
     setupFiles: files.length,

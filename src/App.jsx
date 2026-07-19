@@ -114,7 +114,7 @@ const PREVIEW_PREFLIGHT = {
   repositoryState: "active",
   installable: true,
   conflicts: [],
-  setupFiles: 6,
+  setupFiles: 7,
   evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
   boundary: {
     defaultBranchWrite: false,
@@ -427,7 +427,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
   );
 }
 
-function SetupProgress({ complete, isPreview, repositorySelected }) {
+function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isCurrent }) {
   return (
     <ol className="setup-progress" aria-label="Repository setup progress">
       <li className="is-complete">
@@ -441,9 +441,16 @@ function SetupProgress({ complete, isPreview, repositorySelected }) {
         <span>{repositorySelected ? <Check size={13} weight="bold" /> : "2"}</span>
         <div><strong>Choose a project</strong><small>Select one repository</small></div>
       </li>
-      <li className={complete ? "is-active" : ""}>
-        <span>3</span>
-        <div><strong>Review and merge setup PR</strong><small>Nothing starts before GitHub shows it merged</small></div>
+      <li className={isCurrent ? "is-complete" : complete ? "is-active" : ""}>
+        <span>{isCurrent ? <Check size={13} weight="bold" /> : "3"}</span>
+        <div>
+          <strong>{isCurrent ? "ChangePlane is active" : `Review and merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
+          <small>{isCurrent
+            ? "No repository change is needed"
+            : isUpgrade
+              ? "Current installation stays active until merge"
+              : "Nothing starts before GitHub shows it merged"}</small>
+        </div>
       </li>
     </ol>
   );
@@ -633,9 +640,16 @@ function GitHubSetup({
   ));
   const selected = repositories.find(({ fullName }) => fullName === selectedRepository);
   const complete = Boolean(installResult);
+  const installationState = preflight?.installation?.state ?? "fresh";
+  const isUpgrade = installationState === "outdated";
+  const isCurrent = installationState === "current";
   const preflightReady = preflightStatus === "ready" && preflight?.installable;
   const pendingSetup = preflight?.setup?.state === "pending" && preflight.setup.pullRequest?.url;
-  const evidenceReady = pendingSetup || evidenceMode === "scope"
+  const pendingUpgrade = pendingSetup && preflight?.setup?.operation === "upgrade";
+  const preflightTone = preflightStatus === "ready" && !preflightReady && !isCurrent
+    ? "attention"
+    : preflightStatus;
+  const evidenceReady = isUpgrade || pendingSetup || evidenceMode === "scope"
     || (checkName.trim() && checkPublisher.trim() && behaviorConfirmed);
   const repositoryMutationBusy = installStatus === "installing" || byokSaving;
 
@@ -670,7 +684,13 @@ function GitHubSetup({
             <p className="setup-context-kicker">One-time installation</p>
             <h1 id="setup-main-title" tabIndex={-1}>Connect once. Then close this tab.</h1>
             <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update in that repository. Developers keep working in their coding agent and GitHub.</p>
-            <SetupProgress complete={complete} isPreview={session.isPreview} repositorySelected={Boolean(selected)} />
+            <SetupProgress
+              complete={complete}
+              isPreview={session.isPreview}
+              repositorySelected={Boolean(selected)}
+              isUpgrade={isUpgrade}
+              isCurrent={isCurrent}
+            />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
               <p><strong>Safe by default</strong><span>Observe mode cannot block a merge or dispatch an agent repair.</span></p>
@@ -756,16 +776,16 @@ function GitHubSetup({
                         <strong>{selected?.fullName || "Choose a repository"}</strong>
                       </div>
                       <div><span>Rollout mode</span><strong>Observe only</strong></div>
-                      <div><span>Repository write</span><strong>One setup PR</strong></div>
+                      <div><span>Repository write</span><strong>{isCurrent ? "None needed" : isUpgrade ? "One upgrade PR" : "One setup PR"}</strong></div>
                     </div>
 
-                    <div className={`safety-preflight safety-preflight-${preflightStatus}`} aria-live="polite">
+                    <div className={`safety-preflight safety-preflight-${preflightTone}`} aria-live="polite">
                       <div className="safety-preflight-heading">
                         {!selected
                           ? <Circle size={18} weight="bold" aria-hidden="true" />
                           : preflightStatus === "loading"
                           ? <ArrowsClockwise className="spin" size={18} weight="bold" aria-hidden="true" />
-                          : preflightReady
+                          : preflightReady || isCurrent
                             ? <ShieldCheck size={19} weight="fill" aria-hidden="true" />
                             : <WarningOctagon size={19} weight="fill" aria-hidden="true" />}
                         <div>
@@ -773,19 +793,29 @@ function GitHubSetup({
                             ? "Choose a repository to continue"
                             : preflightStatus === "loading"
                             ? "Checking the repository boundary"
-                            : preflightReady
-                              ? pendingSetup ? "Setup PR already ready" : "Safe to install · choose evidence below"
+                            : isCurrent
+                              ? "ChangePlane is up to date"
+                              : preflightReady
+                              ? pendingSetup
+                                ? pendingUpgrade ? "Upgrade PR already ready" : "Setup PR already ready"
+                                : isUpgrade ? "Safe managed upgrade ready" : "Safe to install · choose evidence below"
                               : "Setup needs attention"}</strong>
                           <span>{!selected
                             ? "Nothing is accessed until you make a selection."
                             : preflightStatus === "loading"
                             ? "Read-only checks only. Nothing is being changed."
+                            : isCurrent
+                              ? `Managed version ${preflight.installation.currentVersion} is installed. Your project policy remains repository-owned.`
                             : preflightReady
                               ? pendingSetup
-                                ? preflight.setup.requiredCheck
-                                  ? `The existing PR binds ${preflight.setup.requiredCheck.name} from ${preflight.setup.requiredCheck.appSlug}. Open it to review and merge; no new write is needed.`
-                                  : "The existing PR is explicitly scope-only. Open it to review and merge; no new write is needed."
-                                : evidenceOptions.length > 0
+                                ? pendingUpgrade
+                                  ? "Open the verified upgrade PR to review the managed-file update. Your .changeplane.json policy is unchanged."
+                                  : preflight.setup.requiredCheck
+                                    ? `The existing PR binds ${preflight.setup.requiredCheck.name} from ${preflight.setup.requiredCheck.appSlug}. Open it to review and merge; no new write is needed.`
+                                    : "The existing PR is explicitly scope-only. Open it to review and merge; no new write is needed."
+                              : isUpgrade
+                                ? `A verified earlier installation can be updated to managed version ${preflight.installation.targetVersion} without changing .changeplane.json.`
+                              : evidenceOptions.length > 0
                                   ? `Found ${evidenceOptions.length} recent GitHub check${evidenceOptions.length === 1 ? "" : "s"}. A likely test is selected; confirm what it protects below.`
                                   : preflight?.evidenceDiscovery?.state === "unavailable"
                                     ? "GitHub checks could not be read right now. Scope-only is selected safely; retry discovery or add a check manually."
@@ -793,14 +823,17 @@ function GitHubSetup({
                               : preflight?.setup?.message || preflightError || (preflight?.conflicts?.length
                                 ? `Existing ChangePlane paths found: ${preflight.conflicts.join(", ")}`
                                 : "This repository is not eligible for the observe rollout.")}</span>
-                          {selected && preflightStatus !== "loading" && !preflightReady && <span>No repository change was made.</span>}
+                          {preflight?.installation?.state === "conflict" && (
+                            <span>Ask a repository owner to review the listed paths. ChangePlane did not overwrite them.</span>
+                          )}
+                          {selected && preflightStatus !== "loading" && !preflightReady && !isCurrent && <span>No repository change was made.</span>}
                         </div>
                       </div>
-                      {preflightReady && (
+                      {(preflightReady || isCurrent) && (
                         <ul className="safety-preflight-facts">
                           <li><Check size={13} weight="bold" /> No direct default-branch write</li>
-                          <li><Check size={13} weight="bold" /> Cannot block merge or deploy</li>
-                          <li><Check size={13} weight="bold" /> No PR code or provider secret runs</li>
+                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? ".changeplane.json stays repository-owned" : "Cannot block merge or deploy"}</li>
+                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Managed files must match a known version" : "No PR code or provider secret runs"}</li>
                         </ul>
                       )}
                       {preflight?.setup?.state === "stale" && preflight.setup.pullRequest?.url && (
@@ -808,14 +841,14 @@ function GitHubSetup({
                           Open PR #{preflight.setup.pullRequest.number}, choose Close pull request, then Delete branch <ArrowRight size={13} />
                         </a>
                       )}
-                      {preflightReady && preflight?.evidenceDiscovery?.state === "unavailable" && (
+                      {preflightReady && !isUpgrade && preflight?.evidenceDiscovery?.state === "unavailable" && (
                         <button className="evidence-retry" type="button" onClick={onRetryPreflight}>
                           <ArrowsClockwise size={13} weight="bold" /> Try check discovery again
                         </button>
                       )}
                     </div>
 
-                    {preflightReady && !pendingSetup && (
+                    {preflightReady && !pendingSetup && !isUpgrade && (
                       <fieldset className="evidence-choice">
                         <legend>Choose what the first receipt proves</legend>
                         <label className={evidenceMode === "behavior" ? "is-selected" : ""}>
@@ -891,9 +924,9 @@ function GitHubSetup({
 
                     {pendingSetup ? (
                       <a className="primary-action install-action" href={preflight.setup.pullRequest.url} target="_blank" rel="noreferrer">
-                        <GitBranch size={17} weight="bold" /> Open existing setup PR <ArrowRight size={16} />
+                        <GitBranch size={17} weight="bold" /> Open existing {pendingUpgrade ? "upgrade" : "setup"} PR <ArrowRight size={16} />
                       </a>
-                    ) : (
+                    ) : isCurrent ? null : (
                       <button className="primary-action install-action" type="button" onClick={() => onInstall({
                         requiredCheck: evidenceMode === "behavior"
                           ? { name: checkName.trim(), appSlug: checkPublisher.trim() }
@@ -901,47 +934,57 @@ function GitHubSetup({
                       })} disabled={!selected || !preflightReady || !evidenceReady || installStatus === "installing"}>
                         {installStatus === "installing" ? <ArrowsClockwise className="spin" size={17} weight="bold" /> : <GitBranch size={17} weight="bold" />}
                         {installStatus === "installing"
-                          ? session.isPreview ? "Preparing installation flow…" : "Creating installation pull request…"
-                          : session.isPreview ? "Prepare observe setup" : "Create observe setup PR"}
+                          ? session.isPreview ? "Preparing installation flow…" : `Creating ${isUpgrade ? "upgrade" : "installation"} pull request…`
+                          : isUpgrade ? "Create managed upgrade PR" : session.isPreview ? "Prepare observe setup" : "Create observe setup PR"}
                       </button>
                     )}
                     <p className="install-note">{session.isPreview
                       ? "No repository is accessed. The production action creates the same single setup pull request."
                       : pendingSetup
-                        ? "No repository write is needed. ChangePlane will reopen the verified setup pull request. Nothing runs until you review and merge it."
-                        : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation, and GitHub may retain the unmerged branch until you delete it."}</p>
+                        ? pendingUpgrade
+                          ? "Open the verified upgrade pull request. Your current installation remains active; the managed update starts only after merge."
+                          : "Open the verified setup pull request. Nothing runs until you review and merge it."
+                        : isCurrent
+                          ? "No repository change is needed."
+                          : isUpgrade
+                            ? "Creates one upgrade pull request for pristine managed files only. Your policy is never included."
+                            : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation, and GitHub may retain the unmerged branch until you delete it."}</p>
                   </>
                 )}
               </>
             ) : (
               <div className="install-success" role="status">
                 <span className="success-mark"><Check size={24} weight="bold" /></span>
-                <p className="auth-eyebrow">{installResult.preview ? "Setup preview ready" : "Setup PR created"}</p>
-                <h2 id="setup-title">{installResult.preview ? "Observe-mode setup prepared" : "One last step in GitHub"}</h2>
+                <p className="auth-eyebrow">{installResult.preview ? "Setup preview ready" : installResult.operation === "upgrade" ? "Upgrade PR created" : "Setup PR created"}</p>
+                <h2 id="setup-title">{installResult.preview ? "Observe-mode setup prepared" : installResult.operation === "upgrade" ? "Review the managed upgrade" : "One last step in GitHub"}</h2>
                 <p>{installResult.preview
                   ? "In production, the next GitHub pull request update starts ChangePlane automatically. This example did not access or change a repository."
-                  : "Open the setup pull request, review the six ChangePlane files, and merge it. The setup PR itself is not checked; the first normal pull request opened or updated afterward receives ChangePlane / guard."}</p>
+                  : installResult.operation === "upgrade"
+                    ? "Open the upgrade pull request and review the managed-file changes. Your .changeplane.json policy is not included."
+                    : "Open the setup pull request, review the generated ChangePlane files, and merge it. The setup PR itself is not checked; the first normal pull request opened or updated afterward receives ChangePlane / guard."}</p>
 
                 <dl className="install-result-facts">
                   <div><dt>Repository</dt><dd>{installResult.repository}</dd></div>
                   <div><dt>Branch</dt><dd>{installResult.branch}</dd></div>
                   <div><dt>Mode</dt><dd>Observe</dd></div>
-                  <div><dt>Repository write</dt><dd>Setup pull request only</dd></div>
-                  {!installResult.preview && <div><dt>Activation</dt><dd>Not active until this PR is merged</dd></div>}
+                  <div><dt>Repository write</dt><dd>{installResult.operation === "upgrade" ? "Upgrade pull request only" : "Setup pull request only"}</dd></div>
+                  {!installResult.preview && <div><dt>Activation</dt><dd>{installResult.operation === "upgrade" ? "Current installation stays active until merge" : "Not active until this PR is merged"}</dd></div>}
                 </dl>
 
                 {installResult.preview ? (
                   <button className="primary-action success-action" type="button" onClick={onOpenWorkspace}>Inspect an automatic assurance canary <ArrowRight size={17} /></button>
                 ) : (
                   <a className="primary-action success-action" href={installResult.pullRequest.url} target="_blank" rel="noreferrer">
-                    Open setup PR on GitHub <ArrowRight size={17} />
+                    Open {installResult.operation === "upgrade" ? "upgrade" : "setup"} PR on GitHub <ArrowRight size={17} />
                   </a>
                 )}
-                {!installResult.preview && <p className="install-note">Setup is working when <code>ChangePlane / guard</code> appears on the latest commit of a normal pull request.</p>}
+                {!installResult.preview && <p className="install-note">{installResult.operation === "upgrade"
+                  ? "Your current installation remains active; the managed update becomes active only after this pull request is merged."
+                  : <span>Setup is working when <code>ChangePlane / guard</code> appears on the latest commit of a normal pull request.</span>}</p>}
                 <section className="activation-checklist" aria-labelledby="activation-title">
-                  <strong id="activation-title">{installResult.preview ? "In a real installation, after merge" : "Finish activation in GitHub"}</strong>
+                  <strong id="activation-title">{installResult.preview ? "In a real installation, after merge" : installResult.operation === "upgrade" ? "Finish the upgrade in GitHub" : "Finish activation in GitHub"}</strong>
                   <ol>
-                    <li><span>1</span><p>Merge the setup pull request.</p></li>
+                    <li><span>1</span><p>Merge the {installResult.operation === "upgrade" ? "upgrade" : "setup"} pull request.</p></li>
                     <li><span>2</span><p>Open or update one normal pull request, then open its <strong>Checks</strong> tab.</p></li>
                     <li><span>3</span><p>Choose <code>ChangePlane / guard</code>. <strong>Neutral</strong> reports what it found without changing merge rules. <strong>Scope only</strong> means files and protected paths were checked, but no behavior test was bound.</p></li>
                   </ol>

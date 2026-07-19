@@ -6,6 +6,7 @@ import sodium from "libsodium-wrappers";
 
 import {
   buildPilotFiles,
+  classifyManagedInstallation,
   default as handler,
   githubRetryDelayMs,
   seal,
@@ -163,9 +164,22 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
     "changeplane/action.yml",
     "changeplane/action/index.js",
     "changeplane/src/lib/changeplane.js",
+    "changeplane/manifest.json",
     ".changeplane.json",
     ".github/workflows/changeplane.yml",
   ]) assert.equal(files.has(expected), true, `missing ${expected}`);
+
+  const manifest = JSON.parse(files.get("changeplane/manifest.json"));
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.managedVersion, 1);
+  assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
+  assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
+    ".github/workflows/changeplane.yml",
+    "changeplane/action.yml",
+    "changeplane/action/index.js",
+    "changeplane/package.json",
+    "changeplane/src/lib/changeplane.js",
+  ]);
 
   const workflow = files.get(".github/workflows/changeplane.yml");
   assert.match(workflow, /pull_request_target:/u);
@@ -229,6 +243,205 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
     () => buildPilotFiles({ name: "ChangePlane / guard", appSlug: "github-actions" }),
     /cannot be ChangePlane \/ guard/u,
   );
+});
+
+test("managed install classification protects policy and rejects modified reserved bytes", () => {
+  const currentFiles = Object.fromEntries(buildPilotFiles().map(({ path, content }) => [path, content]));
+  currentFiles[".changeplane.json"] = `${JSON.stringify({
+    version: 1,
+    protectedPaths: { requireApproval: ["custom/**"], block: [] },
+    evidence: { requiredChecks: [], timeoutSeconds: 0 },
+  }, null, 2)}\n`;
+  const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
+  assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
+    state: "current",
+    currentVersion: 1,
+    targetVersion: 1,
+    conflicts: [],
+  });
+
+  const legacyFiles = { ...currentFiles, "changeplane/manifest.json": null };
+  assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
+    state: "outdated",
+    currentVersion: 0,
+    targetVersion: 1,
+    conflicts: [],
+  });
+
+  const modifiedFiles = { ...legacyFiles, "changeplane/action/index.js": "repository-owned modification\n" };
+  const modified = classifyManagedInstallation({ files: modifiedFiles, reservedEntries });
+  assert.equal(modified.state, "conflict");
+  assert.deepEqual(modified.conflicts, ["changeplane/action/index.js"]);
+
+  const reservedConflict = classifyManagedInstallation({
+    files: currentFiles,
+    reservedEntries: [...reservedEntries, "changeplane/custom-hook.js"],
+  });
+  assert.equal(reservedConflict.state, "conflict");
+  assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
+});
+
+test("pristine legacy install creates one manifest-only upgrade PR from the base commit tree", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "oauth",
+    }, SECRET);
+    const desired = new Map(buildPilotFiles().map(({ path, content }) => [path, content]));
+    desired.set(".changeplane.json", "{\n  \"version\": 1,\n  \"ownerPolicy\": true\n}\n");
+    const baseSha = "a".repeat(40);
+    const baseTreeSha = "b".repeat(40);
+    const upgradeTreeSha = "c".repeat(40);
+    const upgradeHeadSha = "d".repeat(40);
+    const manifest = desired.get("changeplane/manifest.json");
+    const manifestBlobSha = createHash("sha1").update(`blob ${Buffer.byteLength(manifest)}\0`).update(manifest).digest("hex");
+    const calls = [];
+    let upgradePullRequest = null;
+    let upgradeBranch = null;
+    const response = (body, status = 200) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: () => null },
+      async json() { return body; },
+      async text() { return status >= 400 ? "not found" : JSON.stringify(body); },
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, options = {}) => {
+      const url = new URL(String(input));
+      const method = options.method ?? "GET";
+      const body = options.body ? JSON.parse(options.body) : null;
+      calls.push({ path: url.pathname, method, body });
+      if (url.pathname === "/repos/alice/service" && method === "GET") {
+        return response({ full_name: "alice/service", default_branch: "main", permissions: { push: true } });
+      }
+      if (url.pathname === "/repos/alice/service/git/ref/heads/main") return response({ object: { sha: baseSha } });
+      if (url.pathname === "/repos/alice/service/contents/changeplane") return response([]);
+      if (url.pathname.startsWith("/repos/alice/service/contents/")) {
+        const filePath = decodeURIComponent(url.pathname.split("/contents/")[1]);
+        const ref = url.searchParams.get("ref");
+        if (filePath === "changeplane/manifest.json" && ref === baseSha) return response({}, 404);
+        if (filePath === "changeplane/manifest.json" && ref === upgradeHeadSha) {
+          return response({ type: "file", encoding: "base64", sha: manifestBlobSha, content: Buffer.from(manifest).toString("base64") });
+        }
+        const content = desired.get(filePath);
+        if (typeof content === "string") {
+          return response({
+            type: "file",
+            encoding: "base64",
+            sha: createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex"),
+            content: Buffer.from(content).toString("base64"),
+          });
+        }
+        return response({}, 404);
+      }
+      if (url.pathname === `/repos/alice/service/git/commits/${baseSha}`) {
+        return response({ tree: { sha: baseTreeSha }, parents: [] });
+      }
+      if (url.pathname === `/repos/alice/service/git/trees/${baseTreeSha}` && method === "GET") {
+        return response({
+          truncated: false,
+          tree: [...desired.entries()]
+            .filter(([filePath]) => filePath.startsWith("changeplane/") && filePath !== "changeplane/manifest.json")
+            .map(([path]) => ({ path, type: "blob", mode: "100644" })),
+        });
+      }
+      if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
+        return response(upgradePullRequest ? [upgradePullRequest] : []);
+      }
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v1") {
+        return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
+      }
+      if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
+      if (url.pathname === "/repos/alice/service/git/trees" && method === "POST") {
+        assert.deepEqual(body.tree.map(({ path }) => path), ["changeplane/manifest.json"]);
+        assert.equal(body.tree.some(({ path }) => path === ".changeplane.json"), false);
+        return response({ sha: upgradeTreeSha }, 201);
+      }
+      if (url.pathname === "/repos/alice/service/git/commits" && method === "POST") {
+        assert.deepEqual(body.parents, [baseSha]);
+        return response({ sha: upgradeHeadSha }, 201);
+      }
+      if (url.pathname === "/repos/alice/service/git/refs" && method === "POST") {
+        upgradeBranch = upgradeHeadSha;
+        return response({ ref: body.ref, object: { sha: upgradeHeadSha } }, 201);
+      }
+      if (url.pathname === `/repos/alice/service/git/commits/${upgradeHeadSha}`) {
+        return response({ tree: { sha: upgradeTreeSha }, parents: [{ sha: baseSha }] });
+      }
+      if (url.pathname === "/repos/alice/service/pulls" && method === "POST") {
+        upgradePullRequest = {
+          number: 21,
+          html_url: "https://github.com/alice/service/pull/21",
+          state: "open",
+          title: body.title,
+          body: body.body,
+          head: { ref: body.head, sha: upgradeHeadSha, repo: { full_name: "alice/service" } },
+          base: { ref: body.base, sha: baseSha },
+        };
+        return response(upgradePullRequest, 201);
+      }
+      if (url.pathname === `/repos/alice/service/compare/${baseSha}...${upgradeHeadSha}`) {
+        return response({
+          base_commit: { sha: baseSha },
+          merge_base_commit: { sha: baseSha },
+          ahead_by: 1,
+          behind_by: 0,
+          total_commits: 1,
+          files: [{ filename: "changeplane/manifest.json", status: "added" }],
+        });
+      }
+      if (url.pathname === `/repos/alice/service/git/trees/${upgradeTreeSha}`) {
+        return response({ truncated: false, tree: [{ path: "changeplane/manifest.json", type: "blob", mode: "100644", sha: manifestBlobSha }] });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    };
+    const request = async () => {
+      const recorder = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: null },
+      }, recorder);
+      return recorder;
+    };
+    try {
+      const first = await request();
+      assert.equal(first.statusCode, 201);
+      assert.equal(JSON.parse(first.body).operation, "upgrade");
+      const firstMutationCount = calls.filter(({ method }) => method !== "GET").length;
+      assert.equal(calls.some(({ path }) => path === `/repos/alice/service/git/trees/${baseSha}`), false);
+      assert.equal(calls.some(({ path }) => path === `/repos/alice/service/git/trees/${baseTreeSha}`), true);
+      assert.equal(calls.filter(({ path, method }) => path === "/repos/alice/service/pulls" && method === "POST").length, 1);
+      const secondResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: null },
+      }, secondResponse);
+      assert.equal(secondResponse.statusCode, 201);
+      assert.equal(JSON.parse(secondResponse.body).operation, "upgrade");
+      assert.equal(JSON.parse(secondResponse.body).pullRequest.number, 21);
+      assert.equal(calls.filter(({ method }) => method !== "GET").length, firstMutationCount);
+      assert.equal(calls.filter(({ path, method }) => path === "/repos/alice/service/pulls" && method === "POST").length, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 test("observe setup retries reuse the one GitHub-native setup pull request without writes", async () => {
@@ -1222,7 +1435,13 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       const payload = JSON.parse(response.body);
       assert.equal(payload.installable, true);
       assert.equal(payload.defaultBranch, "main");
-      assert.equal(payload.setupFiles, 6);
+      assert.equal(payload.setupFiles, 7);
+      assert.deepEqual(payload.installation, {
+        state: "fresh",
+        currentVersion: null,
+        targetVersion: 1,
+        conflicts: [],
+      });
       assert.deepEqual(payload.conflicts, []);
       assert.deepEqual(payload.setup, { state: "none" });
       assert.deepEqual(payload.evidenceOptions, [
