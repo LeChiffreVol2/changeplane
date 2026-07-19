@@ -2,9 +2,10 @@
 
 ## Controlled-canary release record — 2026-07-19
 
-- Production source: `c76957f2bc753d77a3c567acbcb1521272bef1a9` from [PR #17](https://github.com/LeChiffreVol2/changeplane/pull/17); required [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29681192037/job/88177555785), Vercel, and Vercel Preview Comments checks all passed before merge.
-- Vercel Production: `dpl_2gddYBD8EELCHr95szSfS7dyhMV8`, aliased to `https://changeplane.vercel.app`; immediately previous known-good deployment `dpl_DRs7ccX9HLB27xDdJJ9vXiJt4LnR` remains available.
-- Readiness: request ID `beb7c44ed0b2f8321c6a03b0`, HTTP `200`, `status: ready`, `authMode: github_app`, `rolloutMode: controlled_canary`, release `c76957f2bc75`. Every readiness check is true; Managed remains reserved and repair reports `enabled: false` and `configured: false`.
+- Production source: `d758005d3790b679f842a87d9745c34985051319` from [PR #19](https://github.com/LeChiffreVol2/changeplane/pull/19); required [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29681989165/job/88179651533), Vercel, and Vercel Preview Comments checks all passed before merge.
+- Vercel Production: `dpl_8daL5a7zcruWwuKB6xAMAhvJGCdD`, aliased to `https://changeplane.vercel.app`; immediately previous known-good deployment `dpl_2gddYBD8EELCHr95szSfS7dyhMV8` remains available.
+- Readiness: request ID `e50fad91a327b5a01b709f2f`, HTTP `200`, `status: ready`, `authMode: github_app`, `rolloutMode: controlled_canary`, release `d758005d3790`. Every readiness check is true; Managed remains reserved and repair reports `enabled: false` and `configured: false`.
+- The fixed-endpoint DeepSeek provider boundary remains inactive behind the common patch harness. GitHub-hosted runner egress is not treated as sandbox-enforced; a strict network canary is required before repair activation.
 - The public production root exposes an observe-only fictional exact-revision receipt and makes clear that it cannot access GitHub, change code, block merging, or repair. The terminal receipt keeps head `71b04c2` unchanged and names GitHub as merge authority.
 - Live owner flow exposed only `LeChiffreVol2/changeplane-disposable-canary-20260719`. Its read-only preflight stopped before writing because three managed paths differ from the current installer: `.github/workflows/changeplane.yml`, `changeplane/action/index.js`, and `changeplane/src/lib/changeplane.js`.
 - Zero-impact evidence after the live preflight: canary `main` remained `e32f379564a037ae4b8ea87fb89aad5f444d4fac`; `.changeplane.json` remained SHA-256 `3497cf81562198efc6849d1db12eaf51c12883878b38ee244fd5db70e7e4ff65`; no managed-upgrade branch was created. This is safe-refusal evidence, not a successful pristine-upgrade canary.
