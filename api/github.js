@@ -39,6 +39,7 @@ const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
 const REQUIRED_GITHUB_APP_PERMISSIONS = ["contents", "pull_requests", "workflows"];
 const OBSERVE_SETUP_BRANCH = "changeplane/observe-setup";
+const GUARD_CHECK_NAME = "ChangePlane / guard";
 const ROUTE_METHODS = new Map([
   ["session", ["GET"]],
   ["readiness", ["GET"]],
@@ -529,7 +530,23 @@ async function inspectInstallTarget(repository, session) {
   };
 }
 
-export function buildPilotFiles() {
+function validateRequiredCheck(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "requiredCheck must contain one GitHub check name and publisher.");
+  }
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  const appSlug = typeof value.appSlug === "string" ? value.appSlug.trim().toLowerCase() : "";
+  if (!name || name.length > 100 || /[\u0000-\u001f\u007f]/u.test(name) || name === GUARD_CHECK_NAME) {
+    throw new HttpError(400, `Required check name must be 1–100 visible characters and cannot be ${GUARD_CHECK_NAME}.`);
+  }
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u.test(appSlug)) {
+    throw new HttpError(400, "Required check publisher must be a valid GitHub App slug.");
+  }
+  return { name, appSlug };
+}
+
+export function buildPilotFiles(requiredCheck = null) {
   const workflow = `name: ChangePlane
 
 on:
@@ -576,8 +593,8 @@ jobs:
       block: [".env", ".env.local"],
     },
     evidence: {
-      requiredChecks: [],
-      timeoutSeconds: 0,
+      requiredChecks: requiredCheck ? [validateRequiredCheck(requiredCheck)] : [],
+      timeoutSeconds: requiredCheck ? 120 : 0,
     },
     runtime: {
       funding: "byok",
@@ -627,26 +644,43 @@ function observeSetupResult(repo, pullRequest) {
   };
 }
 
-function observeSetupPlan(files) {
+function observeSetupPlan(files, requiredCheck = null) {
   const scope = files.map(({ path: filePath }) => filePath === "changeplane/package.json" ? "changeplane/**" : filePath);
-  return { goal: "Install the ChangePlane observe-mode pilot", scope: [...new Set(scope)] };
+  const plan = { goal: "Install the ChangePlane observe-mode pilot", scope: [...new Set(scope)] };
+  if (requiredCheck) plan.requiredCheck = validateRequiredCheck(requiredCheck);
+  return plan;
 }
 
-async function findObserveSetupPullRequest(encodedRepository, repo, token, plan) {
+function readObserveSetupPlan(body, files) {
+  const match = String(body ?? "").match(/^<!-- changeplane ([^\n]+) -->/u);
+  if (!match) return null;
+  try {
+    const plan = JSON.parse(match[1]);
+    const requiredCheck = validateRequiredCheck(plan?.requiredCheck);
+    const expected = observeSetupPlan(files, requiredCheck);
+    return JSON.stringify(plan) === JSON.stringify(expected) ? { plan, requiredCheck } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function findObserveSetupPullRequest(encodedRepository, repo, token, files, expectedPlan = null) {
   const owner = repo.full_name.split("/")[0];
   const pulls = await github(
     `/repos/${encodedRepository}/pulls?state=open&base=${encodeURIComponent(repo.default_branch)}&head=${encodeURIComponent(`${owner}:${OBSERVE_SETUP_BRANCH}`)}&per_page=10`,
     token,
   );
   if (!Array.isArray(pulls)) throw new Error("GitHub returned an invalid setup pull-request list.");
-  const matches = pulls.filter((pullRequest) => (
-    pullRequest?.state === "open"
-    && pullRequest.head?.ref === OBSERVE_SETUP_BRANCH
-    && pullRequest.head?.repo?.full_name?.toLowerCase() === repo.full_name.toLowerCase()
-    && pullRequest.base?.ref === repo.default_branch
-    && pullRequest.title === "chore: install ChangePlane observe pilot"
-    && String(pullRequest.body ?? "").includes(`<!-- changeplane ${JSON.stringify(plan)} -->`)
-  ));
+  const matches = pulls.filter((pullRequest) => {
+    const parsed = readObserveSetupPlan(pullRequest?.body, files);
+    return pullRequest?.state === "open"
+      && pullRequest.head?.ref === OBSERVE_SETUP_BRANCH
+      && pullRequest.head?.repo?.full_name?.toLowerCase() === repo.full_name.toLowerCase()
+      && pullRequest.base?.ref === repo.default_branch
+      && pullRequest.title === "chore: install ChangePlane observe pilot"
+      && parsed
+      && (!expectedPlan || JSON.stringify(parsed.plan) === JSON.stringify(expectedPlan));
+  });
   if (matches.length > 1) throw new HttpError(409, "Multiple ChangePlane setup pull requests already exist.");
   return matches[0] ?? null;
 }
@@ -721,7 +755,7 @@ async function validateObserveSetupPullRequest(encodedRepository, pullRequest, b
   }));
 }
 
-async function createObservePullRequest(repository, session) {
+async function createObservePullRequest(repository, session, requiredCheck = null) {
   const token = session.token;
   const { encodedRepository, repo, baseSha, conflicts, repositoryState } = await inspectInstallTarget(repository, session);
   if (repositoryState !== "active") {
@@ -730,13 +764,23 @@ async function createObservePullRequest(repository, session) {
   if (conflicts.length > 0) {
     throw new HttpError(409, `ChangePlane will not overwrite existing paths: ${conflicts.join(", ")}`);
   }
-  const files = buildPilotFiles();
-  const plan = observeSetupPlan(files);
-  const existingPullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, plan);
+  const baseFiles = buildPilotFiles();
+  const existingPullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, baseFiles);
   if (existingPullRequest) {
-    await validateObserveSetupPullRequest(encodedRepository, existingPullRequest, baseSha, files, token);
+    const existingPlan = readObserveSetupPlan(existingPullRequest.body, baseFiles);
+    const existingFiles = buildPilotFiles(existingPlan.requiredCheck);
+    await validateObserveSetupPullRequest(encodedRepository, existingPullRequest, baseSha, existingFiles, token);
+    if (JSON.stringify(existingPlan.requiredCheck) !== JSON.stringify(requiredCheck)) {
+      throw new HttpError(409, "The existing verified setup PR binds a different evidence choice. Open that PR, or close it and delete changeplane/observe-setup before creating a replacement.");
+    }
     return observeSetupResult(repo, existingPullRequest);
   }
+
+  const files = buildPilotFiles(requiredCheck);
+  const behaviorEvidence = requiredCheck
+    ? `\`${requiredCheck.name}\` from \`${requiredCheck.appSlug}\``
+    : null;
+  const plan = observeSetupPlan(files, requiredCheck);
 
   const baseCommit = await github(`/repos/${encodedRepository}/git/commits/${baseSha}`, token);
   const baseTree = baseCommit?.tree?.sha;
@@ -798,20 +842,10 @@ async function createObservePullRequest(repository, session) {
           "",
           "**Next:** review the six added files, then merge to activate ChangePlane on future pull-request updates.",
           "",
-          "**Behavior checks: none configured**",
-          "ChangePlane receipts prove revision and scope only. Before treating them as behavioral assurance, add at least one meaningful deterministic check to `.changeplane.json`.",
-          "",
-          "### Make the first receipt prove behavior",
-          "",
-          "1. Open the **Checks** tab on an existing pull request and choose the test that best proves your code works.",
-          "2. Copy its exact check name and publisher. For GitHub Actions, the publisher slug is `github-actions`.",
-          "3. Edit `.changeplane.json` on this setup branch and replace the empty `requiredChecks` array, for example:",
-          "",
-          "```json",
-          '"requiredChecks": [{ "name": "test", "appSlug": "github-actions" }]',
-          "```",
-          "",
-          "If this repository has no automated test yet, you may merge scope-only. The receipt will not claim that the code works.",
+          behaviorEvidence ? `**Behavior check configured:** ${behaviorEvidence}` : "**Behavior checks: none configured**",
+          behaviorEvidence
+            ? "ChangePlane will bind this exact check result and publisher to each evaluated commit."
+            : "ChangePlane receipts prove the exact commit and file scope only. The receipt will not claim that the code works.",
           "",
           "<details>",
           "<summary>Technical safety boundary</summary>",
@@ -825,7 +859,7 @@ async function createObservePullRequest(repository, session) {
     return observeSetupResult(repo, pullRequest);
   } catch (error) {
     if (error instanceof GitHubError && error.status === 422) {
-      const pullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, plan);
+      const pullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, files, plan);
       if (pullRequest) {
         await validateObserveSetupPullRequest(encodedRepository, pullRequest, baseSha, files, token);
         return observeSetupResult(repo, pullRequest);
@@ -1337,18 +1371,20 @@ async function preflight(req, res) {
   const session = requireSession(req);
   const repository = validateRepository(queryValue(req, "repository"));
   const target = await inspectInstallTarget(repository, session);
-  const files = buildPilotFiles();
-  const plan = observeSetupPlan(files);
+  let files = buildPilotFiles();
   let installable = target.installable;
   let setup = { state: "none" };
   if (target.installable) {
-    const existingPullRequest = await findObserveSetupPullRequest(target.encodedRepository, target.repo, session.token, plan);
+    const existingPullRequest = await findObserveSetupPullRequest(target.encodedRepository, target.repo, session.token, files);
     if (existingPullRequest) {
       try {
+        const existingPlan = readObserveSetupPlan(existingPullRequest.body, files);
+        files = buildPilotFiles(existingPlan.requiredCheck);
         await validateObserveSetupPullRequest(target.encodedRepository, existingPullRequest, target.baseSha, files, session.token);
         setup = {
           state: "pending",
           pullRequest: { number: existingPullRequest.number, url: existingPullRequest.html_url },
+          requiredCheck: existingPlan.requiredCheck,
         };
       } catch (error) {
         if (!(error instanceof HttpError) || error.status !== 409) throw error;
@@ -1394,7 +1430,11 @@ async function install(req, res) {
   assertJsonRequest(req);
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
-  const result = await createObservePullRequest(repository, session);
+  if (!Object.hasOwn(body, "requiredCheck")) {
+    throw new HttpError(400, "Choose one required GitHub check or explicitly continue with commit-and-scope-only receipts.");
+  }
+  const requiredCheck = validateRequiredCheck(body.requiredCheck);
+  const result = await createObservePullRequest(repository, session, requiredCheck);
   sendJson(res, 201, result);
 }
 
