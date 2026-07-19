@@ -25,6 +25,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
+
       - name: Check out the pinned ChangePlane controller
         # actions/checkout v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -43,4 +49,4 @@ jobs:
           INPUT_MODE: enforce
           INPUT_POLICY_PATH: .changeplane.json
           INPUT_TOKEN: ${{ github.token }}
-        run: /usr/bin/node controller/action/index.js
+        run: node controller/action/index.js

@@ -21,6 +21,12 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
+
       - name: Refuse repair while the global kill switch is off
         if: vars.CHANGEPLANE_REPAIR_ENABLED != 'true'
         run: exit 1
@@ -43,7 +49,7 @@ jobs:
           CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
           CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
           CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
-        run: /usr/bin/node controller/examples/changeplane-grant.js verify
+        run: node controller/examples/changeplane-grant.js verify
 
       - name: Bind the live pull request and reserve the grant once
         # actions/github-script v7.0.1
@@ -87,13 +93,13 @@ jobs:
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-claim"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: /usr/bin/node controller/examples/changeplane-claim.js claim
+        run: node controller/examples/changeplane-claim.js claim
 
       - name: Materialize the one-time claim
         env:
           CHANGEPLANE_CLAIM: ${{ steps.grant.outputs.claim-name }}
         run: >-
-          /usr/bin/node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP + "/changeplane-claim", process.env.CHANGEPLANE_CLAIM + "\n", {mode: 0o600})'
+          node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP + "/changeplane-claim", process.env.CHANGEPLANE_CLAIM + "\n", {mode: 0o600})'
 
       # actions/upload-artifact v4.6.2
       - name: Reserve the one-time claim before provider access
@@ -128,7 +134,7 @@ jobs:
           CHANGEPLANE_BASE_SHA: ${{ steps.grant.outputs.base-sha }}
           CHANGEPLANE_HEAD_SHA: ${{ steps.grant.outputs.head-sha }}
         run: |
-          /usr/bin/node -e '
+          node -e '
             const {execFileSync} = require("node:child_process");
             const {appendFileSync} = require("node:fs");
             const mergeBase = execFileSync("/usr/bin/git", ["merge-base", process.env.CHANGEPLANE_BASE_SHA, process.env.CHANGEPLANE_HEAD_SHA]).toString().trim();
@@ -143,7 +149,7 @@ jobs:
           CHANGEPLANE_MERGE_BASE: ${{ steps.baseline.outputs.merge-base }}
           CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
         run: |
-          /usr/bin/node -e '
+          node -e '
             const {execFileSync} = require("node:child_process");
             const {readFileSync, writeFileSync} = require("node:fs");
             const request = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")).client_payload.entry;
@@ -158,7 +164,7 @@ jobs:
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: /usr/bin/node controller/examples/changeplane-claim.js validate
+        run: node controller/examples/changeplane-claim.js validate
 
       - name: Re-check the exact pull-request head immediately before DeepSeek
         if: steps.grant.outputs.repair-kind == 'evidence'
@@ -193,7 +199,7 @@ jobs:
           CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
           CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: /usr/bin/node ../controller/examples/changeplane-proposal.js propose
+        run: node ../controller/examples/changeplane-proposal.js propose
 
       - name: Validate and package the candidate patch
         working-directory: workspace
@@ -210,7 +216,7 @@ jobs:
           NODE_OPTIONS: ""
         run: |
           if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
-            /usr/bin/node ../controller/examples/changeplane-proposal.js validate
+            node ../controller/examples/changeplane-proposal.js validate
           fi
           /usr/bin/git apply --check --whitespace=error "$CHANGEPLANE_PATCH"
 
@@ -230,6 +236,12 @@ jobs:
       contents: write
       pull-requests: read
     steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
+
       - name: Refuse apply while the global kill switch is off
         if: vars.CHANGEPLANE_REPAIR_ENABLED != 'true'
         run: exit 1
@@ -253,7 +265,7 @@ jobs:
           CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
           CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
           CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
-        run: /usr/bin/node controller/examples/changeplane-grant.js verify
+        run: node controller/examples/changeplane-grant.js verify
 
       - name: Re-check the exact pull-request head before clean apply
         id: current
@@ -309,7 +321,7 @@ jobs:
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: /usr/bin/node controller/examples/changeplane-claim.js validate
+        run: node controller/examples/changeplane-claim.js validate
 
       - name: Apply and independently validate only the granted paths
         id: push
@@ -333,11 +345,11 @@ jobs:
           CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
         run: |
           if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
-            /usr/bin/node ../controller/examples/changeplane-proposal.js validate
+            node ../controller/examples/changeplane-proposal.js validate
           fi
           /usr/bin/git apply --check --index --whitespace=error "$CHANGEPLANE_PATCH"
           /usr/bin/git apply --index --whitespace=error "$CHANGEPLANE_PATCH"
-          /usr/bin/node -e '
+          node -e '
             const {execFileSync} = require("node:child_process");
             const allowedPaths = JSON.parse(process.env.CHANGEPLANE_ALLOWED);
             const matches = (path, rule) => rule.endsWith("/**")
@@ -358,8 +370,8 @@ jobs:
           /usr/bin/git config user.name "changeplane[bot]"
           /usr/bin/git config user.email "changeplane[bot]@users.noreply.github.com"
           /usr/bin/git -c core.hooksPath=/dev/null commit -m "chore: apply bounded ChangePlane repair"
-          /usr/bin/node ../controller/examples/changeplane-grant.js verify
-          /usr/bin/node ../controller/examples/changeplane-claim.js validate
+          node ../controller/examples/changeplane-grant.js verify
+          node ../controller/examples/changeplane-claim.js validate
           /usr/bin/git -c core.hooksPath=/dev/null push \
             --force-with-lease="refs/heads/$CHANGEPLANE_HEAD_REF:$CHANGEPLANE_HEAD_SHA" \
             origin "HEAD:refs/heads/$CHANGEPLANE_HEAD_REF"

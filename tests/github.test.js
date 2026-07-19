@@ -486,6 +486,12 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.equal((workflow.match(/repository: LeChiffreVol2\/changeplane/gu) ?? []).length, 2);
   assert.match(workflow, /CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__/u);
   assert.equal((workflow.match(/changeplane-grant\.js verify/gu) ?? []).length, 3);
+  assert.equal((workflow.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu) ?? []).length, 2);
+  assert.equal((workflow.match(/node-version: 22\.18\.0/gu) ?? []).length, 2);
+  assert.equal((guardWorkflow.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu) ?? []).length, 1);
+  assert.equal((guardWorkflow.match(/node-version: 22\.18\.0/gu) ?? []).length, 1);
+  assert.doesNotMatch(workflow, /\/usr\/bin\/node/u);
+  assert.doesNotMatch(guardWorkflow, /\/usr\/bin\/node/u);
   assert.match(workflow, /changeplane-grant\.js verify/u);
   assert.match(workflow, /grant-digest/u);
   assert.match(workflow, /listArtifactsForRepo/u);
