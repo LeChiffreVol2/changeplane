@@ -244,6 +244,60 @@ function readStoredJson(key, fallback) {
   }
 }
 
+function useDialogFocus(open, onClose) {
+  const dialogRef = useRef(null);
+  const returnFocusRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = () => Array.from(dialog.querySelectorAll(focusableSelector));
+    const initialFocus = dialog.querySelector("[data-dialog-initial]") || focusable()[0] || dialog;
+    initialFocus.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      returnFocusRef.current?.focus();
+    };
+  }, [open]);
+
+  return dialogRef;
+}
+
 function sessionFor(login, csrf, authMode = "oauth") {
   const initials = login.slice(0, 2).toUpperCase();
   return {
@@ -594,7 +648,7 @@ function GitHubSetup({
         <div className="setup-grid" id="setup">
           <aside className="setup-context">
             <p className="setup-context-kicker">One-time installation</p>
-            <h1>Connect once. Then close this tab.</h1>
+            <h1 id="setup-main-title" tabIndex={-1}>Connect once. Then close this tab.</h1>
             <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update in that repository. Developers keep working in their coding agent and GitHub.</p>
             <SetupProgress complete={complete} isPreview={session.isPreview} repositorySelected={Boolean(selected)} />
             <div className="setup-boundary">
@@ -929,8 +983,8 @@ function Queue({ changes, selectedId, onSelect, filter, onFilter }) {
 
       <div className="queue-foot">
         <span>Pilot policy</span>
-        <strong>Observe first</strong>
-        <small>Evidence gates enforcement</small>
+        <strong>Reports first</strong>
+        <small>Does not block merging</small>
       </div>
     </aside>
   );
@@ -1064,8 +1118,8 @@ function Workspace({ change, isPreview, onInspect }) {
     <main className="workspace">
       <div className="workspace-title-row">
         <div>
-          <p className="workspace-kicker">{isPreview ? "Fictional proposed change · no human action" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
-          <h1>{change.title}</h1>
+          <p className="workspace-kicker">{isPreview ? "Fictional proposed change · no GitHub access" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
+          <h1 id="workspace-main-title" tabIndex={-1}>{change.title}</h1>
         </div>
         <span className={`decision-pill pill-${state}`}>{label}</span>
       </div>
@@ -1122,7 +1176,7 @@ function Workspace({ change, isPreview, onInspect }) {
       {change.status === "remediating" && (
         <div className="agent-callout" aria-live="polite">
           <Robot size={22} weight="duotone" />
-          <div><strong>{change.agent} is repairing the failed check</strong><span>Patch idempotency handling inside src/checkout/** · deadline 15 minutes</span></div>
+          <div><strong>{change.agent} is proposing a fix</strong><span>Limited to allowed checkout files · 15-minute limit</span></div>
           <span>Attempt 1/2</span>
         </div>
       )}
@@ -1210,7 +1264,7 @@ function previewEvidenceFor(change) {
   }
   return {
     label: "Existing preview found",
-    detail: "Ready for exact-revision binding",
+    detail: "Waiting to match this version",
     receipt: "Pending verification",
     tone: "ready",
   };
@@ -1236,7 +1290,7 @@ function backboneStateFor(change) {
   if (change.status === "verifying" || change.status === "publishing") {
     return {
       label: "Trusted controller verifying",
-      detail: change.status === "verifying" ? "Patch isolated · exact head rechecked" : "Model isolated · check publishing",
+      detail: change.status === "verifying" ? "Fix isolated · new version checked again" : "Agent isolated · result posting",
       summary: "The model job is finished. Deterministic validation and the trusted controller now own the decision path.",
       tone: "active",
     };
@@ -1324,17 +1378,17 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
       </div>
 
       {change.id === "payment" && (
-        <p className="canary-disclaimer">Fictional example. Connected projects currently receive report-only results; no repair or merge blocking.</p>
+        <p className="canary-disclaimer">Walkthrough replay only. Connected projects run automatically and currently only report results; no repair or merge blocking.</p>
       )}
 
       {change.status === "ready" && (
         <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
-          <Play size={17} weight="fill" /> Run the assurance loop
+          <Play size={17} weight="fill" /> Play the checkout walkthrough
         </button>
       )}
       {running && (
         <button className="primary-action run-action" type="button" disabled>
-          <ArrowsClockwise className="spin" size={17} weight="bold" /> Assurance in progress
+          <ArrowsClockwise className="spin" size={17} weight="bold" /> Walkthrough in progress
         </button>
       )}
       {change.status === "passed" && change.id === "payment" && (
@@ -1373,16 +1427,17 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
 
       <section className="rail-section audit-section">
         <h3>Operational guarantee</h3>
-        <div className="guarantee-row"><ShieldCheck size={18} weight="fill" /><span>New commit cancels stale evaluation and invalidates this decision</span></div>
-        <div className="guarantee-row"><LockKey size={18} /><span>Only deterministic evidence and policy can issue PASS</span></div>
-        <div className="guarantee-row"><Clock size={18} /><span>15-minute remediation deadline</span></div>
-        <div className="guarantee-row"><Robot size={18} /><span>Maximum two autonomous attempts</span></div>
+        <div className="guarantee-row"><ShieldCheck size={18} weight="fill" /><span>A new commit cancels the old result and starts again</span></div>
+        <div className="guarantee-row"><LockKey size={18} /><span>Only project tests and rules can approve a result</span></div>
+        <div className="guarantee-row"><Clock size={18} /><span>Each fix run stops after 15 minutes</span></div>
+        <div className="guarantee-row"><Robot size={18} /><span>At most two agent attempts</span></div>
       </section>
     </aside>
   );
 }
 
 function FileDialog({ file, onClose }) {
+  const dialogRef = useDialogFocus(Boolean(file), onClose);
   if (!file) return null;
   const explanation = file.repaired
     ? "The coding agent patched this file in remediation attempt 1. The deterministic race suite passed on the new head."
@@ -1398,8 +1453,8 @@ function FileDialog({ file, onClose }) {
   return (
     <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="file-dialog-title">
       <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close file details" />
-      <section className="file-dialog">
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <section className="file-dialog" ref={dialogRef} tabIndex={-1}>
+        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
         <FileCode size={26} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Contract decision</p>
         <h2 id="file-dialog-title">{file.path}</h2>
@@ -1416,11 +1471,12 @@ function FileDialog({ file, onClose }) {
 }
 
 function GuideDrawer({ onClose, onStart }) {
+  const dialogRef = useDialogFocus(true, onClose);
   return (
     <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="guide-title">
       <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close assurance workflow" />
-      <section className="guide-drawer">
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <section className="guide-drawer" ref={dialogRef} tabIndex={-1}>
+        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
         <ShieldCheck size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Normal user journey</p>
         <h2 id="guide-title">No handoff to ChangePlane.</h2>
@@ -1438,13 +1494,14 @@ function GuideDrawer({ onClose, onStart }) {
 }
 
 function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
+  const dialogRef = useDialogFocus(true, onClose);
   const preview = previewEvidenceFor(change);
   const accepted = preview.receipt === "Included";
   return (
     <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-evidence-title">
       <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close preview evidence" />
-      <section className="guide-drawer preview-drawer">
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <section className="guide-drawer preview-drawer" ref={dialogRef} tabIndex={-1}>
+        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
         <GithubLogo size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Existing deployment evidence</p>
         <h2 id="preview-evidence-title">{accepted ? "Preview URL bound to" : "Preview evidence at"} {change.head}</h2>
@@ -1474,12 +1531,13 @@ function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
 }
 
 function BackboneDrawer({ change, onClose }) {
+  const dialogRef = useDialogFocus(true, onClose);
   const backbone = backboneStateFor(change);
   return (
     <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="backbone-title" aria-describedby="backbone-intro">
       <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close agentic backbone" />
-      <section className="guide-drawer backbone-drawer">
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      <section className="guide-drawer backbone-drawer" ref={dialogRef} tabIndex={-1}>
+        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
         <Robot size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Bounded repair adapter</p>
         <h2 id="backbone-title">Agentic work, without agent authority.</h2>
@@ -1558,6 +1616,12 @@ export function App() {
   const [previewEvidenceOpen, setPreviewEvidenceOpen] = useState(false);
   const [backboneOpen, setBackboneOpen] = useState(false);
   const timersRef = useRef([]);
+
+  useEffect(() => {
+    if (!session) return;
+    const targetId = workspaceOpen ? "workspace-main-title" : "setup-main-title";
+    window.requestAnimationFrame(() => document.getElementById(targetId)?.focus());
+  }, [workspaceOpen, session]);
 
   useEffect(() => {
     selectedRepositoryRef.current = selectedRepository;
@@ -2070,7 +2134,7 @@ export function App() {
         </header>
 
         {session.isPreview && (
-          <div className="preview-boundary-banner">Fictional target workflow · live pilot posts observe-only receipts</div>
+          <div className="preview-boundary-banner">Fictional walkthrough · connected projects only report results today</div>
         )}
 
         <div className="app-grid" id="top">
