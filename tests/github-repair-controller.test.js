@@ -9,6 +9,7 @@ import {
   createGitHubAppJwt,
   createInstallationAccessToken,
   deriveControllerSecret,
+  issueTrustedRepairPushToken,
   publishTrustedRepair,
   repairLedgerReference,
   signClaimRequest,
@@ -22,6 +23,7 @@ import {
   repairLedgerKeyId,
   repairLedgerPublicKeyValue,
 } from "../server/repair-ledger.js";
+import { authorizeRepairGrant } from "../examples/changeplane-claim.js";
 
 const APP_ID = 101;
 const INSTALLATION_ID = 202;
@@ -162,6 +164,7 @@ function fakeGitHub(policy, {
   failDispatchBeforeAcceptOnce = false,
   failLedgerAnchorOnce = false,
   loseLedgerAnchorResponseOnce = false,
+  losePushTokenResponseOnce = false,
   pullRequestBody = '<!-- changeplane\n{"scope":["src/payments/**"]}\n-->',
   pullRequestTitle = "Repair payment scope",
   pullRequestFiles = [{ filename: "docs/oops.md" }],
@@ -196,7 +199,16 @@ function fakeGitHub(policy, {
     requests.push({ method, path });
     if (path === `/app/installations/${INSTALLATION_ID}/access_tokens` && method === "POST") {
       tokenRequests.push(structuredClone(options.body));
-      return { token: "installation-token", repositories: [{ id: REPOSITORY_ID }] };
+      const contentsOnly = canonicalJson(options.body.permissions) === canonicalJson({ contents: "write" });
+      if (contentsOnly && losePushTokenResponseOnce) {
+        losePushTokenResponseOnce = false;
+        throw error(504, "push credential response lost");
+      }
+      return {
+        token: contentsOnly ? "ghs_contents_only_secret_token" : "installation-token",
+        expires_at: "2026-07-19T01:00:00.000Z",
+        repositories: [{ id: REPOSITORY_ID }],
+      };
     }
     if (path === `/repositories/${REPOSITORY_ID}`) {
       return { id: REPOSITORY_ID, full_name: REPOSITORY, default_branch: "main", archived: false, disabled: false };
@@ -310,6 +322,66 @@ function fakeGitHub(policy, {
     if (headSha !== undefined) livePullRequestHeadSha = headSha;
   };
   return { request, refs, commits, checks, dispatches, tokenRequests, workflowRuns, requests, setPullRequest };
+}
+
+async function claimedRepairFixture({ claimGrant = true, ...githubOptions } = {}) {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const { policy, request } = fixtureRequest();
+  const github = fakeGitHub(policy, githubOptions);
+  const published = await publishTrustedRepair({
+    controllerRequest: request,
+    appId: APP_ID,
+    privateKey,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+    now: new Date("2026-07-19T00:00:00.000Z"),
+  });
+  github.workflowRuns.set(9001, {
+    id: 9001,
+    run_attempt: 1,
+    event: "repository_dispatch",
+    head_sha: BASE_SHA,
+    repository: { id: REPOSITORY_ID },
+    path: ".github/workflows/changeplane-repair.yml@refs/heads/main",
+    status: "in_progress",
+    actor: { login: "changeplane-test[bot]" },
+    triggering_actor: { login: "changeplane-test[bot]" },
+  });
+  const envelope = github.dispatches[0].client_payload;
+  const claim = {
+    schemaVersion: 1,
+    issuer: "changeplane-repair-worker",
+    authorizationId: envelope.entry.authorizationId,
+    grantDigest: published.grantDigest,
+    repository: REPOSITORY,
+    repositoryId: REPOSITORY_ID,
+    installationId: INSTALLATION_ID,
+    pullRequestId: PULL_REQUEST_ID,
+    pullRequestNumber: PULL_REQUEST_NUMBER,
+    contractDigest: request.authority.contractDigest,
+    generation: 1,
+    baseSha: BASE_SHA,
+    workflowRunId: 9001,
+    workflowRunAttempt: 1,
+  };
+  if (claimGrant) {
+    await claimTrustedRepair({
+      claimRequest: claim,
+      appId: APP_ID,
+      privateKey,
+      generation: 1,
+      enabled: true,
+      expectedRepository: REPOSITORY,
+      expectedPublisherReleaseSha: RELEASE_SHA,
+      expectedActorLogin: "changeplane-test[bot]",
+      request: github.request,
+      now: new Date("2026-07-19T00:01:00.000Z"),
+    });
+  }
+  return { claim, github, privateKey, published, request };
 }
 
 test("GitHub App JWT and repository token stay narrowly scoped", async () => {
@@ -782,6 +854,137 @@ test("publisher persists one signed grant, anchors every tip, and server-claims 
     request: github.request,
     now: new Date("2026-07-19T00:04:00.000Z"),
   }), /App-authored anchor/u);
+});
+
+test("claimed grant mints one exact-repository Contents-only push credential", async () => {
+  const fixture = await claimedRepairFixture();
+  const options = {
+    claimRequest: fixture.claim,
+    appId: APP_ID,
+    privateKey: fixture.privateKey,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    expectedPublisherReleaseSha: RELEASE_SHA,
+    expectedActorLogin: "changeplane-test[bot]",
+    request: fixture.github.request,
+  };
+  const issued = await issueTrustedRepairPushToken({
+    ...options,
+    now: new Date("2026-07-19T00:02:00.000Z"),
+  });
+
+  assert.equal(issued.token, "ghs_contents_only_secret_token");
+  assert.equal(issued.repository, REPOSITORY);
+  assert.equal(issued.repositoryId, REPOSITORY_ID);
+  assert.equal(issued.headSha, HEAD_SHA);
+  assert.equal(issued.headRef, "agent/fix");
+  assert.deepEqual(fixture.github.tokenRequests.at(-1), {
+    repository_ids: [REPOSITORY_ID],
+    permissions: { contents: "write" },
+  });
+  assert.equal(fixture.github.checks.filter((check) => check.name === "ChangePlane / repair ledger").length, 4);
+  const reference = repairLedgerReference({ pullRequestId: PULL_REQUEST_ID, generation: 1 });
+  const tip = fixture.github.commits.get(fixture.github.refs.get(reference));
+  const tree = await fixture.github.request(`/repos/acme/payments/git/trees/${tip.tree.sha}`, "reader");
+  const blobSha = tree.tree.find((item) => item.path === "ledger.json").sha;
+  const blob = await fixture.github.request(`/repos/acme/payments/git/blobs/${blobSha}`, "reader");
+  assert.equal(Buffer.from(blob.content, "base64").toString("utf8").includes(issued.token), false);
+
+  await assert.rejects(issueTrustedRepairPushToken({
+    ...options,
+    now: new Date("2026-07-19T00:03:00.000Z"),
+  }), /already reserved|refusing to re-mint/u);
+  assert.equal(fixture.github.tokenRequests.filter(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })).length, 1);
+});
+
+test("unclaimed signed grant cannot mint a push credential", async () => {
+  const fixture = await claimedRepairFixture({ claimGrant: false });
+  await assert.rejects(issueTrustedRepairPushToken({
+    claimRequest: fixture.claim,
+    appId: APP_ID,
+    privateKey: fixture.privateKey,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    expectedPublisherReleaseSha: RELEASE_SHA,
+    expectedActorLogin: "changeplane-test[bot]",
+    request: fixture.github.request,
+    now: new Date("2026-07-19T00:01:00.000Z"),
+  }), /has not been claimed/u);
+  assert.equal(fixture.github.tokenRequests.some(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })), false);
+});
+
+test("push credential mint fails closed for disabled, wrong-generation, and stale grants", async () => {
+  const fixture = await claimedRepairFixture();
+  const options = {
+    claimRequest: fixture.claim,
+    appId: APP_ID,
+    privateKey: fixture.privateKey,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    expectedPublisherReleaseSha: RELEASE_SHA,
+    expectedActorLogin: "changeplane-test[bot]",
+    request: fixture.github.request,
+    now: new Date("2026-07-19T00:02:00.000Z"),
+  };
+  await assert.rejects(issueTrustedRepairPushToken({ ...options, enabled: false }), /kill switch/u);
+  await assert.rejects(issueTrustedRepairPushToken({ ...options, generation: 2 }), /generation/u);
+  fixture.github.setPullRequest({ headSha: NEXT_HEAD_SHA });
+  await assert.rejects(issueTrustedRepairPushToken(options), /live pull-request revision/u);
+  assert.equal(fixture.github.tokenRequests.some(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })), false);
+});
+
+test("lost push-token response burns the signed reservation and cannot re-mint", async () => {
+  const fixture = await claimedRepairFixture({ losePushTokenResponseOnce: true });
+  const options = {
+    claimRequest: fixture.claim,
+    appId: APP_ID,
+    privateKey: fixture.privateKey,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    expectedPublisherReleaseSha: RELEASE_SHA,
+    expectedActorLogin: "changeplane-test[bot]",
+    request: fixture.github.request,
+  };
+  await assert.rejects(issueTrustedRepairPushToken({
+    ...options,
+    now: new Date("2026-07-19T00:02:00.000Z"),
+  }), /response lost/u);
+  await assert.rejects(issueTrustedRepairPushToken({
+    ...options,
+    now: new Date("2026-07-19T00:03:00.000Z"),
+  }), /already reserved|refusing to re-mint/u);
+  assert.equal(fixture.github.tokenRequests.filter(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })).length, 1);
+});
+
+test("push-token client keeps rejected response bodies and credentials out of errors", async () => {
+  const fixture = await claimedRepairFixture();
+  const leakedToken = "ghs_response_body_must_stay_redacted";
+  let responseBodyRead = false;
+  await assert.rejects(authorizeRepairGrant({
+    operation: "push-token",
+    envelope: fixture.github.dispatches[0].client_payload,
+    runId: 9001,
+    runAttempt: 1,
+    endpoint: "https://changeplane.example/api/github?action=repair-push-token",
+    secret: "repository-scoped-secret-that-is-longer-than-thirty-two-characters",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 503,
+      async json() {
+        responseBodyRead = true;
+        return { token: leakedToken };
+      },
+    }),
+  }), (error) => {
+    assert.doesNotMatch(error.message, new RegExp(leakedToken, "u"));
+    assert.match(error.message, /refused.*\(503\)/u);
+    return true;
+  });
+  assert.equal(responseBodyRead, false);
 });
 
 test("ledger references rotate by generation", () => {

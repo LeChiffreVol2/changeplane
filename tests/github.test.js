@@ -499,12 +499,15 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.match(claimClient, /signClaimRequest/u);
   const repairEndpoint = "https://changeplane.vercel.app/api/github?action=repair";
   const claimEndpoint = "https://changeplane.vercel.app/api/github?action=repair-claim";
+  const pushTokenEndpoint = "https://changeplane.vercel.app/api/github?action=repair-push-token";
   const validateEndpoint = "https://changeplane.vercel.app/api/github?action=repair-validate";
   assert.equal(guardWorkflow.includes(`INPUT_AGENT_WEBHOOK_URL: "${repairEndpoint}"`), true);
   assert.doesNotMatch(guardWorkflow, /CHANGEPLANE_REPAIR_URL/u);
   assert.equal(workflow.split(claimEndpoint).length - 1, 1);
+  assert.equal(workflow.split(pushTokenEndpoint).length - 1, 1);
   assert.equal(workflow.split(validateEndpoint).length - 1, 3);
   assert.equal((workflow.match(/changeplane-claim\.js claim/gu) ?? []).length, 1);
+  assert.equal((workflow.match(/changeplane-claim\.js push-token/gu) ?? []).length, 1);
   assert.equal((workflow.match(/changeplane-claim\.js validate/gu) ?? []).length, 3);
   assert.doesNotMatch(workflow, /vars\.CHANGEPLANE_CLAIM_URL/u);
   const controllerClaimIndex = workflow.indexOf("Claim the App-authored grant before provider access");
@@ -523,8 +526,9 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/controller\/examples\/changeplane-proposal\.js propose/u);
   assert.doesNotMatch(workflow, /run: \/usr\/bin\/node examples\/changeplane-proposal\.js/u);
   assert.match(workflow, /jobs:\n  repair:[\s\S]*?permissions:\n      actions: read\n      contents: read/u);
-  assert.match(workflow, /\n  apply:[\s\S]*?permissions:\n      contents: write/u);
+  assert.match(workflow, /\n  apply:[\s\S]*?permissions:\n      actions: read\n      contents: read\n      pull-requests: read/u);
   assert.doesNotMatch(workflow.match(/jobs:\n  repair:[\s\S]*?\n  apply:/u)?.[0] ?? "", /contents: write/u);
+  assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /contents: write/u);
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /DEEPSEEK_API_KEY/u);
   assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/controller\/examples\/changeplane-proposal\.js validate/u);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|main|master)$/mu);
@@ -533,15 +537,24 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   const applyValidateIndex = workflow.indexOf("Revalidate server authority immediately before clean apply");
   const applyIndex = workflow.indexOf("Apply and independently validate only the granted paths");
   const finalValidateIndex = workflow.lastIndexOf("changeplane-claim.js validate");
-  const pushIndex = workflow.indexOf("git -c core.hooksPath=/dev/null push");
+  const pushTokenIndex = workflow.indexOf("changeplane-claim.js push-token");
+  const pushIndex = workflow.indexOf("credential.helper= push");
   assert.ok(finalVerifyIndex > 0 && pushIndex > finalVerifyIndex, "grant deadline must be rechecked at the write boundary");
   assert.ok(applyValidateIndex > 0 && applyIndex > applyValidateIndex, "server authority must be rechecked before clean apply");
   assert.ok(finalValidateIndex > finalVerifyIndex && pushIndex > finalValidateIndex, "the server kill switch must be rechecked immediately before push");
+  assert.ok(pushTokenIndex > finalValidateIndex && pushIndex > pushTokenIndex, "the one-time App token must be minted only at the push boundary");
+  assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.head-sha \}\}[\s\S]*?path: workspace[\s\S]*?persist-credentials: false/u);
+  assert.match(workflow, /GIT_ASKPASS: \$\{\{ runner\.temp \}\}\/changeplane-git-askpass/u);
+  assert.match(workflow, /if: always\(\)[\s\S]*?rm -f -- "\$CHANGEPLANE_PUSH_TOKEN_FILE"/u);
+  assert.match(claimClient, /writeFileSync\(tokenPath, result\.token, \{ encoding: "utf8", flag: "wx", mode: 0o600 \}\)/u);
+  assert.doesNotMatch(claimClient, /appendFileSync\([^\n]*result\.token/u);
   assert.match(workflow, /Clean apply did not restore granted paths to the trusted merge base/u);
   assert.match(repairLedger, /RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_KIND/u);
   assert.match(workflow, /allowedPaths/u);
-  assert.match(workflow, /event_type: 'changeplane_recheck'/u);
+  assert.match(workflow, /GITHUB_TOKEN pushes do not start fresh workflow runs/u);
+  assert.match(workflow, /pull_request synchronize[\s\S]*?fresh CI/u);
+  assert.doesNotMatch(workflow, /createDispatchEvent|event_type: 'changeplane_recheck'/u);
   assert.equal(workflow.includes("github.event.client_payload.change."), false);
   assert.match(guardWorkflow, /INPUT_MODE: enforce/u);
   assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
@@ -728,13 +741,15 @@ test("repair stays disabled when its repository differs from the disposable cana
       throw new Error("GitHub must not be called");
     };
     try {
-      const response = responseRecorder();
-      await handler({
-        method: "POST",
-        url: "/api/github?action=repair",
-        headers: { "content-type": "application/json" },
-      }, response);
-      assert.equal(response.statusCode, 503);
+      for (const action of ["repair", "repair-claim", "repair-validate", "repair-push-token"]) {
+        const response = responseRecorder();
+        await handler({
+          method: "POST",
+          url: `/api/github?action=${action}`,
+          headers: { "content-type": "application/json" },
+        }, response);
+        assert.equal(response.statusCode, 503, `${action} must stay disabled before GitHub access`);
+      }
       assert.equal(externalCalls, 0);
     } finally {
       globalThis.fetch = originalFetch;

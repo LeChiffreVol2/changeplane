@@ -13,6 +13,7 @@ import sodium from "libsodium-wrappers";
 import {
   claimTrustedRepair,
   deriveControllerSecret,
+  issueTrustedRepairPushToken,
   publishTrustedRepair,
   validateTrustedRepair,
   validateClaimRequest,
@@ -71,6 +72,7 @@ const ROUTE_METHODS = new Map([
   ["install", ["POST"]],
   ["repair", ["POST"]],
   ["repair-claim", ["POST"]],
+  ["repair-push-token", ["POST"]],
   ["repair-validate", ["POST"]],
   ["logout", ["POST"]],
 ]);
@@ -1669,6 +1671,44 @@ async function repairValidate(req, res) {
   sendJson(res, 200, result);
 }
 
+async function repairPushToken(req, res) {
+  assertJsonRequest(req);
+  const configuration = repairControllerConfiguration();
+  if (!configuration.configured) {
+    throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
+  }
+  const body = await readJson(req, { maxBytes: MAX_BODY_BYTES });
+  try {
+    validateClaimRequest(body);
+    const secret = deriveControllerSecret({
+      masterSecret: process.env.CHANGEPLANE_CONTROLLER_SECRET,
+      installationId: body.installationId,
+      repositoryId: body.repositoryId,
+      repository: body.repository,
+    });
+    verifyClaimRequest({
+      secret,
+      deliveryId: header(req, "x-changeplane-delivery"),
+      signature: header(req, "x-changeplane-signature"),
+      request: body,
+    });
+  } catch {
+    throw new HttpError(403, "Repair push credential authentication failed.");
+  }
+  const result = await issueTrustedRepairPushToken({
+    claimRequest: body,
+    appId: process.env.GITHUB_APP_ID,
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+    generation: configuration.generation,
+    enabled: configuration.enabled,
+    expectedRepository: configuration.repository,
+    expectedPublisherReleaseSha: process.env.VERCEL_GIT_COMMIT_SHA,
+    expectedActorLogin: `${githubAppSlug()}[bot]`,
+    request: github,
+  });
+  sendJson(res, 200, result);
+}
+
 async function logout(req, res) {
   assertOrigin(req);
   const session = requireSession(req);
@@ -1690,7 +1730,8 @@ export default async function handler(req, res) {
       res.setHeader("allow", allowedMethods.join(", "));
       throw new HttpError(405, "Method not allowed for this API action.");
     }
-    if ((action === "install" || action === "byok" || action === "repair" || action === "repair-claim" || action === "repair-validate") && (method === "POST" || method === "DELETE")) {
+    if ((action === "install" || action === "byok" || action === "repair" || action === "repair-claim"
+      || action === "repair-push-token" || action === "repair-validate") && (method === "POST" || method === "DELETE")) {
       assertMutationSourceProvenance();
     }
     if (method === "GET" && action === "readiness") {
@@ -1742,6 +1783,7 @@ export default async function handler(req, res) {
     if (method === "POST" && action === "install") return await install(req, res);
     if (method === "POST" && action === "repair") return await repair(req, res);
     if (method === "POST" && action === "repair-claim") return await repairClaim(req, res);
+    if (method === "POST" && action === "repair-push-token") return await repairPushToken(req, res);
     if (method === "POST" && action === "repair-validate") return await repairValidate(req, res);
     if (method === "POST" && action === "logout") return await logout(req, res);
     throw new HttpError(404, "Unknown GitHub API action.");
