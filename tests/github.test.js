@@ -458,24 +458,46 @@ test("GitHub retries honor server rate-limit headers and fail fast on a distant 
 
 test("controlled repair canary keeps DeepSeek proposal access separate from forge write", () => {
   const workflow = readFileSync(new URL("../examples/changeplane-repair.yml", import.meta.url), "utf8");
+  const grantVerifier = readFileSync(new URL("../examples/changeplane-grant.js", import.meta.url), "utf8");
+  const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
+  assert.match(workflow, /Inactive controlled-canary template/u);
+  assert.match(workflow, /cancel-in-progress: false/u);
+  assert.match(workflow, /CHANGEPLANE_REPAIR_ENABLED/u);
+  assert.match(workflow, /CHANGEPLANE_REPAIR_GENERATION/u);
+  assert.match(workflow, /CHANGEPLANE_REPAIR_PUBLIC_KEYS/u);
+  assert.match(workflow, /CHANGEPLANE_CONTROLLER_SHA: \$\{\{ github\.sha \}\}/u);
+  assert.match(workflow, /CHANGEPLANE_BASE_REF: \$\{\{ github\.event\.repository\.default_branch \}\}/u);
+  assert.equal((workflow.match(/ref: \$\{\{ github\.sha \}\}/gu) ?? []).length, 2);
+  assert.equal((workflow.match(/changeplane-grant\.js verify/gu) ?? []).length, 3);
+  assert.match(workflow, /changeplane-grant\.js verify/u);
+  assert.match(workflow, /grant-digest/u);
+  assert.match(workflow, /listArtifactsForRepo/u);
+  assert.match(grantVerifier, /changeplane-claim-/u);
+  const claimIndex = workflow.indexOf("Reserve the one-time claim before provider access");
+  const providerIndex = workflow.indexOf("Ask DeepSeek V4 Flash for a patch proposal");
+  assert.ok(claimIndex > 0 && providerIndex > claimIndex, "one-time claim must be reserved before provider access");
   assert.match(workflow, /CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash/u);
   assert.match(workflow, /DEEPSEEK_API_KEY: \$\{\{ secrets\.DEEPSEEK_API_KEY \}\}/u);
-  assert.match(workflow, /ref: \$\{\{ github\.event\.client_payload\.change\.baseSha \}\}[\s\S]*?path: trusted/u);
-  assert.match(workflow, /ref: \$\{\{ github\.event\.client_payload\.change\.headSha \}\}[\s\S]*?path: workspace/u);
+  assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.base-sha \}\}[\s\S]*?path: trusted/u);
+  assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.head-sha \}\}[\s\S]*?path: workspace/u);
   assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/trusted\/examples\/changeplane-proposal\.js propose/u);
   assert.doesNotMatch(workflow, /run: \/usr\/bin\/node examples\/changeplane-proposal\.js/u);
-  assert.match(workflow, /jobs:\n  repair:[\s\S]*?permissions:\n      contents: read/u);
+  assert.match(workflow, /jobs:\n  repair:[\s\S]*?permissions:\n      actions: read\n      contents: read/u);
   assert.match(workflow, /\n  apply:[\s\S]*?permissions:\n      contents: write/u);
   assert.doesNotMatch(workflow.match(/jobs:\n  repair:[\s\S]*?\n  apply:/u)?.[0] ?? "", /contents: write/u);
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /DEEPSEEK_API_KEY/u);
   assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/trusted\/examples\/changeplane-proposal\.js validate/u);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|main|master)$/mu);
   assert.match(workflow, /git apply --check --index/u);
+  const finalVerifyIndex = workflow.lastIndexOf("changeplane-grant.js verify");
+  const pushIndex = workflow.indexOf("git -c core.hooksPath=/dev/null push");
+  assert.ok(finalVerifyIndex > 0 && pushIndex > finalVerifyIndex, "grant deadline must be rechecked at the write boundary");
   assert.match(workflow, /Clean apply did not restore granted paths to the trusted merge base/u);
-  assert.match(workflow, /RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE/u);
+  assert.match(repairLedger, /RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_KIND/u);
   assert.match(workflow, /allowedPaths/u);
   assert.match(workflow, /event_type: 'changeplane_recheck'/u);
+  assert.equal(workflow.includes("github.event.client_payload.change."), false);
 });
 
 test("session reports whether the real GitHub connector is configured", async () => {

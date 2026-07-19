@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   AUTONOMOUS_DECISION,
   DECISION,
+  REMEDIATION_BUDGET_MS,
   buildRemediationRequest,
   detectFileOverlap,
   evaluateChange,
@@ -239,11 +240,11 @@ test('routes a completed failed check into a bounded in-scope repair contract', 
   assert.equal(plan.humanRequired, false);
 
   const request = buildRemediationRequest({
-    idempotencyKey: 'example-org/payments-api#421:head-1:input-1',
+    idempotencyKey: 'f'.repeat(64),
     repository: 'example-org/payments-api',
     pullRequestNumber: 421,
-    baseSha: 'base-1',
-    headSha: 'head-1',
+    baseSha: 'a'.repeat(40),
+    headSha: 'b'.repeat(40),
     headRef: 'agent/payment-retry',
     headRepository: 'example-org/payments-api',
     plannedPaths: ['src/payments/**'],
@@ -317,11 +318,11 @@ test('builds a bounded and idempotent remediation contract', () => {
   });
   const plan = planAutonomousDecision({ result, agentConfigured: true });
   const request = buildRemediationRequest({
-    idempotencyKey: 'example-org/payments-api#421:head-1:input-1',
+    idempotencyKey: 'f'.repeat(64),
     repository: 'example-org/payments-api',
     pullRequestNumber: 421,
-    baseSha: 'base-1',
-    headSha: 'head-1',
+    baseSha: 'a'.repeat(40),
+    headSha: 'b'.repeat(40),
     headRef: 'agent/payment-retry',
     headRepository: 'example-org/payments-api',
     plannedPaths: ['src/payments/**'],
@@ -329,8 +330,14 @@ test('builds a bounded and idempotent remediation contract', () => {
     now: new Date('2026-07-18T00:00:00Z'),
   });
 
+  assert.equal(request.schemaVersion, 2);
+  assert.equal(request.issuer, 'changeplane-guard');
   assert.equal(request.attempt, 1);
-  assert.equal(request.limits.deadlineSeconds, 900);
+  assert.equal(request.budget.attempt, 1);
+  assert.equal(request.budget.maxAttempts, 2);
+  assert.equal(request.budget.startedAt, '2026-07-18T00:00:00.000Z');
+  assert.equal(request.budget.expiresAt, '2026-07-18T00:15:00.000Z');
+  assert.equal(request.limits.totalDeadlineSeconds, 900);
   assert.equal(request.limits.mayEditOutsideDeclaredScope, false);
   assert.equal(request.expiresAt, '2026-07-18T00:15:00.000Z');
   assert.equal(request.change.headRef, 'agent/payment-retry');
@@ -342,4 +349,57 @@ test('builds a bounded and idempotent remediation contract', () => {
     pathKind: 'current',
     action: 'REVERT_OR_MOVE_INTO_DECLARED_SCOPE',
   }]);
+});
+
+test('keeps attempt two inside the first attempt shared deadline', () => {
+  const result = evaluateChange({
+    ...revision,
+    plannedPaths: ['src/payments/**'],
+    actualFiles: ['docs/release-note.md'],
+    protectedPaths: policy,
+  });
+  const plan = planAutonomousDecision({ result, agentConfigured: true, attempt: 1, maxAttempts: 2 });
+  const startedAt = new Date('2026-07-18T00:00:00Z');
+  const expiresAt = new Date(startedAt.getTime() + REMEDIATION_BUDGET_MS);
+  const request = buildRemediationRequest({
+    idempotencyKey: 'e'.repeat(64),
+    repository: 'example-org/payments-api',
+    pullRequestNumber: 421,
+    baseSha: 'a'.repeat(40),
+    headSha: 'c'.repeat(40),
+    headRef: 'agent/payment-retry',
+    headRepository: 'example-org/payments-api',
+    plannedPaths: ['src/payments/**'],
+    plan,
+    budgetStartedAt: startedAt,
+    budgetExpiresAt: expiresAt,
+    now: new Date('2026-07-18T00:14:00Z'),
+  });
+
+  assert.equal(request.budget.attempt, 2);
+  assert.equal(request.budget.startedAt, startedAt.toISOString());
+  assert.equal(request.expiresAt, expiresAt.toISOString());
+  assert.throws(() => buildRemediationRequest({
+    idempotencyKey: 'c'.repeat(64),
+    repository: 'example-org/payments-api',
+    pullRequestNumber: 421,
+    baseSha: 'a'.repeat(40),
+    headSha: 'c'.repeat(40),
+    headRef: 'agent/payment-retry',
+    headRepository: 'example-org/payments-api',
+    plannedPaths: ['src/payments/**'],
+    plan,
+    now: new Date('2026-07-18T00:14:00Z'),
+  }), /requires the original shared budget/u);
+  assert.throws(() => buildRemediationRequest({
+    ...request.change,
+    idempotencyKey: 'd'.repeat(64),
+    repository: request.change.repository,
+    pullRequestNumber: request.change.pullRequestNumber,
+    plannedPaths: request.declaredScope,
+    plan,
+    budgetStartedAt: startedAt,
+    budgetExpiresAt: expiresAt,
+    now: expiresAt,
+  }), /budget is not active/u);
 });

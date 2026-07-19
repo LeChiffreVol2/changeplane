@@ -156,7 +156,7 @@ export function buildProposalMessages({ request, files }) {
     {
       role: "user",
       content: [
-        `Exact head: ${request.change.headSha}`,
+        `Exact head: ${request.headSha ?? request.change?.headSha}`,
         `Allowed paths: ${JSON.stringify(request.allowedPaths)}`,
         `Bound failure diagnostics: ${JSON.stringify(request.instructions)}`,
         "Propose the smallest patch that addresses the reported failure.",
@@ -229,10 +229,10 @@ async function runCli() {
   }
   if (operation !== "propose") throw new Error("Expected propose or validate operation.");
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-  const request = event.client_payload;
+  const request = event.client_payload?.entry ?? event.client_payload;
   const files = collectWorkspaceContext({
-    baseSha: request.change.baseSha,
-    headSha: request.change.headSha,
+    baseSha: request.baseSha ?? request.change?.baseSha,
+    headSha: request.headSha ?? request.change?.headSha,
     rules: request.allowedPaths,
   });
   const proposal = await requestPatchProposal({

@@ -6,15 +6,15 @@ This release supports one-repository GitHub.com rollouts in `observe` mode. GitH
 
 Do not enable `enforce`, make `ChangePlane / guard` required, or install a repair adapter in a customer repository until every corresponding gate in the release checklist is complete. `ChangePlane Managed` is a disabled reservation; a successful private DeepSeek credential canary is not managed execution or billing.
 
-Vercel Hobby is suitable only for a controlled, non-commercial canary. Vercel restricts Hobby to personal, non-commercial use, provides no production SLA, pauses projects that exhaust included usage, and does not let a Hobby project connect to a GitHub organization-owned repository. Use a personal disposable repository for the free canary. While on Hobby, keep the GitHub App private, keep `CHANGEPLANE_CANARY_REPOSITORY` set, and let the public root expose only the fictional workspace; the owner signs in through the unlisted `?access=canary-owner` entry. The API rejects login, installation, and post-install callback stages, including in-flight state minted before the gate was enabled. A paid design-partner, organization-owned repository, or other commercial rollout requires Vercel Pro before onboarding. See [Vercel Hobby](https://vercel.com/docs/plans/hobby), [Vercel limits](https://vercel.com/docs/limits), and [Vercel plan behavior](https://vercel.com/docs/plans).
+The current Vercel deployment is a fixed free-phase constraint. Keep the GitHub App private, keep `CHANGEPLANE_CANARY_REPOSITORY` set to the exact disposable target, and let the public root expose only the fictional workspace; the owner signs in through the unlisted `?access=canary-owner` entry. The API rejects login, installation, and post-install callback stages, including in-flight state minted before the gate was enabled. Hosting-plan work and broader onboarding are outside this release. See [Vercel limits](https://vercel.com/docs/limits).
 
-GitHub Free can protect public repositories, but private-repository branch protection requires GitHub Pro, Team, Enterprise Cloud, or Enterprise Server. A private pilot without an eligible plan cannot meet the required CI gate and must not ship. See [GitHub protected branch availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
+The selected repository must support the required protected-branch CI gate; otherwise it cannot ship. See [GitHub protected branch availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
 ## Delivery path
 
 GitHub Actions is the code gate. The single `CI / verify` job installs from `package-lock.json`, asserts that no other workflow is active, runs tests (including the readiness contract), builds, audits production dependencies, and serves the built UI on runner-local `127.0.0.1` for a smoke request. It has read-only repository permission, immutable action SHAs, one stale-run-canceling concurrency lane, a 12-minute timeout, and no artifacts or production network calls.
 
-Vercel's Git integration is the deployment path; do not add a second token-bearing deploy workflow. Pull-request commits create Preview deployments and protected `main` creates Production deployments. Protect `main`, require `CI / verify`, and prohibit direct pushes and bypasses so Vercel cannot receive an unverified production commit. `vercel.json` fixes the install, build, output, and 60-second function ceiling supported by Hobby.
+Vercel's Git integration is the deployment path; do not add a second token-bearing deploy workflow. Pull-request commits create Preview deployments and protected `main` creates Production deployments. Protect `main`, require `CI / verify`, and prohibit direct pushes and bypasses so Vercel cannot receive an unverified production commit. `vercel.json` fixes the install, build, output, and 60-second function ceiling used by this phase.
 
 CI intentionally does not call a Vercel deployment. Before merge, use a trusted Preview deployment for the external readiness check. Fork and untrusted pull-request previews must not receive production connector credentials or provider keys.
 
@@ -69,18 +69,18 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 
 Production request logs are structured JSON with a ChangePlane request ID, route, method, status, duration, and upstream GitHub status/request ID when available. Request bodies, cookies, OAuth tokens, repository names, provider keys, and upstream response bodies must never be logged. Any secret or repository identifier in logs is a security incident.
 
-There is no paid log drain, synthetic monitor, pager, or claimed 24/7 alerting in this pilot. GitHub Checks/comments are the durable decision record. Vercel Hobby runtime logs are short-lived, so the release owner watches them during onboarding and captures only redacted request IDs and timestamps needed for an incident record. Treat these observed conditions as incidents:
+There is no external log drain, synthetic monitor, pager, or claimed 24/7 alerting in this pilot. GitHub Checks/comments are the durable decision record. Vercel runtime logs are short-lived, so the release owner watches them during onboarding and captures only redacted request IDs and timestamps needed for an incident record. Treat these observed conditions as incidents:
 
 - Readiness returns non-`200` twice in succession.
 - GitHub returns `429` or repeated `5xx`, or authorization callbacks fail repeatedly.
 - An eligible pull request has no observe receipt within 15 minutes.
 - A Vercel quota notice, paused project, unexpected function timeout, or production `5xx` occurs.
 
-Before any public onboarding, publish one Vercel WAF fixed-window rate-limit rule for `/api/github`, keyed by source IP, returning `429`. Hobby currently includes one rate-limit rule and the first 1,000,000 allowed requests; choose and record the threshold, then verify a bounded burst receives `429` while the normal readiness and sign-in paths still work. Treat this dashboard rule as release configuration: record its owner and review it after every route change. See [Vercel WAF rate limiting](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting).
+Before any public onboarding, publish one Vercel WAF fixed-window rate-limit rule for `/api/github`, keyed by source IP, returning `429`. Choose and record the threshold, then verify a bounded burst receives `429` while the normal readiness and sign-in paths still work. Treat this dashboard rule as release configuration: record its owner and review it after every route change. See [Vercel WAF rate limiting](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting).
 
-Use the native Vercel Usage page/email notices and GitHub budget notices. The CI job avoids matrices, scheduled runs, artifacts, and paid runners; stale commits are canceled. Public repositories receive standard-runner Actions usage without minute charges, while private repositories consume the owner's included allowance. Hobby also limits deployment builds to 32 per hour; stop nonessential pushes before that ceiling rather than creating retry churn. See [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) and [Vercel limits](https://vercel.com/docs/limits).
+Use the native Vercel Usage page/email notices and GitHub budget notices. The CI job avoids matrices, scheduled runs, artifacts, and custom runners; stale commits are canceled. Keep deployment activity below the current free limits and stop nonessential pushes before a ceiling rather than creating retry churn. See [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) and [Vercel limits](https://vercel.com/docs/limits).
 
-Review Vercel usage before each design-partner onboarding and GitHub Actions usage weekly. At 80% of either included allowance, stop new onboarding and nonessential reruns. At exhaustion, fail closed and wait for reset or approve a plan change; do not bypass limits with extra accounts. Do not run load tests against Vercel without authorization.
+Review Vercel usage before each controlled canary and GitHub Actions usage weekly. At 80% of either included allowance, stop new onboarding and nonessential reruns. At exhaustion, fail closed and wait for reset; do not bypass limits with extra accounts. Do not run load tests against Vercel without authorization.
 
 ## Incident containment
 
@@ -89,7 +89,7 @@ The founding engineering owner is incident commander until a named on-call rotat
 ### Bad deployment
 
 1. Stop onboarding and record the bad deployment ID and exact commit.
-2. Use Vercel Instant Rollback to return the production domain to the immediately previous verified deployment. Hobby can roll back only to that immediately previous Production deployment.
+2. Use Vercel Instant Rollback to return the production domain to the immediately previous verified deployment available in the current phase.
 3. Confirm rollback status, make a read-only readiness request, and inspect only structured redacted logs.
 4. Keep automatic production-domain assignment disabled after rollback until the fix passes CI and a trusted Preview readiness check.
 5. Promote the fixed verified deployment and record recovery. Do not rebuild the old commit and call it a rollback.
@@ -122,4 +122,4 @@ ChangePlane cannot recover a provider key because plaintext is never persisted.
 
 ## Pilot support handoff
 
-Every pilot repository needs one customer repository owner and one ChangePlane owner. Record the installation identity, selected repository boundary, contacts, plan eligibility, and rollback decision before onboarding. A handoff is incomplete without access to GitHub authorization revocation, Vercel rollback, provider-key revocation, and the release record.
+Every pilot repository needs one customer repository owner and one ChangePlane owner. Record the installation identity, selected repository boundary, contacts, and rollback decision before onboarding. A handoff is incomplete without access to GitHub authorization revocation, Vercel rollback, provider-key revocation, and the release record.
