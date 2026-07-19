@@ -55,6 +55,8 @@ CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY=optional-private-pilot-key
 
 **Controlled-canary guard:** Set `CHANGEPLANE_CANARY_REPOSITORY` to one exact GitHub repository in `owner/repository` form—not a URL, branch, or organization name. Use a personal test repository containing no customer or production work and safe to delete after validation. While set, ChangePlane disables every new-install stage, lists only this repository for an already-authorized owner, and rejects every other repository before making a GitHub request. The public root shows only the fictional workspace; the owner uses the unlisted `?access=canary-owner` entry. Keep both the guard and the GitHub App's private setting for this entire phase.
 
+Hosted Vercel deployments fail closed unless both that exact canary repository and a valid `GITHUB_APP_SLUG` are configured. Removing the canary variable does not authorize self-serve installations. A broader rollout requires a separate reviewed release gate after the positive install, upgrade, and isolation canaries pass.
+
 `GET /api/github?action=readiness` returns `200` only when the required production configuration is present and `503` otherwise. It exposes configuration booleans and a release identifier, never values.
 
 ### Controlled repair canary configuration
