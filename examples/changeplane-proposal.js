@@ -3,21 +3,11 @@ import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { matchesPathRule, normalizeRepoPath } from "../src/lib/changeplane.js";
+import { requestDeepSeekProposal } from "./changeplane-provider-deepseek.js";
 
-const DEEPSEEK_CHAT_URL = "https://api.deepseek.com/chat/completions";
-const DEFAULT_MODEL = "deepseek-v4-flash";
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_CONTEXT_BYTES = 160 * 1024;
 const MAX_CONTEXT_FILES = 40;
-const MAX_RESPONSE_BYTES = 512 * 1024;
-
-function proposalModel(value) {
-  const model = String(value ?? DEFAULT_MODEL).trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/u.test(model)) {
-    throw new Error("The proposal model identifier is invalid.");
-  }
-  return model;
-}
 
 function allowedRules(value) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 50) {
@@ -169,53 +159,18 @@ export function buildProposalMessages({ request, files }) {
 
 export async function requestPatchProposal({
   apiKey,
-  model = DEFAULT_MODEL,
+  model,
   request,
   files,
   fetchImpl = fetch,
+  provider = requestDeepSeekProposal,
 }) {
-  if (typeof apiKey !== "string" || apiKey.length < 20 || /[\s\u0000-\u001f\u007f]/u.test(apiKey)) {
-    throw new Error("A valid proposal provider credential is required.");
-  }
-  const selectedModel = proposalModel(model);
   const messages = buildProposalMessages({ request, files });
-  let response;
-  try {
-    response = await fetchImpl(DEEPSEEK_CHAT_URL, {
-      method: "POST",
-      redirect: "error",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages,
-        max_tokens: 4_096,
-        stream: false,
-        temperature: 0,
-      }),
-      signal: AbortSignal.timeout(90_000),
-    });
-  } catch {
-    throw new Error("The proposal provider is temporarily unavailable.");
+  if (typeof provider !== "function") throw new Error("The proposal provider adapter is invalid.");
+  const content = await provider({ apiKey, model, messages, fetchImpl });
+  if (typeof apiKey === "string" && apiKey.length > 0 && String(content ?? "").includes(apiKey)) {
+    throw new Error("The proposal provider returned unsafe credential material.");
   }
-  if (!response.ok) {
-    throw new Error(`The proposal provider rejected the request (${response.status}).`);
-  }
-  const raw = await response.text();
-  if (!raw || Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) {
-    throw new Error("The proposal provider returned an empty or oversized response.");
-  }
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    throw new Error("The proposal provider returned invalid JSON.");
-  }
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("The proposal provider returned no patch proposal.");
   return validatePatchProposal(content, request.allowedPaths);
 }
 

@@ -97,6 +97,38 @@ test("requests a DeepSeek V4 Flash proposal without returning or reflecting the 
   assert.equal(JSON.stringify(result).includes(apiKey), false);
 });
 
+test("keeps provider transport behind the common bounded-patch harness", async () => {
+  let messages;
+  const provider = async (input) => {
+    messages = input.messages;
+    return patch;
+  };
+  const result = await requestPatchProposal({
+    provider,
+    request,
+    files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+  });
+  assert.match(messages[0].content, /not the verifier/u);
+  assert.deepEqual(result.paths, ["src/payments/retry.js"]);
+
+  await assert.rejects(requestPatchProposal({
+    provider: async () => patch.replaceAll("src/payments/retry.js", ".github/workflows/release.yml"),
+    request,
+    files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+  }), /outside its repair grant/u);
+});
+
+test("rejects exact credential reflection before a provider patch can leave the harness", async () => {
+  const apiKey = `provider-${"r".repeat(32)}`;
+  const reflectedPatch = patch.replace("+return chargeOnce(order)", `+return "${apiKey}"`);
+  await assert.rejects(requestPatchProposal({
+    apiKey,
+    provider: async () => reflectedPatch,
+    request,
+    files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+  }), (error) => /unsafe credential material/u.test(error.message) && !error.message.includes(apiKey));
+});
+
 test("provider failures stay body-redacted and fail closed", async () => {
   await assert.rejects(requestPatchProposal({
     apiKey: `provider-${"k".repeat(32)}`,
@@ -108,4 +140,26 @@ test("provider failures stay body-redacted and fail closed", async () => {
       async text() { return "reflected-secret"; },
     }),
   }), (error) => /rejected the request \(429\)/u.test(error.message) && !error.message.includes("reflected-secret"));
+});
+
+test("stops reading an oversized provider response before parsing it", async () => {
+  await assert.rejects(requestPatchProposal({
+    apiKey: `provider-${"k".repeat(32)}`,
+    request,
+    files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+    fetchImpl: async () => new Response("x".repeat((512 * 1024) + 1)),
+  }), /empty or oversized response/u);
+});
+
+test("redacts provider stream failures", async () => {
+  const reflected = "provider-stream-secret";
+  const body = new ReadableStream({
+    start(controller) { controller.error(new Error(reflected)); },
+  });
+  await assert.rejects(requestPatchProposal({
+    apiKey: `provider-${"k".repeat(32)}`,
+    request,
+    files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+    fetchImpl: async () => new Response(body),
+  }), (error) => /temporarily unavailable/u.test(error.message) && !error.message.includes(reflected));
 });
