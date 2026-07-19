@@ -11,6 +11,9 @@ export const AUTONOMOUS_DECISION = Object.freeze({
   BLOCKED: 'BLOCKED',
 });
 
+export const REMEDIATION_BUDGET_MS = 15 * 60 * 1000;
+export const REMEDIATION_MAX_ATTEMPTS = 2;
+
 const APPROVAL_FIELDS = [
   'baseSha',
   'headSha',
@@ -402,12 +405,14 @@ export function buildRemediationRequest({
   headRepository,
   plannedPaths,
   plan,
+  budgetStartedAt,
+  budgetExpiresAt,
   now = new Date(),
 }) {
-  if (typeof idempotencyKey !== 'string' || !idempotencyKey) {
-    throw new TypeError('idempotencyKey is required');
+  if (typeof idempotencyKey !== 'string' || !/^[a-f0-9]{64}$/u.test(idempotencyKey)) {
+    throw new TypeError('idempotencyKey must be a 64-character lowercase hexadecimal digest');
   }
-  if (typeof repository !== 'string' || !repository || !Number.isInteger(pullRequestNumber)) {
+  if (typeof repository !== 'string' || !repository || !Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
     throw new TypeError('repository and pullRequestNumber are required');
   }
   if (!plan || plan.decision !== AUTONOMOUS_DECISION.REMEDIATION_REQUIRED) {
@@ -416,16 +421,41 @@ export function buildRemediationRequest({
   if (typeof headRef !== 'string' || !headRef || headRepository !== repository) {
     throw new TypeError('remediation requires a same-repository head ref');
   }
+  if (!/^[a-f0-9]{40}$/u.test(baseSha ?? '') || !/^[a-f0-9]{40}$/u.test(headSha ?? '')) {
+    throw new TypeError('remediation requires exact base and head SHAs');
+  }
+  if (![1, 2].includes(plan.nextAttempt)) {
+    throw new TypeError('remediation attempt must be 1 or 2');
+  }
+  if (plan.nextAttempt === 2 && (budgetStartedAt == null || budgetExpiresAt == null)) {
+    throw new Error('second remediation attempt requires the original shared budget');
+  }
   const issuedAt = new Date(now);
   if (Number.isNaN(issuedAt.getTime())) throw new TypeError('now must be a valid date');
-  const expiresAt = new Date(issuedAt.getTime() + 900_000);
+  const startedAt = budgetStartedAt == null ? new Date(issuedAt) : new Date(budgetStartedAt);
+  const expiresAt = budgetExpiresAt == null
+    ? new Date(startedAt.getTime() + REMEDIATION_BUDGET_MS)
+    : new Date(budgetExpiresAt);
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(expiresAt.getTime())) {
+    throw new TypeError('remediation budget timestamps must be valid dates');
+  }
+  if (expiresAt.getTime() - startedAt.getTime() !== REMEDIATION_BUDGET_MS) {
+    throw new TypeError('remediation budget must be exactly 15 minutes');
+  }
+  if (issuedAt.getTime() < startedAt.getTime() || issuedAt.getTime() >= expiresAt.getTime()) {
+    throw new Error('remediation budget is not active');
+  }
+  if (plan.nextAttempt === 1 && issuedAt.getTime() !== startedAt.getTime()) {
+    throw new Error('first remediation attempt must start the shared budget');
+  }
   const evidenceRepair = plan.reason === 'FIXABLE_EVIDENCE_FAILURE';
   const allowedPaths = evidenceRepair
     ? plannedPaths
     : plan.findings.map(({ path }) => path);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    issuer: 'changeplane-guard',
     idempotencyKey,
     issuedAt: issuedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -437,9 +467,15 @@ export function buildRemediationRequest({
       headRef,
       headRepository,
     },
+    budget: {
+      startedAt: startedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      attempt: plan.nextAttempt,
+      maxAttempts: REMEDIATION_MAX_ATTEMPTS,
+    },
     attempt: plan.nextAttempt,
     limits: {
-      deadlineSeconds: 900,
+      totalDeadlineSeconds: REMEDIATION_BUDGET_MS / 1000,
       mayEditOutsideDeclaredScope: false,
     },
     repairKind: evidenceRepair ? 'evidence' : 'scope',

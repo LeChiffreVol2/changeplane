@@ -24,13 +24,13 @@ The source repository is public for product evaluation and pilot transparency. I
 - A best-effort concurrent-change advisory that uses one bounded GitHub GraphQL query to surface up to five open pull requests touching the same files. It never auto-merges changes or alters the decision.
 - The latest successful GitHub Deployment preview for that exact head, refreshed automatically by `deployment_status`. Missing preview metadata is advisory and never changes the decision.
 - Observe mode that reports the real decision and evidence without blocking merge or dispatching a repair.
-- A bounded repair contract and inactive controlled-canary template for lab validation only. No production repair adapter or dispatch path is enabled.
+- A bounded repair contract, PS256-signed two-attempt ledger primitive intended for the dedicated GitHub App publisher, and inactive controlled-canary template for lab validation only. No production repair adapter or dispatch path is enabled.
 
-The ship verdict is deliberately narrow: **ready for one-repository observe canaries only after the GitHub connector, server environment, hosting eligibility, external rate limit, and release-checklist gates are verified; not ready for production enforcement.** Vercel Hobby is an owner-controlled, non-commercial canary path, not public startup early access or commercial hosting. Upgrade this same project to Vercel Pro before accepting an external GitHub App installation, a design partner, or payment.
+The ship verdict is deliberately narrow: **ready for the bound one-repository observe canary after the GitHub connector, server environment, external rate limit, and release-checklist gates are verified; not ready for production enforcement.** The current Vercel deployment stays on the free phase constraint; hosting-plan work is intentionally outside this release.
 
 ## Self-serve GitHub setup
 
-Create a private GitHub App for the owner-controlled Hobby canary. Make it public only in the same reviewed release that upgrades the project to Vercel Pro, removes `CHANGEPLANE_CANARY_REPOSITORY`, and enables external onboarding. Use these URLs:
+Create a private, repository-scoped GitHub App for the owner-controlled canary. The current deployment keeps external installation disabled and accepts only the exact disposable repository. Use these URLs:
 
 ```text
 Callback URL: https://YOUR_DOMAIN/api/github?action=callback
@@ -53,7 +53,7 @@ CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY=optional-private-pilot-key
 
 `CHANGEPLANE_APP_ORIGIN` must be the exact public origin with no path. The GitHub App user token stays inside an encrypted, `HttpOnly`, `Secure`, `SameSite=Lax`, `__Host-` session cookie, expires with the shorter provider/session lifetime, and is never returned to the browser. If `GITHUB_APP_SLUG` is omitted, ChangePlane falls back to the broad `repo workflow` OAuth pilot; use that fallback only with a consenting design partner and never for enforcement.
 
-**Controlled-canary guard:** Set `CHANGEPLANE_CANARY_REPOSITORY` to one exact GitHub repository in `owner/repository` form—not a URL, branch, or organization name. Use a personal test repository containing no customer or production work and safe to delete after validation. While set, ChangePlane disables every new-install stage, lists only this repository for an already-authorized owner, and rejects every other repository before making a GitHub request. The public root shows only the fictional workspace; the owner uses the unlisted `?access=canary-owner` entry. Keep both the guard and the GitHub App's private setting for the entire free canary; remove them only as part of the reviewed Vercel Pro launch.
+**Controlled-canary guard:** Set `CHANGEPLANE_CANARY_REPOSITORY` to one exact GitHub repository in `owner/repository` form—not a URL, branch, or organization name. Use a personal test repository containing no customer or production work and safe to delete after validation. While set, ChangePlane disables every new-install stage, lists only this repository for an already-authorized owner, and rejects every other repository before making a GitHub request. The public root shows only the fictional workspace; the owner uses the unlisted `?access=canary-owner` entry. Keep both the guard and the GitHub App's private setting for this entire phase.
 
 `GET /api/github?action=readiness` returns `200` only when the required production configuration is present and `503` otherwise. It exposes configuration booleans and a release identifier, never values.
 
@@ -147,24 +147,24 @@ Time never promotes a repository. Verify all of the following from real receipts
 
 - A dedicated GitHub App with least-privilege installation tokens.
 - Live expected-App evidence and trusted ChangePlane Check publication from the dedicated GitHub App.
-- An App-signed attempt and approval ledger that repository workflows cannot impersonate.
+- A dedicated GitHub App publisher that persists the implemented signed ledger outside repository-controlled workflows.
 - Live sandbox and end-to-end stale-revision validation for the selected repair worker.
 
 ## Future repair canary — inactive until all enforcement gates pass
 
-`examples/changeplane-repair.yml` is a controlled-lab template, not an active workflow and not part of the self-serve observe install. It receives an exact-revision `repository_dispatch`. Scope repair is generated deterministically from the trusted merge base. Evidence repair runs the proposal helper from a separate trusted-base checkout, treats the pull-request checkout only as untrusted data, sends bounded text context inside the controller-issued grant to `deepseek-v4-flash`, accepts only an existing-file unified patch inside that grant, and gives the proposal job no forge write permission. A separate write job again runs the validator from the trusted-base checkout, rechecks the live head, applies the patch, then dispatches a fresh evaluation. DeepSeek and pull-request code cannot issue a ChangePlane `PASS`.
+`examples/changeplane-repair.yml` is a controlled-lab template, not an active workflow and not part of the self-serve observe install. It accepts only a PS256-signed exact-revision grant intended for the dedicated GitHub App publisher, with a pinned public-key ID, exact controller SHA, default base ref, policy digest/evaluator version, protected-path denylist, fixed kill-switch generation, campaign-bound two-attempt/15-minute invariant, and one-time artifact claim reserved before provider access. Scope repair is generated deterministically from the trusted merge base. Evidence repair runs the proposal helper from a separate trusted-base checkout, treats the pull-request checkout only as untrusted data, sends bounded text context inside the controller-issued grant to `deepseek-v4-flash`, accepts only an existing-file unified patch inside that grant, and gives the proposal job no forge write permission. A separate write job re-verifies the signed grant, campaign deadline, generation, and live head; runs the validator again from the trusted-base checkout; applies the patch; rechecks the grant immediately before push; then dispatches a fresh evaluation. DeepSeek and pull-request code cannot issue a ChangePlane `PASS`.
 
-The model is an interchangeable proposal worker, not the authority. The durable agentic backbone is the boundary around it: exact-head and expiry binding, allowed-path contract, a 1/2 request envelope, provider-only egress with no forge write in the proposal job, deterministic clean-job validation, a separate stale-head-checked apply job, and an explicit `changeplane_recheck` dispatch after the push. GitHub documents `repository_dispatch` as an exception that creates a fresh workflow run even when sent with `GITHUB_TOKEN`. Durable monotonic attempt enforcement still requires the App-signed ledger listed in the enforce gate above.
+The model is an interchangeable proposal worker, not the authority. The durable agentic backbone is the boundary around it: a PS256-signed append-only grant primitive intended for the App publisher, campaign-bound deadline, exact controller/base/head and policy binding, protected-path denial, provider-only egress with no forge write in the proposal job, deterministic clean-job validation, a separate stale-head-checked apply job, and an explicit `changeplane_recheck` dispatch after the push. The ledger and verifier are implemented but inactive; live replay resistance is not claimed until the dedicated GitHub App publisher and disposable-repository repair canary pass.
 
 The product preview visualizes the Ready → Repairing → Re-verifying → PASS state machine locally. It never invokes the model in the browser; real model execution starts only from the lab adapter after enforce prerequisites are satisfied.
 
 Only after the enforcement gates above are met:
 
 1. Pin every third-party Action reference in the template to a reviewed commit SHA.
-2. Copy it to `.github/workflows/changeplane-repair.yml` on the default branch.
+2. Vendor the reviewed ledger, grant verifier, proposal helper, and repair workflow together through one setup pull request; copying the workflow alone is intentionally unsupported.
 3. Connect Enterprise BYOK. The canary verifies DeepSeek V4 Flash and creates or rotates `DEEPSEEK_API_KEY` without retaining the plaintext key.
-4. Validate it in a disposable repository.
-5. Only after the GitHub App gates are complete, grant the trusted controller `contents: write` for repository dispatch and set `agent_dispatch: repository` in an enforce workflow.
+4. Validate it in the disposable repository.
+5. Only after the GitHub App gates are complete, grant the trusted controller the bounded dispatch/apply permissions and activate enforce in a separate reviewed release.
 
 The HTTPS adapter code is retained for future customer-harness validation, but this pilot does not expose or dispatch it.
 
@@ -190,6 +190,6 @@ Without GitHub connector configuration, local development provides the clickable
 - Concurrent-change discovery inspects only the 20 most recently updated open pull requests and the first 100 files in each. It is a high-signal advisory, not a completeness or conflict guarantee.
 - No merge-queue `merge_group` receipt yet; keep the Check non-required for repositories that use GitHub Merge Queue.
 - No public ChangePlane Managed model spend, subscription checkout, metering, or consolidated billing yet; only the authenticated server-side provider canary exists.
-- The included Vercel Hobby path is personal and non-commercial, has no production SLA, cannot connect an organization-owned Git repository, and stops serving when included usage is exhausted.
+- The current free Vercel phase is fail-closed at its included limits and remains bound to the exact disposable canary repository.
 
 Operational activation and incident steps live in [docs/production-runbook.md](docs/production-runbook.md); release gates are tracked in [docs/release-checklist.md](docs/release-checklist.md).

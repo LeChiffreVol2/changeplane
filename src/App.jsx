@@ -1318,7 +1318,7 @@ function backboneStateFor(change) {
     detail: change.id === "payment" ? "1 failed test · limited to allowed files" : "Available after the rollout gate",
     summary: change.id === "payment"
       ? "This controlled canary replays the enforce path without writing to a repository. The model proposes; the deterministic harness decides."
-      : "The repair adapter is ready, but it does not run in observe mode or inside this browser.",
+      : "The inactive repair contract is implemented for controlled validation; it cannot run in observe mode or inside this browser.",
     tone: "ready",
   };
 }
@@ -1541,7 +1541,7 @@ function BackboneDrawer({ change, onClose }) {
         <Robot size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Bounded repair adapter</p>
         <h2 id="backbone-title">Agentic work, without agent authority.</h2>
-        <p className="guide-intro" id="backbone-intro">Production execution runs as separated GitHub Actions jobs after the enforce gate. This preview visualizes those states; it does not invoke a model in your browser.</p>
+        <p className="guide-intro" id="backbone-intro">The target enforce design separates execution into GitHub Actions jobs. Production remains observe-only; this preview visualizes those states and does not invoke a model in your browser.</p>
 
         <div className={`backbone-status backbone-status-${backbone.tone}`}>
           {backbone.tone === "blocked" ? <WarningOctagon size={20} weight="fill" aria-hidden="true" /> : <ShieldCheck size={20} weight="fill" aria-hidden="true" />}
@@ -1555,23 +1555,23 @@ function BackboneDrawer({ change, onClose }) {
           </li>
           <li>
             <span>02</span>
-            <div><strong>Deterministic harness</strong><p>Validates exact head, granted paths, expiry, the 1/2 request envelope, Git metadata, and the resulting tree again inside the clean apply job.</p></div>
+            <div><strong>Deterministic harness</strong><p>Validates the signed campaign, exact head, granted paths, deadline, Git metadata, and the resulting tree again inside the clean apply job.</p></div>
           </li>
           <li>
             <span>03</span>
-            <div><strong>Trusted apply job</strong><p>A separate GitHub Actions job rechecks the live PR head, applies only granted paths, then pushes with force-with-lease.</p></div>
+            <div><strong>Trusted apply job</strong><p>In the inactive design, a separate GitHub Actions job rechecks the live PR head, applies only granted paths, then pushes with force-with-lease.</p></div>
           </li>
         </ol>
 
         <div className="backbone-boundary">
           <LockKey size={20} aria-hidden="true" />
-          <div><strong>Hard authority boundary</strong><p>The model cannot issue PASS, approve a pull request, publish the required Check, or merge code. Enforce also requires the signed attempt ledger in the rollout gate.</p></div>
+          <div><strong>Hard authority boundary</strong><p>The model cannot issue PASS, approve a pull request, publish the required Check, or merge code. Activation still requires the dedicated App publisher and live repair canary in the rollout gate.</p></div>
         </div>
 
         <div className="backbone-runtime">
           <span>Funding</span>
-          <strong>Enterprise BYOK first · Managed private pilot</strong>
-          <p>BYOK stays in GitHub Actions; Managed stays server-side. The provider can change, but the revision-bound harness and authority boundary do not.</p>
+          <strong>Enterprise BYOK · Managed reserved</strong>
+          <p>BYOK stays in GitHub Actions; Managed remains disabled. The provider can change, but the revision-bound harness and authority boundary do not.</p>
         </div>
 
         <button className="primary-action backbone-close" type="button" onClick={onClose}>Back to receipt</button>

@@ -4,8 +4,8 @@
 
 - [ ] Name the release owner, rollback owner, GitHub connector owner, and customer repository owner.
 - [ ] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
-- [ ] Confirm the hosting plan permits this rollout. Vercel Hobby is non-commercial only and cannot connect to a GitHub organization-owned repository; use a personal disposable repository for the free canary. A paid design-partner, organization-owned repository, or commercial deployment requires Pro or another approved host.
-- [ ] Confirm the GitHub plan supports branch protection for the selected repository. Private repositories require GitHub Pro, Team, Enterprise Cloud, or Enterprise Server.
+- [ ] Keep this release on the fixed free Vercel phase and bind every repository route to the one disposable `CHANGEPLANE_CANARY_REPOSITORY`; hosting-plan work and broader onboarding are out of scope.
+- [ ] Confirm the selected GitHub repository supports the required protected-branch CI gate.
 - [ ] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and optional inactive repair templates. No database, queue, merge service, or paid observability is required.
 - [ ] Confirm GitHub Merge Queue is not enabled for a repository that requires `ChangePlane / guard`.
 
@@ -23,7 +23,7 @@
 
 - [ ] Inventory `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, controlled-rollout `CHANGEPLANE_CANARY_REPOSITORY`, optional `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
 - [ ] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
-- [ ] On Vercel Hobby, keep the GitHub App private and verify the public root offers only the fictional workspace. Verify the unlisted `?access=canary-owner` entry returns a non-owner cleanly and `/api/github?action=login` plus in-flight installation/callback state reject without redirecting to GitHub.
+- [ ] On the free canary, keep the GitHub App private and verify the public root offers only the fictional workspace. Verify the unlisted `?access=canary-owner` entry returns a non-owner cleanly and `/api/github?action=login` plus in-flight installation/callback state reject without redirecting to GitHub.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` server-side and absent unless the private canary is explicitly approved.
@@ -38,8 +38,8 @@
 - [ ] Confirm the required GitHub Check passed on that same SHA.
 - [ ] On a trusted Preview, confirm `/api/github?action=readiness` returns `200`, `ready: true`, the expected connector mode, no secret values, and a release matching the Preview source SHA.
 - [ ] Smoke the trusted Preview root and confirm security headers and API `Cache-Control: no-store` are present.
-- [ ] Install into one disposable repository whose GitHub plan supports the required branch protection (public on GitHub Free, or private on an eligible paid plan) and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite.
-  - Observe install evidence passed in private disposable repository `LeChiffreVol2/changeplane-disposable-canary-20260719`: setup [PR #1](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/1) changed six reserved files only and merged at `82c0f3f91f8c6f516c55e11c4e69491803430db7`. Branch-protection eligibility remains an open hosting-plan gate.
+- [ ] Install into the one disposable repository with the required branch protection and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite.
+  - Observe install evidence passed in private disposable repository `LeChiffreVol2/changeplane-disposable-canary-20260719`: setup [PR #1](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/1) changed six reserved files only and merged at `82c0f3f91f8c6f516c55e11c4e69491803430db7`.
 - [x] Confirm the atomic setup pull request exposes observe-only Action metadata, least-privilege permissions, no repair inputs, and no active repair workflow.
   - PR #1 installed a trusted-base workflow with read-only contents/deployments/statuses access plus Check/comment publication only. The installed Action exposes no enforce or repair-dispatch input.
 - [x] Configure at least one meaningful deterministic check in `.changeplane.json`; the self-serve starter intentionally leaves `requiredChecks` empty and must not be presented as behavioral assurance until this is done.
@@ -55,8 +55,8 @@
 - [ ] Make one read-only Production readiness request and repeat one disposable-repository observe evaluation; stop if either differs from Preview.
 - [ ] Confirm the immediately previous Production deployment remains available for Instant Rollback.
 - [ ] Exercise or review access to Vercel rollback, GitHub authorization revocation, session-secret rotation, and provider-key revocation.
-- [ ] Confirm the release owner is watching native Vercel logs/usage and GitHub Actions usage during onboarding; no external monitor or paid pager is claimed.
-- [ ] At 80% of a free included allowance, stop new onboarding and nonessential reruns. Keep Hobby deployment activity below the hard 32-builds-per-hour limit. At exhaustion, fail closed until reset or an approved plan change.
+- [ ] Confirm the release owner is watching native Vercel logs/usage and GitHub Actions usage during onboarding; no external monitor or pager is claimed.
+- [ ] At 80% of a free included allowance, stop new onboarding and nonessential reruns. At exhaustion, fail closed until reset.
 
 ## Required before enforcement or agent repair
 
@@ -64,11 +64,14 @@
 - [x] Reject same-name evidence unless it originates from the policy's expected GitHub App slug.
 - [ ] Verify expected-App evidence against live GitHub Check Runs in a disposable repository.
 - [ ] Evaluate `merge_group` as its own exact revision and publish the required Check for GitHub Merge Queue.
-- [ ] Add an App-signed, monotonic attempt/approval ledger outside repository-controlled workflows.
+- [x] Implement the PS256-signed monotonic ledger primitive intended for the App publisher, campaign-bound two-attempt/15-minute invariant, pinned-key verifier, and inactive workflow kill switch.
+- [x] Bind inactive grants to the exact controller SHA, default base ref, policy digest/evaluator version, contract, protected-path denylist, and live pull-request revision; recheck the signed deadline immediately before push.
+- [ ] Wire ledger publication and dispatch to a dedicated GitHub App installation-token controller outside repository-controlled workflows.
+- [ ] Prove tampered signature, unknown key, future/expired grant, deadline reset, wrong repository/head/path, third attempt, fork, sequential replay, and concurrent replay all fail closed before provider access.
 - [ ] Pin every Action in `examples/changeplane-repair.yml` to a reviewed full commit SHA before copying it into `.github/workflows`.
 - [ ] Pass stale-head, expiry, path-boundary, replay, idempotency, fork, and sandbox escape tests in a disposable repository.
 - [ ] Run the checkout-race canary end to end: expected-App evidence fails, the model proposes only an in-scope patch, the clean apply job creates a new head, the same evidence succeeds, and only then does `ChangePlane / guard` pass with zero human actions.
-- [ ] Configure a kill switch for dispatch and enforce mode.
+- [ ] Exercise the generation-based kill switch before provider access and again before clean apply in the disposable repair canary.
 - [ ] Exercise provider outage, GitHub outage, exhausted attempts, and rollback incidents.
 
 ## Required before ChangePlane Managed

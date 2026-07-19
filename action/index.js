@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import {
   AUTONOMOUS_DECISION,
   DECISION,
+  REMEDIATION_MAX_ATTEMPTS,
   buildRemediationRequest,
   detectFileOverlap,
   evaluateChange,
@@ -1085,8 +1086,8 @@ export async function run() {
     throw new Error("agent_webhook_token is required when agent_webhook_url is configured.");
   }
   const maxAttempts = Number.parseInt(process.env.INPUT_MAX_REMEDIATION_ATTEMPTS || "2", 10);
-  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 5) {
-    throw new Error("max_remediation_attempts must be an integer between 1 and 5.");
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > REMEDIATION_MAX_ATTEMPTS) {
+    throw new Error(`max_remediation_attempts must be an integer between 1 and ${REMEDIATION_MAX_ATTEMPTS}.`);
   }
 
   let remediationComments = [];
