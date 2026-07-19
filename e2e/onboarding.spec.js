@@ -28,7 +28,7 @@ async function mockLocalApi(page, handler) {
   return externalRequests;
 }
 
-test("controlled-canary public root stays fictional and usable on mobile", async ({ page }) => {
+test("controlled-canary public root shows a fictional exact-revision receipt on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const externalRequests = await mockLocalApi(page, (route, url) => {
     expect(url.searchParams.get("action")).toBe("session");
@@ -40,9 +40,10 @@ test("controlled-canary public root stays fictional and usable on mobile", async
     });
   });
 
-  await page.goto("/");
+  await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "Try the workflow without connecting GitHub." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "See what ChangePlane checks on one agent-authored PR." })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   const exampleButton = page.getByRole("button", { name: "Open example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
@@ -53,12 +54,20 @@ test("controlled-canary public root stays fictional and usable on mobile", async
   await expect(exampleButton).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Prevent duplicate checkout charges" })).toBeFocused();
+  await expect(page.locator(".decision-pill")).toHaveText("Ready to check");
+  await expect(page.getByText("Needs repair", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Run the exact-revision check" }).click();
+  await expect(page.locator(".decision-pill")).toHaveText("Finding reported");
+  await expect(page.getByText("Duplicate-charge evidence failed on 71b04c2")).toBeVisible();
+  await expect(page.getByText("Neutral receipt posted to GitHub")).toBeVisible();
+  await expect(page.locator("time").filter({ hasText: "GitHub merge rules unchanged" })).toBeVisible();
   expect(externalRequests).toEqual([]);
 });
 
 test("mocked self-serve onboarding reaches a setup pull request with keyboard navigation", async ({ page }) => {
   let connected = false;
   let installPayload = null;
+  let preflightRequests = 0;
   const apiActions = [];
   const externalRequests = await mockLocalApi(page, async (route, url) => {
     const action = url.searchParams.get("action");
@@ -88,7 +97,29 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
       });
     }
     if (action === "preflight") {
+      preflightRequests += 1;
       expect(url.searchParams.get("repository")).toBe("acme/payments-api");
+      if (preflightRequests > 1) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return json(route, {
+          repositoryState: "active",
+          installation: { state: "current", currentVersion: 1, targetVersion: 1, conflicts: [] },
+          installable: false,
+          conflicts: [],
+          setupFiles: 0,
+          setup: { state: "current", managedVersion: 1 },
+          evidenceOptions: [],
+          boundary: {
+            defaultBranchWrite: false,
+            pullRequestOnly: true,
+            observeOnly: true,
+            mergeBlocking: false,
+            agentRepair: false,
+            untrustedCodeExecution: false,
+            providerSecretAccess: false,
+          },
+        });
+      }
       return json(route, {
         repositoryState: "active",
         installation: {
@@ -156,6 +187,10 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   await page.keyboard.press("Enter");
 
   await expect(page.getByText("Safe to install · choose evidence below")).toBeVisible();
+  await page.getByText("Optional · connect a provider key").click();
+  await expect(page.getByLabel("DeepSeek API key")).toBeVisible();
+  await expect(page.getByText("Stored in GitHub only · repair remains disabled")).toBeVisible();
+  await page.getByText("Optional · connect a provider key").click();
   const evidenceSelect = page.getByLabel("Use a test from GitHub");
   await expect(evidenceSelect).toBeVisible();
   await expect(evidenceSelect).toHaveValue("test\0github-actions");
@@ -175,10 +210,16 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
     "href",
     "https://github.com/acme/payments-api/pull/42",
   );
+  await page.getByRole("button", { name: "I merged it — check this repository" }).click();
+  await expect(page.locator(".safety-preflight")).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByRole("button", { name: /Create .* PR/u })).toHaveCount(0);
+  await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
+  await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
   expect(installPayload).toEqual({
     repository: "acme/payments-api",
     requiredCheck: { name: "test", appSlug: "github-actions" },
   });
+  expect(preflightRequests).toBe(2);
   expect(apiActions).toEqual(expect.arrayContaining(["session", "login", "repos", "preflight", "runtime", "install"]));
   expect(externalRequests).toEqual([]);
 });
@@ -303,7 +344,9 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   );
   await page.getByRole("button", { name: "I merged it — check this repository" }).click();
   await expect(page.getByText("Checking the repository boundary")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create managed upgrade PR" })).toHaveCount(0);
+  await expect(page.locator(".safety-preflight")).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByRole("button", { name: /Create .* PR/u })).toHaveCount(0);
+  await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
   await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
   await expect(page.getByText("ChangePlane is active")).toBeVisible();
   await expect(page.getByText("No repository change is needed", { exact: true })).toBeVisible();

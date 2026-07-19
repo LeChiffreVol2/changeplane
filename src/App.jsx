@@ -30,7 +30,6 @@ import {
 } from "@phosphor-icons/react";
 import {
   evaluateChange,
-  planAutonomousDecision,
 } from "./lib/changeplane.js";
 import { ApiError, responseJson } from "./lib/api-client.js";
 
@@ -50,6 +49,7 @@ const CANARY_OWNER_ENTRY = PAGE_QUERY.get("access") === "canary-owner";
 const GITHUB_ENTRY_ERROR = {
   owner_required: "This owner-controlled canary is not available to that GitHub account.",
   owner_ambiguous: "More than one owner installation was found. Review the GitHub App installations before trying again.",
+  authorization_cancelled: "GitHub authorization was cancelled. Nothing was connected or changed. Try again when you are ready.",
 }[PAGE_QUERY.get("github")] ?? "";
 const SESSION_KEY = "changeplane.preview-session.v3";
 const RUNS_KEY = "changeplane.autonomous-runs.v1";
@@ -84,7 +84,7 @@ const PREVIEW_REPOSITORIES = [
   },
 ];
 
-const RUNNING_STATES = new Set(["evaluating", "remediating", "verifying", "publishing"]);
+const RUNNING_STATES = new Set(["evaluating", "testing", "publishing"]);
 const FILTERS = ["All changes", "Active", "Exceptions"];
 const RUNTIME = {
   provider: "DeepSeek",
@@ -137,11 +137,10 @@ const CHANGES = [
     initialStatus: "ready",
     time: "Just now",
     summary: "Claude Code added retry handling for checkout requests that time out after payment capture.",
-    impact: "An automated race test reproduced a duplicate charge. The issue can be fixed without touching sensitive files.",
-    passedImpact: "The new version passed the duplicate-charge test. GitHub still decides whether to merge.",
+    impact: "Ready to bind this exact commit to the allowed checkout files and the repository's duplicate-charge test.",
+    reportedImpact: "The project test expected one payment capture and observed two. The neutral receipt is bound to this exact commit.",
     scope: "src/checkout/**",
     head: "71b04c2",
-    remediatedHead: "9c812fa",
     base: "a1f9d7c (main)",
     author: "dev-automation[bot]",
     opened: "58m ago",
@@ -156,7 +155,7 @@ const CHANGES = [
     plannedFiles: 3,
     files: [
       { path: "src/checkout/retry.ts", add: 48, remove: 12, scope: "In scope" },
-      { path: "src/checkout/idempotency.ts", add: 21, remove: 7, scope: "In scope", repairTouched: true },
+      { path: "src/checkout/idempotency.ts", add: 21, remove: 7, scope: "In scope", evidenceRelevant: true },
       { path: "src/checkout/idempotency.race.test.ts", add: 86, remove: 0, scope: "In scope" },
     ],
     advisory: "Another proposed change also updates checkout retry timing",
@@ -229,12 +228,11 @@ const CHANGES = [
 ];
 
 const PIPELINE = [
-  ["contract", "Change boundary"],
-  ["evidence", "Automated test"],
-  ["policy", "Project rules"],
-  ["remediation", "Agent fix"],
-  ["verify", "Check new version"],
-  ["check", "GitHub result"],
+  ["contract", "Bind exact commit"],
+  ["scope", "Confirm allowed files"],
+  ["evidence", "Run project test"],
+  ["policy", "Apply project rules"],
+  ["check", "Post GitHub receipt"],
 ];
 
 function readStoredJson(key, fallback) {
@@ -347,25 +345,23 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
             <div className="auth-signal-row">
               <div>
                 <strong>{exampleOnly
-                  ? "See a duplicate-charge bug caught, returned to an agent, and checked again."
+                  ? "See one agent-authored checkout change checked against its exact commit and project test."
                   : "ChangePlane checks the exact commit against project rules and required evidence."}</strong>
                 <span>{exampleOnly
-                  ? "Model proposes · deterministic harness decides · GitHub remains authority"
+                  ? "Agent writes → project test runs → exact-revision receipt in GitHub"
                   : "Any coding agent → exact commit → receipt in GitHub"}</span>
               </div>
-              <span className="auth-pass-label">{exampleOnly ? "Target workflow · not a live repair claim" : "Pilot cannot block or change code"}</span>
+              <span className="auth-pass-label">{exampleOnly ? "Observe-only example" : "Pilot cannot block or change code"}</span>
             </div>
           </div>
         </div>
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{controlledCanary ? "Private canary · no GitHub access" : exampleOnly ? "Controlled example · no GitHub access" : "One-time GitHub setup"}</p>
-            <h2 id="sign-in-title">{controlledCanary ? "Try the workflow without connecting GitHub." : exampleOnly ? "See the target repair loop." : "Connect once. Then stay in GitHub."}</h2>
-            <p>{controlledCanary
-              ? "Explore the complete workflow with fictional repository data. Live GitHub access is limited to ChangePlane's isolated test repository."
-              : exampleOnly
-              ? "Run a fictional checkout failure from detection through re-check. Today's connected pilot observes real pull requests and posts receipts; it does not dispatch repair or block merges."
+            <p className="auth-eyebrow">{exampleOnly ? "Fictional example · no GitHub access" : "One-time GitHub setup"}</p>
+            <h2 id="sign-in-title">{exampleOnly ? "See what ChangePlane checks on one agent-authored PR." : "Connect once. Then stay in GitHub."}</h2>
+            <p>{exampleOnly
+              ? "A coding agent changed checkout retries. ChangePlane binds that exact commit and its allowed files to the repository's duplicate-charge test, then posts a neutral receipt in GitHub. This example does not repair code or block a merge."
               : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update in that project triggers ChangePlane automatically."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
@@ -545,7 +541,7 @@ function RuntimeFunding({
           <div>
             <strong>Enterprise BYOK</strong>
             <span className={`runtime-badge ${connected ? "is-connected" : "is-available"}`}>
-              {connected ? "Connected" : permissionRequired ? "Permission needed" : "Available later"}
+              {connected ? "Connected" : permissionRequired ? "Permission needed" : "Available"}
             </span>
           </div>
           <p>Your key is verified with {RUNTIME.provider}, then encrypted into this repository's GitHub Actions Secret. ChangePlane never stores it or returns it to the browser.</p>
@@ -720,7 +716,7 @@ function GitHubSetup({
 
                 {session.isPreview && (
                   <button className="setup-skip-action" type="button" onClick={onOpenWorkspace}>
-                    Skip setup · See the checkout failure <ArrowRight size={15} />
+                    Skip setup · See the exact-revision receipt <ArrowRight size={15} />
                   </button>
                 )}
 
@@ -927,10 +923,10 @@ function GitHubSetup({
 
                     <p className="install-note install-note-provider">No provider key or repair funding is needed for the observe pilot.</p>
 
-                    {byok?.configured && (
+                    {selected && runtimeStatus === "ready" && (
                       <details className="runtime-optional">
                         <summary>
-                          <span><strong>Manage connected provider key</strong><small>Repair remains disabled in observe mode</small></span>
+                          <span><strong>{byok?.configured ? "Manage connected provider key" : "Optional · connect a provider key"}</strong><small>Stored in GitHub only · repair remains disabled</small></span>
                           <CaretDown size={16} aria-hidden="true" />
                         </summary>
                         <RuntimeFunding
@@ -949,7 +945,7 @@ function GitHubSetup({
 
                     {installError && <p className="install-error" role="alert"><Warning size={16} weight="fill" /> {installError}</p>}
 
-                    {pendingSetup ? (
+                    {preflightStatus === "loading" ? null : pendingSetup ? (
                       <>
                         <a className="primary-action install-action" href={preflight.setup.pullRequest.url} target="_blank" rel="noreferrer">
                           <GitBranch size={17} weight="bold" /> Open existing {pendingUpgrade ? "upgrade" : "setup"} PR <ArrowRight size={16} />
@@ -1055,15 +1051,16 @@ function GitHubSetup({
   );
 }
 
-function displayState(status, needsRepair = false) {
-  if (RUNNING_STATES.has(status)) return { state: "running", label: status === "remediating" ? "Repairing" : "Running" };
+function displayState(status) {
+  if (RUNNING_STATES.has(status)) return { state: "running", label: "Checking" };
+  if (status === "reported") return { state: "ready", label: "Finding reported" };
   if (status === "passed") return { state: "pass", label: "Check passed" };
   if (status === "blocked") return { state: "blocked", label: "Exception" };
-  return { state: "ready", label: needsRepair ? "Needs repair" : "Ready" };
+  return { state: "ready", label: "Ready to check" };
 }
 
-function StatusMark({ status, needsRepair = false, compact = false }) {
-  const { state, label } = displayState(status, needsRepair);
+function StatusMark({ status, compact = false }) {
+  const { state, label } = displayState(status);
   return (
     <span className={`status-mark status-${state}`}>
       {state === "running" ? <ArrowsClockwise className="spin" size={compact ? 12 : 14} weight="bold" /> : <Circle size={compact ? 9 : 10} weight="fill" />}
@@ -1127,7 +1124,7 @@ function Queue({ changes, selectedId, onSelect, filter, onFilter }) {
           >
             <strong>{change.title}</strong>
             <span className="queue-meta">
-              <StatusMark status={change.status} needsRepair={change.id === "payment"} compact />
+              <StatusMark status={change.status} compact />
               <time>{change.timeLabel}</time>
             </span>
           </button>
@@ -1189,32 +1186,49 @@ function evidenceFor(change) {
       ["blocked", "Sensitive-file rule matched", "secrets/**"],
     ];
   }
+  if (change.status === "reported") {
+    return [
+      ["pass", "Exact commit and allowed files bound", `${change.base.split(" ")[0]} → ${change.head}`],
+      ["warning", "Duplicate-charge test failed", "Expected 1 capture · received 2"],
+      ["pass", "Project rules evaluated", "No protected path changed"],
+      ["pass", "Neutral receipt posted to GitHub", "ChangePlane / guard · GitHub merge rules unchanged"],
+    ];
+  }
   if (change.status === "passed") {
     return [
       ["pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["pass", change.id === "payment" ? "Duplicate-charge test passed" : "Configured GitHub tests passed", change.id === "payment" ? "1 capture across 1,000 concurrent retry pairs" : "Results matched this version"],
-      ...(change.id === "payment" ? [["pass", "Coding-agent fix checked again", "Attempt 1 of 2 · 49s"]] : []),
+      ["pass", "Configured GitHub tests passed", "Results matched this version"],
       ["pass", "Result posted to GitHub", "GitHub still decides whether to merge"],
     ];
   }
-  if (change.status === "remediating") {
+  if (change.status === "testing") {
     return [
-      ["pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["warning", "Duplicate-charge test failed", "Expected 1 capture · received 2"],
-      ["active", "Coding agent is proposing a fix", `Attempt 1 of 2`],
+      ["pass", "Exact commit bound", `${change.base.split(" ")[0]} → ${change.head}`],
+      ["pass", "Allowed files confirmed", change.scope],
+      ["active", "Running duplicate-charge test", "Repository-owned evidence"],
     ];
   }
-  if (change.status === "verifying" || change.status === "publishing") {
+  if (change.status === "publishing") {
     return [
-      ["pass", "Agent proposal applied safely", `New version ${change.head}`],
-      [change.status === "verifying" ? "active" : "pass", "Running the duplicate-charge test again", "1,000 concurrent retry pairs"],
-      [change.status === "publishing" ? "active" : "pending", "Posting the result to GitHub", "ChangePlane / guard"],
+      ["pass", "Exact commit and allowed files bound", `${change.base.split(" ")[0]} → ${change.head}`],
+      ["warning", "Duplicate-charge test failed", "Expected 1 capture · received 2"],
+      ["pass", "Project rules evaluated", "No protected path changed"],
+      ["active", "Posting neutral receipt to GitHub", "ChangePlane / guard"],
+    ];
+  }
+  if (change.status === "evaluating") {
+    return [
+      ["active", "Binding exact commit", change.head],
+      ["pending", "Confirm allowed files", change.scope],
+      ["pending", "Run duplicate-charge test", "Repository-owned evidence"],
+      ["pending", "Post neutral receipt", "ChangePlane / guard"],
     ];
   }
   return [
-    [change.status === "evaluating" ? "active" : "pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
-    [change.status === "evaluating" ? "active" : "warning", "Duplicate-charge test failed", change.status === "evaluating" ? "Confirming the failure" : "Expected 1 capture · received 2"],
-    ["warning", "Agent fix is allowed", "The issue is inside allowed files · no sensitive files"],
+    ["pending", "Bind exact commit", change.head],
+    ["pending", "Confirm allowed files", change.scope],
+    ["pending", "Run duplicate-charge test", "Repository-owned evidence"],
+    ["pending", "Post neutral receipt", "ChangePlane / guard"],
   ];
 }
 
@@ -1263,7 +1277,7 @@ function Evidence({ change }) {
 }
 
 function Workspace({ change, isPreview, onInspect }) {
-  const { state, label } = displayState(change.status, change.id === "payment");
+  const { state, label } = displayState(change.status);
   const automationLabel = change.status === "blocked" ? "Exception only" : "Zero-touch eligible";
   const actualFiles = change.files.filter(({ resolved }) => !resolved).length;
   const drift = actualFiles - change.plannedFiles;
@@ -1285,7 +1299,7 @@ function Workspace({ change, isPreview, onInspect }) {
         </div>
         <div>
           <dt>Outcome</dt>
-          <dd>{change.status === "passed" && change.passedImpact ? change.passedImpact : change.impact}</dd>
+          <dd>{change.status === "reported" && change.reportedImpact ? change.reportedImpact : change.impact}</dd>
         </div>
         <div>
           <dt>Allowed files</dt>
@@ -1315,7 +1329,7 @@ function Workspace({ change, isPreview, onInspect }) {
         {paymentFacts ? (
           <>
             <div><dt>Version</dt><dd className="mono">{change.head}</dd></div>
-            <div className={change.status === "passed" ? "" : "has-drift"}><dt>Tests</dt><dd>{change.status === "passed" ? "4 / 4 passed" : "1 failed"}</dd></div>
+            <div className={change.status === "reported" ? "has-drift" : ""}><dt>Tests</dt><dd>{change.status === "reported" ? "1 failed · receipt posted" : RUNNING_STATES.has(change.status) ? "Running" : "Not run"}</dd></div>
             <div><dt>Human actions</dt><dd>0</dd></div>
           </>
         ) : (
@@ -1327,14 +1341,6 @@ function Workspace({ change, isPreview, onInspect }) {
         )}
       </dl>
 
-      {change.status === "remediating" && (
-        <div className="agent-callout" aria-live="polite">
-          <Robot size={22} weight="duotone" />
-          <div><strong>{change.agent} is proposing a fix</strong><span>Limited to allowed checkout files · 15-minute limit</span></div>
-          <span>Attempt 1/2</span>
-        </div>
-      )}
-
       <FileTable files={change.files} onInspect={onInspect} />
       <Evidence change={change} />
     </main>
@@ -1342,17 +1348,25 @@ function Workspace({ change, isPreview, onInspect }) {
 }
 
 function pipelineState(status, key) {
-  const order = { contract: 0, evidence: 1, policy: 2, remediation: 3, verify: 4, check: 5 };
-  if (status === "passed") return "complete";
-  if (status === "blocked") return key === "contract" || key === "evidence" ? "complete" : key === "policy" ? "blocked" : "pending";
+  const order = { contract: 0, scope: 1, evidence: 2, policy: 3, check: 4 };
+  if (status === "passed" || status === "reported") return "complete";
+  if (status === "blocked") return key === "contract" || key === "scope" || key === "evidence" ? "complete" : key === "policy" ? "blocked" : "pending";
   if (status === "ready") return "pending";
-  const activeIndex = { evaluating: 1, remediating: 3, verifying: 4, publishing: 5 }[status] ?? -1;
+  const activeIndex = { evaluating: 0, testing: 2, publishing: 4 }[status] ?? -1;
   if (order[key] < activeIndex) return "complete";
-  if (order[key] === activeIndex || (status === "evaluating" && key === "contract")) return "active";
+  if (order[key] === activeIndex) return "active";
   return "pending";
 }
 
 function AssuranceNotice({ change }) {
+  if (change.status === "reported") {
+    return (
+      <div className="decision-notice notice-ready" role="status">
+        <Warning size={22} weight="fill" aria-hidden="true" />
+        <div><strong>Duplicate-charge evidence failed on {change.head}</strong><p>This neutral receipt is tied to the exact commit. A new commit invalidates it and starts a new check.</p></div>
+      </div>
+    );
+  }
   if (change.status === "passed") {
     return (
       <div className="decision-notice notice-pass">
@@ -1371,10 +1385,9 @@ function AssuranceNotice({ change }) {
   }
   if (RUNNING_STATES.has(change.status)) {
     const messages = {
-      evaluating: ["Checking the exact version", "Confirming the failed test and allowed files before asking an agent to act."],
-      remediating: ["The coding agent is proposing a fix", "The proposed change must stay inside the allowed files."],
-      verifying: ["Checking the new version", "The same automated test is running again before any result is posted."],
-      publishing: ["Posting the result to GitHub", "GitHub remains responsible for the merge decision."],
+      evaluating: ["Binding the exact commit", "ChangePlane is recording this revision before any evidence is evaluated."],
+      testing: ["Running the project test", "The repository-owned duplicate-charge evidence is running against this exact revision."],
+      publishing: ["Posting the neutral receipt", "The failed evidence stays visible while GitHub remains responsible for the merge decision."],
     };
     return (
       <div className="decision-notice notice-progress" aria-live="polite">
@@ -1386,7 +1399,7 @@ function AssuranceNotice({ change }) {
   return (
     <div className="decision-notice notice-ready">
       <Lightning size={22} weight="fill" aria-hidden="true" />
-      <div><strong>A test found a duplicate-charge risk</strong><p>The coding agent may propose a fix in the allowed files. It cannot approve its own work.</p></div>
+      <div><strong>Ready to check this exact version</strong><p>ChangePlane will bind commit {change.head}, confirm allowed files, run the project test, and post a neutral GitHub receipt.</p></div>
     </div>
   );
 }
@@ -1400,9 +1413,9 @@ function previewEvidenceFor(change) {
       tone: "blocked",
     };
   }
-  if (change.status === "passed") {
+  if (change.status === "passed" || change.status === "reported") {
     return {
-      label: "Existing preview matched",
+      label: change.status === "reported" ? "Preview bound to receipt" : "Existing preview matched",
       detail: "Successful deployment status matched",
       receipt: "Included",
       tone: "pass",
@@ -1433,46 +1446,34 @@ function backboneStateFor(change) {
       tone: "blocked",
     };
   }
-  if (change.status === "remediating") {
-    return {
-      label: `${RUNTIME.model} proposing patch`,
-      detail: `${RUNTIME.effort} effort · bounded workspace`,
-      summary: "In an enforced repository, the provider adapter may propose a bounded patch. It has provider-only egress and no GitHub write authority.",
-      tone: "active",
-    };
-  }
-  if (change.status === "verifying" || change.status === "publishing") {
-    return {
-      label: "Trusted controller verifying",
-      detail: change.status === "verifying" ? "Fix isolated · new version checked again" : "Agent isolated · result posting",
-      summary: "The model job is finished. Deterministic validation and the trusted controller now own the decision path.",
-      tone: "active",
-    };
-  }
-  if (change.status === "evaluating") {
+  if (RUNNING_STATES.has(change.status)) {
     return {
       label: "Harness evaluating change",
-      detail: "Model dispatch requires a fixable finding",
-      summary: "Deterministic checks are running first. The repair model starts only when policy allows an autonomous fix.",
+      detail: "Authoring agent has no result authority",
+      summary: "The repository-owned harness is binding the revision, scope, evidence, and policy independently of the coding agent.",
       tone: "active",
+    };
+  }
+  if (change.status === "reported") {
+    return {
+      label: "Independent receipt posted",
+      detail: "Failed evidence preserved · no model PASS",
+      summary: "The coding agent authored the change, but only the deterministic harness published this exact-revision receipt.",
+      tone: "pass",
     };
   }
   if (change.status === "passed") {
     return {
-      label: "Fix checked independently",
-      detail: change.id === "payment" ? "1 agent fix · agent cannot approve itself" : "No fix needed · agent cannot approve itself",
-      summary: change.id === "payment"
-        ? "This receipt path shows one bounded repair followed by independent evidence and policy."
-        : "The deterministic harness passed this revision without dispatching a repair model.",
+      label: "Revision checked independently",
+      detail: "No fix needed · agent cannot approve itself",
+      summary: "The deterministic harness passed this revision without dispatching a repair model.",
       tone: "pass",
     };
   }
   return {
-    label: change.id === "payment" ? "A safe fix can be attempted" : "Repair path ready",
-    detail: change.id === "payment" ? "1 failed test · limited to allowed files" : "Available after the rollout gate",
-    summary: change.id === "payment"
-      ? "This controlled canary replays the enforce path without writing to a repository. The model proposes; the deterministic harness decides."
-      : "The inactive repair contract is implemented for controlled validation; it cannot run in observe mode or inside this browser.",
+    label: "Harness ready",
+    detail: "Exact commit · allowed files · project test",
+    summary: "The coding agent supplies the pull request. The deterministic harness independently owns the receipt.",
     tone: "ready",
   };
 }
@@ -1487,7 +1488,7 @@ function MetaRows({ change }) {
     ["Policy", "Release Governance v3 · protected paths"],
     ["Evidence source", change.id === "payment" ? "checkout-race · github-actions" : "configured checks · github-actions"],
     ["Evaluator", "ChangePlane guard v1"],
-    ["Attempts", change.id === "payment" && change.status === "passed" ? "1 / 2" : "0 / 2"],
+    ["Receipt", "Observe only · neutral"],
     ["Human", change.status === "blocked" ? "Required" : "0 actions"],
   ];
   return (
@@ -1506,8 +1507,16 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
   const running = RUNNING_STATES.has(change.status);
   const preview = previewEvidenceFor(change);
   const backbone = backboneStateFor(change);
+  const railRef = useRef(null);
+
+  useEffect(() => {
+    if (change.status === "reported" && railRef.current) {
+      railRef.current.scrollTop = 0;
+    }
+  }, [change.status]);
+
   return (
-    <aside className="decision-rail" aria-label="Change receipt details">
+    <aside className="decision-rail" aria-label="Change receipt details" ref={railRef}>
       <div className="rail-heading">
         <div><p>{isPreview ? "Guided example" : `${change.changeId} · report only`}</p><h2>Change result</h2></div>
         <span className="mode-live"><i /> {isPreview ? "Fictional" : "Connected"}</span>
@@ -1532,23 +1541,23 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
       </div>
 
       {change.id === "payment" && (
-        <p className="canary-disclaimer">Walkthrough replay only. Connected projects run automatically and currently only report results; no repair or merge blocking.</p>
+        <p className="canary-disclaimer">Fictional receipt only. Connected projects run automatically and currently report results without repair or merge blocking.</p>
       )}
 
       {change.status === "ready" && (
         <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
-          <Play size={17} weight="fill" /> Play the checkout walkthrough
+          <Play size={17} weight="fill" /> Run the exact-revision check
         </button>
       )}
       {running && (
         <button className="primary-action run-action" type="button" disabled>
-          <ArrowsClockwise className="spin" size={17} weight="bold" /> Walkthrough in progress
+          <ArrowsClockwise className="spin" size={17} weight="bold" /> Exact-revision check in progress
         </button>
       )}
-      {change.status === "passed" && change.id === "payment" && (
+      {change.status === "reported" && change.id === "payment" && (
         <div className="result-actions">
           <button className="secondary-action run-action" type="button" onClick={() => onReplay(change.id)}>
-            <ArrowsClockwise size={17} /> Replay the walkthrough
+            <ArrowsClockwise size={17} /> Replay check
           </button>
           {isPreview && (
             <button className="setup-link-action" type="button" onClick={onShowSetup}>
@@ -1567,7 +1576,6 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
                 {stage === "complete" ? <Check size={12} weight="bold" /> : stage === "active" ? <ArrowsClockwise className="spin" size={12} weight="bold" /> : stage === "blocked" ? <X size={12} weight="bold" /> : null}
               </span>
               <span>{label}</span>
-              {key === "remediation" && change.id === "payment" && change.status === "passed" && <small>1 attempt</small>}
             </li>
           );
         })}
@@ -1582,9 +1590,9 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
       <section className="rail-section audit-section">
         <h3>Operational guarantee</h3>
         <div className="guarantee-row"><ShieldCheck size={18} weight="fill" /><span>A new commit cancels the old result and starts again</span></div>
-        <div className="guarantee-row"><LockKey size={18} /><span>Only project tests and rules can approve a result</span></div>
-        <div className="guarantee-row"><Clock size={18} /><span>Each fix run stops after 15 minutes</span></div>
-        <div className="guarantee-row"><Robot size={18} /><span>At most two agent attempts</span></div>
+        <div className="guarantee-row"><LockKey size={18} /><span>The authoring agent cannot issue or change the receipt</span></div>
+        <div className="guarantee-row"><Clock size={18} /><span>Failed evidence stays tied to the exact revision</span></div>
+        <div className="guarantee-row"><GithubLogo size={18} /><span>GitHub remains responsible for the merge decision</span></div>
       </section>
     </aside>
   );
@@ -1593,15 +1601,9 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
 function FileDialog({ file, onClose }) {
   const dialogRef = useDialogFocus(Boolean(file), onClose);
   if (!file) return null;
-  const explanation = file.repaired
-    ? "The coding agent patched this file in remediation attempt 1. The deterministic race suite passed on the new head."
-    : file.repairTouched
-      ? "This in-scope file is tied to the failing race test. The coding agent may patch it, but it cannot issue PASS."
-      : file.resolved
-        ? "The coding agent removed this file in remediation attempt 1. It is not present in the passing head."
-    : file.remediable
-      ? "This file is outside the declared scope but does not touch a protected capability. ChangePlane can return an exact repair instruction to the coding agent."
-      : file.blocked
+  const explanation = file.evidenceRelevant
+    ? "This in-scope file is tied to the failing duplicate-charge test. ChangePlane reports the evidence on this exact revision without changing the code."
+    : file.blocked
         ? "Matched blocked path secrets/**. Automation stops and this path cannot be overridden."
         : "Matched the declared scope for this pull request.";
   return (
@@ -1638,10 +1640,10 @@ function GuideDrawer({ onClose, onStart }) {
         <ol className="guide-steps">
           <li><span>01</span><div><strong>Platform lead · once</strong><p>Merge one trusted observe-mode setup PR for a repository. No developer installs a new CLI or changes coding tools.</p></div></li>
           <li><span>02</span><div><strong>Coding agent · normal workflow</strong><p>Codex, Claude Code, Cursor, or another agent opens or updates the pull request with its declared goal and scope.</p></div></li>
-          <li><span>03</span><div><strong>ChangePlane · closed loop</strong><p>Deterministic evidence runs first. Fixable findings return to the agent under a path, time, and attempt budget; the new head is re-verified.</p></div></li>
-          <li><span>04</span><div><strong>GitHub · final authority</strong><p>ChangePlane publishes the exact-head Check. GitHub merge rules proceed, or one actionable exception reaches a human.</p></div></li>
+          <li><span>03</span><div><strong>ChangePlane · independent receipt</strong><p>The harness binds the exact commit and allowed files to repository-owned tests and policy, then publishes the neutral result.</p></div></li>
+          <li><span>04</span><div><strong>GitHub · final authority</strong><p>If evidence fails, ask the coding agent to update the same pull request. A new commit invalidates the old receipt and runs again.</p></div></li>
         </ol>
-        <button className="primary-action guide-primary" type="button" onClick={onStart}>Replay the automatic loop <ArrowRight size={17} /></button>
+        <button className="primary-action guide-primary" type="button" onClick={onStart}>Replay the exact-revision check <ArrowRight size={17} /></button>
       </section>
     </div>
   );
@@ -1825,7 +1827,6 @@ export function App() {
 
     let cancelled = false;
     setPreflightStatus("loading");
-    setPreflight(null);
     setPreflightError("");
     fetch(`/api/github?action=preflight&repository=${encodeURIComponent(selectedRepository)}`, {
       credentials: "same-origin",
@@ -1889,13 +1890,8 @@ export function App() {
   const changes = useMemo(() => CHANGES.map((item) => {
     const record = runs[item.id];
     const status = record?.status ?? item.initialStatus;
-    const repaired = item.id === "payment" && ["verifying", "publishing", "passed"].includes(status);
-    const head = repaired ? item.remediatedHead : item.head;
-    const files = item.files.map((file) => file.repairTouched && repaired
-      ? { ...file, scope: "Repaired by agent", repaired: true }
-      : file.remediable && repaired
-        ? { ...file, scope: "Removed by agent", resolved: true }
-        : file);
+    const head = item.head;
+    const files = item.files;
     const activeFiles = files.filter(({ resolved }) => !resolved);
     const result = evaluateChange({
       plannedPaths: [item.scope],
@@ -1904,16 +1900,10 @@ export function App() {
       ...REVISION,
       headSha: head,
     });
-    const autonomous = planAutonomousDecision({
-      result,
-      agentConfigured: true,
-      attempt: repaired ? 1 : 0,
-      maxAttempts: 2,
-    });
     const timeLabel = RUNNING_STATES.has(status)
-      ? status === "remediating" ? "Attempt 1/2" : "Now"
-      : status === "passed" && item.id === "payment" ? "Just now" : item.time;
-    return { ...item, status, head, files, analysis: result, autonomous, timeLabel };
+      ? "Now"
+      : status === "reported" && item.id === "payment" ? "Just now" : item.time;
+    return { ...item, status, head, files, analysis: result, timeLabel };
   }), [runs]);
 
   const change = useMemo(() => changes.find((item) => item.id === selectedId) ?? changes[0], [changes, selectedId]);
@@ -2142,7 +2132,6 @@ export function App() {
   function refreshPreflight() {
     if (!selectedRepository || preflightStatus === "loading") return;
     setPreflightStatus("loading");
-    setPreflight(null);
     setPreflightError("");
     setPreflightRefresh((value) => value + 1);
   }
@@ -2173,12 +2162,11 @@ export function App() {
     setSelectedId(id);
     setFilter(FILTERS[0]);
     setRunStatus(id, "evaluating");
-    showToast("Confirming the duplicate-charge failure");
+    showToast("Binding exact commit 71b04c2");
     const sequence = [
-      [850, "remediating", "The coding agent received the failed test"],
-      [1900, "verifying", "The agent proposed a fix in the allowed files"],
-      [3000, "publishing", "The new version passed the duplicate-charge test"],
-      [4000, "passed", "Result posted · GitHub still decides whether to merge"],
+      [700, "testing", "Allowed files confirmed · running the project test"],
+      [1700, "publishing", "Duplicate-charge evidence failed · posting the neutral receipt"],
+      [2700, "reported", "Finding posted on 71b04c2 · GitHub merge rules unchanged"],
     ];
     timersRef.current = sequence.map(([delay, status, message]) => window.setTimeout(() => {
       setRunStatus(id, status);
@@ -2284,12 +2272,12 @@ export function App() {
               </button>
               {policyOpen && (
                 <div className="policy-popover">
-                  <p>Autonomous policy</p>
+                  <p>Receipt policy</p>
                   <strong>Release Governance v3</strong>
                   <span><CheckCircle size={15} weight="fill" /> Loaded from the trusted base</span>
                   <dl>
-                    <div><dt>Repair budget</dt><dd>2 attempts</dd></div>
-                    <div><dt>Deadline</dt><dd>15 minutes</dd></div>
+                    <div><dt>Revision</dt><dd>Exact head</dd></div>
+                    <div><dt>Evidence</dt><dd>1 required check</dd></div>
                     <div><dt>Blocked paths</dt><dd>1 group</dd></div>
                   </dl>
                 </div>
@@ -2314,7 +2302,7 @@ export function App() {
         </header>
 
         {session.isPreview && (
-          <div className="preview-boundary-banner">Fictional walkthrough · connected projects only report results today</div>
+          <div className="preview-boundary-banner">Fictional exact-revision receipt · no GitHub access or code changes</div>
         )}
 
         <div className="app-grid" id="top">

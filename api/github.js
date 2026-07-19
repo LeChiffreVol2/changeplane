@@ -180,11 +180,15 @@ function configuredCanaryRepository() {
 }
 
 function rolloutMode() {
-  return process.env.CHANGEPLANE_CANARY_REPOSITORY ? "controlled_canary" : "self_serve";
+  return process.env.CHANGEPLANE_CANARY_REPOSITORY || process.env.VERCEL === "1"
+    ? "controlled_canary"
+    : "self_serve";
 }
 
 function hasValidCanaryRepository() {
-  return !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
+  return process.env.VERCEL === "1"
+    ? Boolean(configuredCanaryRepository())
+    : !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
 }
 
 function repairControllerConfiguration() {
@@ -223,12 +227,15 @@ function repairControllerConfiguration() {
 
 function readiness() {
   const appSlug = githubAppSlug();
+  const mode = rolloutMode();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
   const sourceProvenance = hasSourceProvenance();
   const checks = {
     githubClientId: Boolean(process.env.GITHUB_CLIENT_ID),
     githubClientSecret: Boolean(process.env.GITHUB_CLIENT_SECRET),
-    githubAppSlug: process.env.GITHUB_APP_SLUG == null || Boolean(appSlug),
+    githubAppSlug: mode === "controlled_canary"
+      ? Boolean(appSlug)
+      : process.env.GITHUB_APP_SLUG == null || Boolean(appSlug),
     sessionSecret: typeof process.env.CHANGEPLANE_SESSION_SECRET === "string"
       && process.env.CHANGEPLANE_SESSION_SECRET.length >= 32,
     appOrigin: Boolean(configuredAppOrigin()),
@@ -239,7 +246,7 @@ function readiness() {
     ready: Object.values(checks).every(Boolean),
     checks,
     authMode: appSlug ? "github_app" : "oauth",
-    rolloutMode: rolloutMode(),
+    rolloutMode: mode,
     release: sourceSha?.slice(0, 12)
       || process.env.VERCEL_DEPLOYMENT_ID?.slice(0, 64)
       || "development",
@@ -433,13 +440,15 @@ function configuredAppOrigin() {
 }
 
 function oauthIsConfigured() {
+  const appSlug = githubAppSlug();
   return Boolean(
     process.env.GITHUB_CLIENT_ID
     && process.env.GITHUB_CLIENT_SECRET
     && typeof process.env.CHANGEPLANE_SESSION_SECRET === "string"
     && process.env.CHANGEPLANE_SESSION_SECRET.length >= 32
     && configuredAppOrigin()
-    && (process.env.GITHUB_APP_SLUG == null || githubAppSlug())
+    && (rolloutMode() !== "controlled_canary" || appSlug)
+    && (process.env.GITHUB_APP_SLUG == null || appSlug)
     && hasValidCanaryRepository()
   );
 }
@@ -1418,11 +1427,18 @@ function redirectCanaryOwnerError(req, res, reason) {
   redirect(res, url.toString(), [clearCookie(OAUTH_COOKIE)]);
 }
 
+function redirectAuthorizationError(req, res, reason) {
+  const url = new URL(configuredOrigin(req));
+  if (rolloutMode() === "controlled_canary") url.searchParams.set("access", "canary-owner");
+  url.searchParams.set("github", reason);
+  redirect(res, url.toString(), [clearCookie(OAUTH_COOKIE)]);
+}
+
 async function login(req, res) {
+  const configuration = oauthConfiguration(req);
   if (rolloutMode() === "controlled_canary") {
     throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
   }
-  const configuration = oauthConfiguration(req);
   const state = randomBytes(32).toString("base64url");
   if (configuration.authMode === "github_app") {
     const stateCookie = seal({
@@ -1489,10 +1505,10 @@ async function authorizeExisting(req, res) {
 }
 
 async function installation(req, res) {
+  const configuration = oauthConfiguration(req);
   if (rolloutMode() === "controlled_canary") {
     throw new HttpError(403, "New GitHub App installations are disabled for this controlled canary.");
   }
-  const configuration = oauthConfiguration(req);
   if (configuration.authMode !== "github_app") throw new HttpError(404, "GitHub App installation is not configured.");
   const installationId = queryValue(req, "installation_id");
   const state = queryValue(req, "state");
@@ -1549,9 +1565,7 @@ async function userInstallations(token) {
 }
 
 async function callback(req, res) {
-  const code = queryValue(req, "code");
   const state = queryValue(req, "state");
-  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{8,256}$/u.test(code)) throw new HttpError(400, "Invalid OAuth code.");
   if (typeof state !== "string" || !/^[A-Za-z0-9_-]{32,128}$/u.test(state)) throw new HttpError(400, "Invalid OAuth state.");
   const rawStateCookie = parseCookies(header(req, "cookie"))[OAUTH_COOKIE];
   let saved;
@@ -1561,6 +1575,18 @@ async function callback(req, res) {
     throw new HttpError(400, "OAuth state expired or is invalid.");
   }
   if (saved.kind !== "oauth" || !constantTimeEqual(state, saved.state)) throw new HttpError(400, "OAuth state mismatch.");
+
+  const authorizationError = queryValue(req, "error");
+  if (authorizationError) {
+    if (authorizationError === "access_denied") {
+      redirectAuthorizationError(req, res, "authorization_cancelled");
+      return;
+    }
+    throw new HttpError(400, "GitHub authorization failed.");
+  }
+
+  const code = queryValue(req, "code");
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{8,256}$/u.test(code)) throw new HttpError(400, "Invalid OAuth code.");
   if (
     rolloutMode() === "controlled_canary"
     && saved.authMode === "github_app"
@@ -1998,11 +2024,11 @@ async function install(req, res) {
 }
 
 async function repair(req, res) {
-  assertJsonRequest(req);
   const configuration = repairControllerConfiguration();
   if (!configuration.configured) {
     throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
   }
+  assertJsonRequest(req);
   const body = await readJson(req, { maxBytes: MAX_REPAIR_BODY_BYTES });
   try {
     validateControllerRequest(body);
@@ -2037,11 +2063,11 @@ async function repair(req, res) {
 }
 
 async function repairClaim(req, res) {
-  assertJsonRequest(req);
   const configuration = repairControllerConfiguration();
   if (!configuration.configured) {
     throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
   }
+  assertJsonRequest(req);
   const body = await readJson(req, { maxBytes: MAX_BODY_BYTES });
   try {
     validateClaimRequest(body);
@@ -2076,11 +2102,11 @@ async function repairClaim(req, res) {
 }
 
 async function repairValidate(req, res) {
-  assertJsonRequest(req);
   const configuration = repairControllerConfiguration();
   if (!configuration.configured) {
     throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
   }
+  assertJsonRequest(req);
   const body = await readJson(req, { maxBytes: MAX_BODY_BYTES });
   try {
     validateClaimRequest(body);
@@ -2114,11 +2140,11 @@ async function repairValidate(req, res) {
 }
 
 async function repairPushToken(req, res) {
-  assertJsonRequest(req);
   const configuration = repairControllerConfiguration();
   if (!configuration.configured) {
     throw new HttpError(503, "The dedicated ChangePlane repair controller is disabled or incomplete.");
   }
+  assertJsonRequest(req);
   const body = await readJson(req, { maxBytes: MAX_BODY_BYTES });
   try {
     validateClaimRequest(body);

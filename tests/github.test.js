@@ -845,6 +845,8 @@ test("GitHub App cutover rejects stale broad-OAuth sessions before repository ac
 
 test("readiness fails closed when a Vercel deployment has no source commit", async () => {
   await withOAuthEnvironment(async () => {
+    process.env.GITHUB_APP_SLUG = "changeplane-test";
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
     process.env.VERCEL = "1";
     process.env.VERCEL_DEPLOYMENT_ID = "dpl_test_release_identifier";
     const response = responseRecorder();
@@ -861,8 +863,8 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         sourceProvenance: false,
         canaryRepository: true,
       },
-      authMode: "oauth",
-      rolloutMode: "self_serve",
+      authMode: "github_app",
+      rolloutMode: "controlled_canary",
       release: "dpl_test_release_identifier",
       managedRuntime: "reserved",
       repairController: {
@@ -887,6 +889,8 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
 
 test("readiness exposes the exact Vercel source commit without secret values", async () => {
   await withOAuthEnvironment(async () => {
+    process.env.GITHUB_APP_SLUG = "changeplane-test";
+    process.env.CHANGEPLANE_CANARY_REPOSITORY = "alice/disposable-canary";
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "production";
     process.env.VERCEL_GIT_PROVIDER = "github";
@@ -909,8 +913,8 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         sourceProvenance: true,
         canaryRepository: true,
       },
-      authMode: "oauth",
-      rolloutMode: "self_serve",
+      authMode: "github_app",
+      rolloutMode: "controlled_canary",
       release: "aaaaaaaaaaaa",
       managedRuntime: "reserved",
       repairController: {
@@ -927,6 +931,77 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         },
       },
     });
+  });
+});
+
+test("hosted rollout stays closed when the disposable canary setting is missing", async () => {
+  await withGitHubAppEnvironment(async () => {
+    Object.assign(process.env, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
+    });
+    delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { externalCalls += 1; throw new Error("No external request expected"); };
+    try {
+      const readinessResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+      const readinessPayload = JSON.parse(readinessResponse.body);
+      assert.equal(readinessResponse.statusCode, 503);
+      assert.equal(readinessPayload.checks.canaryRepository, false);
+      assert.equal(readinessPayload.rolloutMode, "controlled_canary");
+
+      const sessionResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+      assert.equal(JSON.parse(sessionResponse.body).configured, false);
+
+      const loginResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=login", headers: {} }, loginResponse);
+      assert.equal(loginResponse.statusCode, 503);
+      assert.equal(loginResponse.getHeader("location"), undefined);
+      assert.equal(loginResponse.getHeader("set-cookie"), undefined);
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled canary requires a GitHub App slug for returning-owner access", async () => {
+  await withOAuthEnvironment(async () => {
+    Object.assign(process.env, {
+      CHANGEPLANE_CANARY_REPOSITORY: "alice/disposable-canary",
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "b".repeat(40),
+    });
+    delete process.env.GITHUB_APP_SLUG;
+
+    const readinessResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+    const readinessPayload = JSON.parse(readinessResponse.body);
+    assert.equal(readinessResponse.statusCode, 503);
+    assert.equal(readinessPayload.checks.githubAppSlug, false);
+    assert.equal(readinessPayload.rolloutMode, "controlled_canary");
+
+    const sessionResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+    assert.equal(JSON.parse(sessionResponse.body).configured, false);
+
+    const authorizeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+    assert.equal(authorizeResponse.statusCode, 503);
+    assert.equal(authorizeResponse.getHeader("location"), undefined);
   });
 });
 
@@ -969,6 +1044,56 @@ test("repair stays disabled when its repository differs from the disposable cana
           headers: { "content-type": "application/json" },
         }, response);
         assert.equal(response.statusCode, 503, `${action} must stay disabled before GitHub access`);
+      }
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("repair kill switch stays closed even when every other controller setting is valid", async () => {
+  await withGitHubAppEnvironment(async () => {
+    Object.assign(process.env, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "c".repeat(40),
+      CHANGEPLANE_CANARY_REPOSITORY: "alice/disposable-canary",
+      CHANGEPLANE_REPAIR_REPOSITORY: "alice/disposable-canary",
+      CHANGEPLANE_REPAIR_ENABLED: "false",
+      CHANGEPLANE_REPAIR_GENERATION: "1",
+      CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
+      GITHUB_APP_ID: "101",
+      GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nnot-used-by-readiness\n-----END PRIVATE KEY-----",
+    });
+    const readinessResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+    const repairState = JSON.parse(readinessResponse.body).repairController;
+    assert.equal(readinessResponse.statusCode, 200);
+    assert.equal(repairState.enabled, false);
+    assert.equal(repairState.configured, false);
+    assert.deepEqual(repairState.checks, {
+      enabled: false,
+      repository: true,
+      canaryBound: true,
+      appId: true,
+      appPrivateKey: true,
+      controllerSecret: true,
+      generation: true,
+    });
+
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { externalCalls += 1; throw new Error("No external request expected"); };
+    try {
+      for (const action of ["repair", "repair-claim", "repair-validate", "repair-push-token"]) {
+        const response = responseRecorder();
+        await handler({ method: "POST", url: `/api/github?action=${action}`, headers: {} }, response);
+        assert.equal(response.statusCode, 503, `${action} must stop before body or external access`);
       }
       assert.equal(externalCalls, 0);
     } finally {
@@ -1028,7 +1153,7 @@ test("unattributed Vercel deployments reject repository mutations before externa
         authenticated: false,
         configured: false,
         authMode: "oauth",
-        rolloutMode: "self_serve",
+        rolloutMode: "controlled_canary",
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -1740,6 +1865,39 @@ test("login creates a state-bound secure OAuth redirect without exposing the cli
     const setCookie = response.getHeader("set-cookie")[0];
     assert.match(setCookie, /HttpOnly; Secure; SameSite=Lax/u);
     assert.equal(setCookie.includes("client-secret"), false);
+  });
+});
+
+test("cancelled GitHub authorization returns to a bounded retry screen without external access", async () => {
+  await withOAuthEnvironment(async () => {
+    const state = "s".repeat(43);
+    const saved = seal({
+      kind: "oauth",
+      state,
+      redirectUri: "https://changeplane.example/api/github?action=callback",
+      authMode: "oauth",
+      verifier: "v".repeat(64),
+    }, SECRET, { purpose: "oauth" });
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { externalCalls += 1; throw new Error("No external request expected"); };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=callback&error=access_denied&error_description=do-not-reflect&state=${state}`,
+        headers: { cookie: `__Host-changeplane_oauth=${saved}` },
+      }, response);
+      assert.equal(response.statusCode, 302);
+      const location = new URL(response.getHeader("location"));
+      assert.equal(location.origin, "https://changeplane.example");
+      assert.equal(location.searchParams.get("github"), "authorization_cancelled");
+      assert.equal(location.toString().includes("do-not-reflect"), false);
+      assert.match(response.getHeader("set-cookie")[0], /Max-Age=0/u);
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
