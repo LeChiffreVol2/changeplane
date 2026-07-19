@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js tests/*.test.js",
+    "test:e2e": "npm run build && playwright test",
     "verify": "npm test && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "preview": "vite preview"
@@ -22,5 +23,8 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "vite": "^6.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }

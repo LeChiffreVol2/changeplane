@@ -1,0 +1,411 @@
+import { expect, test } from "@playwright/test";
+
+const APP_ORIGIN = "http://127.0.0.1:4173";
+
+function json(route, payload, status = 200) {
+  return route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(payload),
+  });
+}
+
+async function mockLocalApi(page, handler) {
+  const externalRequests = [];
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== APP_ORIGIN) {
+      externalRequests.push(url.href);
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (url.pathname === "/api/github") {
+      await handler(route, url);
+      return;
+    }
+    await route.continue();
+  });
+  return externalRequests;
+}
+
+test("controlled-canary public root stays fictional and usable on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    expect(url.searchParams.get("action")).toBe("session");
+    return json(route, {
+      configured: true,
+      authenticated: false,
+      authMode: "github_app",
+      rolloutMode: "controlled_canary",
+    });
+  });
+
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Try the workflow without connecting GitHub." })).toBeVisible();
+  const exampleButton = page.getByRole("button", { name: "Open example workspace" });
+  await expect(exampleButton).toBeVisible();
+  await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
+  await expect(page.getByText("New GitHub installations stay closed while the private canary is validated.")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await exampleButton.focus();
+  await expect(exampleButton).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Prevent duplicate checkout charges" })).toBeFocused();
+  expect(externalRequests).toEqual([]);
+});
+
+test("mocked self-serve onboarding reaches a setup pull request with keyboard navigation", async ({ page }) => {
+  let connected = false;
+  let installPayload = null;
+  const apiActions = [];
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    apiActions.push(action);
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "alex" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, {
+        repositories: [{
+          fullName: "acme/payments-api",
+          private: true,
+          defaultBranch: "main",
+          permissions: { push: true, admin: false },
+        }],
+      });
+    }
+    if (action === "preflight") {
+      expect(url.searchParams.get("repository")).toBe("acme/payments-api");
+      return json(route, {
+        repositoryState: "active",
+        installation: {
+          state: "fresh",
+          currentVersion: null,
+          targetVersion: 1,
+          conflicts: [],
+        },
+        installable: true,
+        conflicts: [],
+        setupFiles: 7,
+        setup: { state: "none" },
+        evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
+        boundary: {
+          defaultBranchWrite: false,
+          pullRequestOnly: true,
+          observeOnly: true,
+          mergeBlocking: false,
+          agentRepair: false,
+          untrustedCodeExecution: false,
+          providerSecretAccess: false,
+        },
+      });
+    }
+    if (action === "runtime") {
+      return json(route, {
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: false, state: "not_connected", secretName: "DEEPSEEK_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "install") {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().headers()["x-changeplane-csrf"]).toBe("local-csrf");
+      installPayload = route.request().postDataJSON();
+      return json(route, {
+        repository: "acme/payments-api",
+        branch: "changeplane/observe-setup",
+        operation: "install",
+        pullRequest: {
+          number: 42,
+          url: "https://github.com/acme/payments-api/pull/42",
+          state: "open",
+        },
+      }, 201);
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  const connectButton = page.getByRole("button", { name: "Install ChangePlane on GitHub" });
+  await expect(connectButton).toBeVisible();
+  await connectButton.focus();
+  await page.keyboard.press("Enter");
+
+  const setupHeading = page.getByRole("heading", { name: "Connect once. Then close this tab." });
+  await expect(setupHeading).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Choose one GitHub project" })).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  const search = page.getByPlaceholder("Search repositories");
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Tab");
+  const repository = page.getByRole("radio", { name: /acme\/payments-api/u });
+  await expect(repository).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByText("Safe to install · choose evidence below")).toBeVisible();
+  const evidenceSelect = page.getByLabel("Use a test from GitHub");
+  await expect(evidenceSelect).toBeVisible();
+  await expect(evidenceSelect).toHaveValue("test\0github-actions");
+  const evidenceConfirmation = page.getByRole("checkbox", { name: "This check fails when important code behavior breaks." });
+  await evidenceConfirmation.focus();
+  await page.keyboard.press("Space");
+  await expect(evidenceConfirmation).toBeChecked();
+
+  const installButton = page.getByRole("button", { name: "Create observe setup PR" });
+  await expect(installButton).toBeEnabled();
+  await installButton.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toBeVisible();
+  await expect(page.getByText("Setup PR created")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open setup PR on GitHub" })).toHaveAttribute(
+    "href",
+    "https://github.com/acme/payments-api/pull/42",
+  );
+  expect(installPayload).toEqual({
+    repository: "acme/payments-api",
+    requiredCheck: { name: "test", appSlug: "github-actions" },
+  });
+  expect(apiActions).toEqual(expect.arrayContaining(["session", "login", "repos", "preflight", "runtime", "install"]));
+  expect(externalRequests).toEqual([]);
+});
+
+test("a pristine legacy install offers one policy-preserving upgrade pull request", async ({ page }) => {
+  let connected = false;
+  let installPayload = null;
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "alex" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, {
+        repositories: [{
+          fullName: "acme/payments-api",
+          private: true,
+          defaultBranch: "main",
+          permissions: { push: true, admin: false },
+        }],
+      });
+    }
+    if (action === "preflight") {
+      return json(route, {
+        repositoryState: "active",
+        installation: {
+          state: "outdated",
+          currentVersion: 0,
+          targetVersion: 1,
+          conflicts: [],
+        },
+        installable: true,
+        conflicts: [],
+        setupFiles: 1,
+        setup: { state: "upgrade_available", operation: "upgrade" },
+        evidenceOptions: [],
+        evidenceDiscovery: { state: "unavailable" },
+        boundary: {
+          defaultBranchWrite: false,
+          pullRequestOnly: true,
+          observeOnly: true,
+          mergeBlocking: false,
+          agentRepair: false,
+          untrustedCodeExecution: false,
+          providerSecretAccess: false,
+        },
+      });
+    }
+    if (action === "runtime") {
+      return json(route, {
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: false, state: "not_connected", secretName: "DEEPSEEK_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "install") {
+      installPayload = route.request().postDataJSON();
+      return json(route, {
+        repository: "acme/payments-api",
+        branch: "changeplane/observe-upgrade-v1",
+        operation: "upgrade",
+        pullRequest: {
+          number: 43,
+          url: "https://github.com/acme/payments-api/pull/43",
+          state: "open",
+        },
+      }, 201);
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
+
+  await expect(page.getByText("Safe managed upgrade ready")).toBeVisible();
+  await expect(page.getByText("A verified earlier installation can be updated to managed version 1 without changing .changeplane.json.")).toBeVisible();
+  await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Choose what the first receipt proves" })).toHaveCount(0);
+  await expect(page.getByText("ChangePlane is active")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Create managed upgrade PR" }).click();
+
+  await expect(page.getByRole("heading", { name: "Review the managed upgrade" })).toBeVisible();
+  await expect(page.getByText("Upgrade pull request only")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open upgrade PR on GitHub" })).toHaveAttribute(
+    "href",
+    "https://github.com/acme/payments-api/pull/43",
+  );
+  expect(installPayload).toEqual({ repository: "acme/payments-api", requiredCheck: null });
+  expect(externalRequests).toEqual([]);
+});
+
+test("pending, current, and owner-review states never offer an unsafe mutation", async ({ page }) => {
+  let connected = false;
+  let installRequests = 0;
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "alex" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, {
+        repositories: ["pending-api", "current-api", "conflict-api"].map((name) => ({
+          fullName: `acme/${name}`,
+          private: true,
+          defaultBranch: "main",
+          permissions: { push: true, admin: false },
+        })),
+      });
+    }
+    if (action === "preflight") {
+      const repository = url.searchParams.get("repository");
+      const boundary = {
+        defaultBranchWrite: false,
+        pullRequestOnly: true,
+        observeOnly: true,
+        mergeBlocking: false,
+        agentRepair: false,
+        untrustedCodeExecution: false,
+        providerSecretAccess: false,
+      };
+      if (repository === "acme/pending-api") {
+        return json(route, {
+          repositoryState: "active",
+          installation: { state: "outdated", currentVersion: 0, targetVersion: 1, conflicts: [] },
+          installable: true,
+          conflicts: [],
+          setupFiles: 1,
+          setup: {
+            state: "pending",
+            operation: "upgrade",
+            pullRequest: { number: 7, url: "https://github.com/acme/pending-api/pull/7" },
+          },
+          evidenceOptions: [],
+          boundary,
+        });
+      }
+      if (repository === "acme/current-api") {
+        return json(route, {
+          repositoryState: "active",
+          installation: { state: "current", currentVersion: 1, targetVersion: 1, conflicts: [] },
+          installable: false,
+          conflicts: [],
+          setupFiles: 0,
+          setup: { state: "current", managedVersion: 1 },
+          evidenceOptions: [],
+          boundary,
+        });
+      }
+      if (repository === "acme/conflict-api") {
+        return json(route, {
+          repositoryState: "active",
+          installation: {
+            state: "conflict",
+            currentVersion: null,
+            targetVersion: 1,
+            conflicts: ["changeplane/action/index.js"],
+          },
+          installable: false,
+          conflicts: ["changeplane/action/index.js"],
+          setupFiles: 0,
+          setup: {
+            state: "conflict",
+            message: "ChangePlane will not overwrite repository-owned or modified paths: changeplane/action/index.js",
+          },
+          evidenceOptions: [],
+          boundary,
+        });
+      }
+    }
+    if (action === "runtime") {
+      return json(route, {
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: false, state: "not_connected", secretName: "DEEPSEEK_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "install") {
+      installRequests += 1;
+      return json(route, { message: "unexpected" }, 500);
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+
+  await page.getByRole("radio", { name: /acme\/pending-api/u }).click();
+  await expect(page.getByText("Upgrade PR already ready")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open existing upgrade PR" })).toHaveAttribute(
+    "href",
+    "https://github.com/acme/pending-api/pull/7",
+  );
+
+  await page.getByRole("radio", { name: /acme\/current-api/u }).click();
+  await expect(page.getByText("ChangePlane is up to date")).toBeVisible();
+  await expect(page.getByText("ChangePlane is active")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create managed upgrade PR" })).toHaveCount(0);
+
+  await page.getByRole("radio", { name: /acme\/conflict-api/u }).click();
+  await expect(page.getByText("Setup needs attention")).toBeVisible();
+  await expect(page.getByText("Ask a repository owner to review the listed paths. ChangePlane did not overwrite them.")).toBeVisible();
+  await expect(page.locator(".safety-preflight-attention")).toBeVisible();
+  await expect(page.getByText("No repository change was made.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create observe setup PR" })).toBeDisabled();
+
+  expect(installRequests).toBe(0);
+  expect(externalRequests).toEqual([]);
+});

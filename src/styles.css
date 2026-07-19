@@ -1496,6 +1496,11 @@ button {
   background: #edf3ee;
 }
 
+.safety-preflight-attention {
+  border-color: #dfbd9d;
+  background: var(--amber-soft);
+}
+
 .safety-preflight-error {
   border-color: #dfbab4;
   background: var(--red-soft);
@@ -1515,6 +1520,10 @@ button {
 
 .safety-preflight-ready .safety-preflight-heading > svg {
   color: var(--green);
+}
+
+.safety-preflight-attention .safety-preflight-heading > svg {
+  color: var(--amber);
 }
 
 .safety-preflight-error .safety-preflight-heading > svg {
