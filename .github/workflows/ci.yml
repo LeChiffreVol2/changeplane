@@ -40,6 +40,7 @@ jobs:
             exit 1
           fi
           test -f examples/changeplane-observe.yml
+          test -f examples/changeplane-repair-guard.yml
           test -f examples/changeplane-repair.yml
       - name: Install the locked dependency graph
         run: npm ci

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test src/lib/*.test.js action/*.test.js tests/*.test.js",
+    "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js tests/*.test.js",
     "verify": "npm test && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "preview": "vite preview"

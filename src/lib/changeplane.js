@@ -398,88 +398,87 @@ export function planAutonomousDecision({
 export function buildRemediationRequest({
   idempotencyKey,
   repository,
+  repositoryId,
+  installationId,
   pullRequestNumber,
+  baseRef,
   baseSha,
   headSha,
   headRef,
   headRepository,
-  plannedPaths,
+  controllerSha,
+  contract,
+  contractDigest,
+  policyDigest,
+  evaluatorVersion,
+  inputDigest,
   plan,
-  budgetStartedAt,
-  budgetExpiresAt,
-  now = new Date(),
 }) {
   if (typeof idempotencyKey !== 'string' || !/^[a-f0-9]{64}$/u.test(idempotencyKey)) {
     throw new TypeError('idempotencyKey must be a 64-character lowercase hexadecimal digest');
   }
-  if (typeof repository !== 'string' || !repository || !Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
-    throw new TypeError('repository and pullRequestNumber are required');
+  if (typeof repository !== 'string' || !repository
+    || !Number.isSafeInteger(repositoryId) || repositoryId < 1
+    || !Number.isSafeInteger(installationId) || installationId < 1
+    || !Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
+    throw new TypeError('repository, installation identity, and pullRequestNumber are required');
   }
   if (!plan || plan.decision !== AUTONOMOUS_DECISION.REMEDIATION_REQUIRED) {
     throw new TypeError('plan must require remediation');
   }
-  if (typeof headRef !== 'string' || !headRef || headRepository !== repository) {
+  if (typeof baseRef !== 'string' || !baseRef || typeof headRef !== 'string' || !headRef || headRepository !== repository) {
     throw new TypeError('remediation requires a same-repository head ref');
   }
-  if (!/^[a-f0-9]{40}$/u.test(baseSha ?? '') || !/^[a-f0-9]{40}$/u.test(headSha ?? '')) {
+  if (!/^[a-f0-9]{40}$/u.test(baseSha ?? '') || !/^[a-f0-9]{40}$/u.test(headSha ?? '')
+    || !/^[a-f0-9]{40}$/u.test(controllerSha ?? '')) {
     throw new TypeError('remediation requires exact base and head SHAs');
   }
   if (![1, 2].includes(plan.nextAttempt)) {
     throw new TypeError('remediation attempt must be 1 or 2');
   }
-  if (plan.nextAttempt === 2 && (budgetStartedAt == null || budgetExpiresAt == null)) {
-    throw new Error('second remediation attempt requires the original shared budget');
+  if (!contract || !Array.isArray(contract.scope) || contract.scope.length < 1
+    || (contract.goal != null && typeof contract.goal !== 'string')) {
+    throw new TypeError('remediation requires the bound pull-request contract');
   }
-  const issuedAt = new Date(now);
-  if (Number.isNaN(issuedAt.getTime())) throw new TypeError('now must be a valid date');
-  const startedAt = budgetStartedAt == null ? new Date(issuedAt) : new Date(budgetStartedAt);
-  const expiresAt = budgetExpiresAt == null
-    ? new Date(startedAt.getTime() + REMEDIATION_BUDGET_MS)
-    : new Date(budgetExpiresAt);
-  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(expiresAt.getTime())) {
-    throw new TypeError('remediation budget timestamps must be valid dates');
+  for (const value of [contractDigest, policyDigest, inputDigest]) {
+    if (typeof value !== 'string' || !/^[a-f0-9]{64}$/u.test(value)) {
+      throw new TypeError('remediation authority digests must be lowercase SHA-256 values');
+    }
   }
-  if (expiresAt.getTime() - startedAt.getTime() !== REMEDIATION_BUDGET_MS) {
-    throw new TypeError('remediation budget must be exactly 15 minutes');
-  }
-  if (issuedAt.getTime() < startedAt.getTime() || issuedAt.getTime() >= expiresAt.getTime()) {
-    throw new Error('remediation budget is not active');
-  }
-  if (plan.nextAttempt === 1 && issuedAt.getTime() !== startedAt.getTime()) {
-    throw new Error('first remediation attempt must start the shared budget');
+  if (typeof evaluatorVersion !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/u.test(evaluatorVersion)) {
+    throw new TypeError('remediation evaluator version is invalid');
   }
   const evidenceRepair = plan.reason === 'FIXABLE_EVIDENCE_FAILURE';
   const allowedPaths = evidenceRepair
-    ? plannedPaths
+    ? contract.scope
     : plan.findings.map(({ path }) => path);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     issuer: 'changeplane-guard',
     idempotencyKey,
-    issuedAt: issuedAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
     change: {
       repository,
+      repositoryId,
+      installationId,
       pullRequestNumber,
+      baseRef,
       baseSha,
       headSha,
       headRef,
       headRepository,
     },
-    budget: {
-      startedAt: startedAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      attempt: plan.nextAttempt,
-      maxAttempts: REMEDIATION_MAX_ATTEMPTS,
+    authority: {
+      contractDigest,
+      policyDigest,
+      evaluatorVersion,
+      inputDigest,
+      controllerSha,
+      policyPath: '.changeplane.json',
     },
+    contract: { scope: contract.scope, goal: contract.goal ?? null },
     attempt: plan.nextAttempt,
-    limits: {
-      totalDeadlineSeconds: REMEDIATION_BUDGET_MS / 1000,
-      mayEditOutsideDeclaredScope: false,
-    },
     repairKind: evidenceRepair ? 'evidence' : 'scope',
-    declaredScope: plannedPaths,
     allowedPaths,
     instructions: plan.findings.map(({ code, path, pathKind, diagnostic }) => ({
       code,

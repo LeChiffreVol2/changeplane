@@ -115,6 +115,7 @@ const PREVIEW_PREFLIGHT = {
   installable: true,
   conflicts: [],
   setupFiles: 6,
+  evidenceOptions: [{ name: "test", appSlug: "github-actions", recommended: true }],
   boundary: {
     defaultBranchWrite: false,
     pullRequestOnly: true,
@@ -624,6 +625,7 @@ function GitHubSetup({
   const [evidenceMode, setEvidenceMode] = useState("behavior");
   const [checkName, setCheckName] = useState(session.isPreview ? "test" : "");
   const [checkPublisher, setCheckPublisher] = useState("github-actions");
+  const evidenceOptions = Array.isArray(preflight?.evidenceOptions) ? preflight.evidenceOptions : [];
   const matchingRepositories = repositories.filter((repository) => (
     repository.fullName.toLowerCase().includes(query.trim().toLowerCase())
   ));
@@ -633,6 +635,19 @@ function GitHubSetup({
   const pendingSetup = preflight?.setup?.state === "pending" && preflight.setup.pullRequest?.url;
   const evidenceReady = pendingSetup || evidenceMode === "scope" || (checkName.trim() && checkPublisher.trim());
   const repositoryMutationBusy = installStatus === "installing" || byokSaving;
+
+  useEffect(() => {
+    if (preflightStatus !== "ready") {
+      setEvidenceMode("behavior");
+      setCheckName("");
+      setCheckPublisher("github-actions");
+      return;
+    }
+    const recommended = evidenceOptions.find((option) => option.recommended);
+    setEvidenceMode("behavior");
+    setCheckName(recommended?.name ?? "");
+    setCheckPublisher(recommended?.appSlug ?? "github-actions");
+  }, [preflight, preflightStatus, selectedRepository]);
 
   return (
     <main className="setup-stage">
@@ -765,7 +780,9 @@ function GitHubSetup({
                                 ? preflight.setup.requiredCheck
                                   ? `The existing PR binds ${preflight.setup.requiredCheck.name} from ${preflight.setup.requiredCheck.appSlug}. Open it to review and merge; no new write is needed.`
                                   : "The existing PR is explicitly scope-only. Open it to review and merge; no new write is needed."
-                                : "Every receipt records the exact commit, changed files, and protected paths. Bind one existing test below to prove behavior, or explicitly choose scope-only."
+                                : evidenceOptions.length > 0
+                                  ? `Found ${evidenceOptions.length} existing GitHub check${evidenceOptions.length === 1 ? "" : "s"}. The recommended choice is already selected below.`
+                                  : "Every receipt records the exact commit, changed files, and protected paths. Bind one existing test below to prove behavior, or explicitly choose scope-only."
                               : preflight?.setup?.message || preflightError || (preflight?.conflicts?.length
                                 ? `Existing ChangePlane paths found: ${preflight.conflicts.join(", ")}`
                                 : "This repository is not eligible for the observe rollout.")}</span>
@@ -791,15 +808,45 @@ function GitHubSetup({
                         <legend>Choose what the first receipt proves</legend>
                         <label className={evidenceMode === "behavior" ? "is-selected" : ""}>
                           <input type="radio" name="evidence-mode" value="behavior" checked={evidenceMode === "behavior"} onChange={() => setEvidenceMode("behavior")} />
-                          <span><strong>Code behavior</strong><small>Recommended · bind one existing automated test</small></span>
+                          <span><strong>Code behavior</strong><small>Recommended · {evidenceOptions.length > 0 ? "use a test ChangePlane found in GitHub" : "bind one existing automated test"}</small></span>
                         </label>
                         {evidenceMode === "behavior" && (
                           <div className="evidence-fields">
-                            <label><span>Exact check name</span><input value={checkName} onChange={(event) => setCheckName(event.target.value)} placeholder="For example: test" maxLength={100} /></label>
-                            <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => setCheckPublisher(event.target.value)} placeholder="github-actions" maxLength={100} /></label>
+                            {evidenceOptions.length > 0 && (
+                              <label className="evidence-detected">
+                                <span>Use a test from GitHub</span>
+                                <select
+                                  value={`${checkName}\0${checkPublisher}`}
+                                  onChange={(event) => {
+                                    const [name, appSlug] = event.target.value.split("\0");
+                                    setCheckName(name);
+                                    setCheckPublisher(appSlug);
+                                  }}
+                                >
+                                  {evidenceOptions.map((option) => (
+                                    <option key={`${option.name}\0${option.appSlug}`} value={`${option.name}\0${option.appSlug}`}>
+                                      {option.name} · {option.appSlug}{option.recommended ? " (recommended)" : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            )}
+                            {evidenceOptions.length === 0 && (
+                              <>
+                                <label><span>Exact check name</span><input value={checkName} onChange={(event) => setCheckName(event.target.value)} placeholder="For example: test" maxLength={100} /></label>
+                                <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => setCheckPublisher(event.target.value)} placeholder="github-actions" maxLength={100} /></label>
+                              </>
+                            )}
                             <details>
-                              <summary>Where do I find this?</summary>
-                              <p>Open a recent pull request in GitHub, choose <strong>Checks</strong>, and copy the meaningful test name. GitHub Actions usually uses <code>github-actions</code> as the publisher.</p>
+                              <summary>{evidenceOptions.length > 0 ? "Advanced · use a different check" : "Where do I find this?"}</summary>
+                              {evidenceOptions.length > 0 ? (
+                                <div className="evidence-manual">
+                                  <label><span>Exact check name</span><input value={checkName} onChange={(event) => setCheckName(event.target.value)} maxLength={100} /></label>
+                                  <label><span>Publisher</span><input value={checkPublisher} onChange={(event) => setCheckPublisher(event.target.value)} maxLength={100} /></label>
+                                </div>
+                              ) : (
+                                <p>Open a recent pull request in GitHub, choose <strong>Checks</strong>, and copy the meaningful test name. GitHub Actions usually uses <code>github-actions</code> as the publisher.</p>
+                              )}
                             </details>
                           </div>
                         )}

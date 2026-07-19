@@ -21,15 +21,23 @@ function keys() {
 
 function candidate(overrides = {}) {
   return {
+    attempt: 1,
+    appId: 101,
+    installationId: 202,
+    repositoryId: 303,
+    pullRequestId: 404,
     repository: "acme/payments",
     pullRequestNumber: 42,
     contractDigest: "1".repeat(64),
     policyDigest: "4".repeat(64),
     evaluatorVersion: "0.3.0",
     inputDigest: "2".repeat(64),
+    evaluationDigest: "5".repeat(64),
     baseRef: "main",
     baseSha: "a".repeat(40),
     controllerSha: "d".repeat(40),
+    publisherReleaseSha: "e".repeat(40),
+    publisherReleaseSha: "e".repeat(40),
     headSha: "b".repeat(40),
     headRef: "agent/payment-retry",
     headRepository: "acme/payments",
@@ -71,7 +79,12 @@ test("issues two signed attempts under one immutable 15-minute campaign", async 
   });
   const second = await issueRepairGrant({
     ledger: persisted,
-    candidate: candidate({ inputDigest: "3".repeat(64), headSha: "c".repeat(40) }),
+    candidate: candidate({
+      attempt: 2,
+      inputDigest: "3".repeat(64),
+      evaluationDigest: "6".repeat(64),
+      headSha: "c".repeat(40),
+    }),
     privateKey: signing.privateKey,
     publicKeys: signing.publicKeys,
     generation: 7,
@@ -91,7 +104,7 @@ test("issues two signed attempts under one immutable 15-minute campaign", async 
   assert.equal(second.state.attemptsUsed, 2);
   await assert.rejects(issueRepairGrant({
     ledger: persisted,
-    candidate: candidate({ inputDigest: "4".repeat(64), headSha: "d".repeat(40) }),
+    candidate: candidate({ attempt: 3, inputDigest: "4".repeat(64), headSha: "d".repeat(40) }),
     privateKey: signing.privateKey,
     publicKeys: signing.publicKeys,
     generation: 7,
@@ -100,6 +113,64 @@ test("issues two signed attempts under one immutable 15-minute campaign", async 
     readEntries,
     now: new Date("2026-07-18T00:14:30.000Z"),
   }), /budget is exhausted/u);
+});
+
+test("rejects attempt-two campaign drift before signing or persistence", async () => {
+  const signing = keys();
+  const persisted = [];
+  await issueRepairGrant({
+    ledger: [],
+    candidate: candidate(),
+    privateKey: signing.privateKey,
+    publicKeys: signing.publicKeys,
+    generation: 7,
+    enabled: true,
+    publishEntry: async (entry) => persisted.push(entry),
+    readEntries: async () => persisted,
+    now: new Date("2026-07-18T00:00:00.000Z"),
+    randomId: ids(),
+  });
+
+  let publishes = 0;
+  const driftCases = [
+    ["App identity", { appId: 102 }],
+    ["installation identity", { installationId: 203 }],
+    ["repository identity", { repositoryId: 304 }],
+    ["pull-request identity", { pullRequestId: 405 }],
+    ["policy", { policyDigest: "6".repeat(64) }],
+    ["evaluator", { evaluatorVersion: "0.4.0" }],
+    ["base ref", { baseRef: "release" }],
+    ["base revision", { baseSha: "f".repeat(40) }],
+    ["controller revision", { controllerSha: "f".repeat(40) }],
+    ["publisher release", { publisherReleaseSha: "f".repeat(40) }],
+    ["head ref", { headRef: "agent/other" }],
+    ["head repository", { headRepository: "acme/other" }],
+    ["repair kind", { repairKind: "evidence" }],
+    ["declared scope", { declaredScope: ["src/checkout/**"] }],
+    ["protected paths", { protectedPaths: ["security/**"] }],
+  ];
+  for (const [name, overrides] of driftCases) {
+    await assert.rejects(issueRepairGrant({
+      ledger: persisted,
+      candidate: candidate({
+        attempt: 2,
+        inputDigest: "3".repeat(64),
+        evaluationDigest: "6".repeat(64),
+        headSha: "c".repeat(40),
+        ...overrides,
+      }),
+      privateKey: signing.privateKey,
+      publicKeys: signing.publicKeys,
+      generation: 7,
+      enabled: true,
+      publishEntry: async () => { publishes += 1; },
+      readEntries: async () => assert.fail(`${name} drift must fail before persistence is reread`),
+      now: new Date("2026-07-18T00:01:00.000Z"),
+      randomId: ids(20),
+    }), /immutable campaign/u, name);
+  }
+  assert.equal(publishes, 0);
+  assert.equal(persisted.length, 1);
 });
 
 test("rejects expiry, deadline reset, generation rollback, and a second attempt without attempt one", async () => {
@@ -134,6 +205,7 @@ test("rejects expiry, deadline reset, generation rollback, and a second attempt 
   orphan.attempt = 2;
   orphan.issuedAt = "2026-07-18T00:01:00.000Z";
   orphan.priorEntryDigest = "9".repeat(64);
+  orphan.priorHeadSha = "9".repeat(40);
   orphan.authorizationId = "8".repeat(64);
   orphan.nonce = "7".repeat(64);
   const orphanEnvelope = signRepairLedgerEntry(orphan, signing.privateKey);
@@ -240,6 +312,7 @@ test("inactive workflow verifier accepts only the pinned signed grant and curren
     repository: "acme/payments",
     baseRef: "main",
     controllerSha: "d".repeat(40),
+    publisherReleaseSha: "e".repeat(40),
     now: Date.parse("2026-07-18T00:01:00.000Z"),
   });
   assert.equal(verified.authorizationId, envelope.entry.authorizationId);
@@ -252,6 +325,7 @@ test("inactive workflow verifier accepts only the pinned signed grant and curren
     { repository: "acme/other" },
     { baseRef: "release" },
     { controllerSha: "e".repeat(40) },
+    { publisherReleaseSha: "f".repeat(40) },
     { expectedDigest: "f".repeat(64) },
     { now: Date.parse("2026-07-18T00:15:00.000Z") },
   ]) {
@@ -263,6 +337,7 @@ test("inactive workflow verifier accepts only the pinned signed grant and curren
       repository: "acme/payments",
       baseRef: "main",
       controllerSha: "d".repeat(40),
+      publisherReleaseSha: "e".repeat(40),
       now: Date.parse("2026-07-18T00:01:00.000Z"),
       ...overrides,
     }));

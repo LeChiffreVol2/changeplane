@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -35,8 +35,8 @@ export function parseMode(value) {
 
 export function parseAgentDispatch(value, webhookUrl = "") {
   const adapter = String(value ?? "").trim().toLowerCase() || (webhookUrl ? "webhook" : "none");
-  if (!["none", "webhook", "repository"].includes(adapter)) {
-    throw new Error("agent_dispatch must be none, webhook, or repository.");
+  if (!["none", "webhook"].includes(adapter)) {
+    throw new Error("agent_dispatch must be none or webhook.");
   }
   if (adapter === "webhook") validateAgentWebhookUrl(webhookUrl);
   return adapter;
@@ -142,6 +142,10 @@ export function githubRetryDelayMs(status, headers, attempt = 1, now = Date.now(
 
 export function digest(value) {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+function validSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
 
 export function eligibleReviewCandidates(reviews, pullRequest, approvalDigest) {
@@ -628,7 +632,7 @@ export function parseRemediationComments(comments, trustedLogin = "github-action
   });
 }
 
-function renderRemediationComment({ inputDigest, idempotencyKey, payload, maxAttempts }) {
+function renderRemediationComment({ inputDigest, idempotencyKey, payload, maxAttempts, authorization }) {
   const paths = payload.instructions.map(({ path, action }) => (
     action === "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE"
       ? `- \`${safeMarkdown(path)}\`: propose the smallest in-scope patch for this exact failure`
@@ -639,6 +643,7 @@ function renderRemediationComment({ inputDigest, idempotencyKey, payload, maxAtt
     "## ChangePlane · agent remediation requested",
     "",
     `Attempt **${payload.attempt}/${maxAttempts}** was sent to the configured agent harness for head \`${payload.change.headSha.slice(0, 12)}\`.`,
+    `Controller authorization \`${authorization.authorizationId.slice(0, 12)}\` expires at \`${authorization.deadlineAt}\`.`,
     "",
     ...paths,
     "",
@@ -648,31 +653,42 @@ function renderRemediationComment({ inputDigest, idempotencyKey, payload, maxAtt
 
 async function dispatchAgentWebhook(url, token, payload) {
   const parsed = validateAgentWebhookUrl(url);
+  if (typeof token !== "string" || token.length < 32) throw new Error("Agent webhook secret must contain at least 32 characters.");
+  const deliveryId = payload.idempotencyKey;
+  const body = canonicalJson(payload);
+  const signature = `sha256=${createHmac("sha256", token)
+    .update("changeplane:controller-request:v1\0")
+    .update(deliveryId)
+    .update("\0")
+    .update(body)
+    .digest("hex")}`;
 
   const response = await fetch(parsed, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "user-agent": "changeplane-guard/0.1",
-      "idempotency-key": payload.idempotencyKey,
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-changeplane-delivery": deliveryId,
+      "x-changeplane-signature": signature,
     },
-    body: JSON.stringify(payload),
+    body,
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
     throw new Error(`Agent webhook rejected the request (${response.status}).`);
   }
-}
-
-async function dispatchRepositoryRepair(repository, token, payload) {
-  await api(`/repos/${repository}/dispatches`, token, {
-    method: "POST",
-    body: {
-      event_type: "changeplane_repair",
-      client_payload: payload,
-    },
-  });
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error("Agent webhook returned an invalid controller authorization.");
+  }
+  if (result?.authorizationId !== deliveryId || !validSha256(result?.grantDigest)
+    || !validSha256(result?.campaignId) || ![1, 2].includes(result?.attempt)
+    || typeof result?.deadlineAt !== "string") {
+    throw new Error("Agent webhook returned an invalid controller authorization.");
+  }
+  return result;
 }
 
 function compactPaths(paths, limit = 12) {
@@ -1001,8 +1017,13 @@ function workflowCommandValue(value) {
 
 export async function run() {
   const mode = parseMode(process.env.INPUT_MODE);
-  if (mode !== "observe") {
-    throw new Error("Enforce mode is not available in the observe pilot.");
+  if (mode === "enforce" && (
+    process.env.INPUT_AGENT_DISPATCH !== "webhook"
+    || !String(process.env.INPUT_AGENT_WEBHOOK_URL ?? "").trim()
+    || String(process.env.INPUT_AGENT_WEBHOOK_TOKEN ?? "").length < 32
+    || !/^[1-9][0-9]{0,19}$/u.test(String(process.env.INPUT_CONTROLLER_INSTALLATION_ID ?? ""))
+  )) {
+    throw new Error("Enforce mode is not available in the observe pilot without the dedicated ChangePlane App controller.");
   }
   const token = process.env.INPUT_TOKEN;
   if (!token) throw new Error("The token input is required.");
@@ -1114,12 +1135,20 @@ export async function run() {
     const remediation = buildRemediationRequest({
       idempotencyKey,
       repository,
+      repositoryId: Number(event.repository?.id),
+      installationId: Number(process.env.INPUT_CONTROLLER_INSTALLATION_ID),
       pullRequestNumber: number,
+      baseRef: pullRequest.base.ref,
       baseSha: pullRequest.base.sha,
       headSha: pullRequest.head.sha,
       headRef: pullRequest.head.ref,
       headRepository: pullRequest.head.repo.full_name,
-      plannedPaths: plan.scope,
+      controllerSha: pullRequest.base.sha,
+      contract: plan,
+      contractDigest,
+      policyDigest,
+      evaluatorVersion: EVALUATOR_VERSION,
+      inputDigest,
       plan: autonomousPlan,
     });
 
@@ -1128,14 +1157,22 @@ export async function run() {
       if (currentBeforeDispatch.head?.sha !== pullRequest.head.sha) {
         throw new Error("Pull request head changed before remediation dispatch.");
       }
-      if (agentDispatch === "repository") {
-        await dispatchRepositoryRepair(repository, token, remediation);
-      } else {
-        await dispatchAgentWebhook(agentWebhookUrl, process.env.INPUT_AGENT_WEBHOOK_TOKEN, remediation);
-      }
+      const authorization = await dispatchAgentWebhook(
+        agentWebhookUrl,
+        process.env.INPUT_AGENT_WEBHOOK_TOKEN,
+        remediation,
+      );
       await api(`/repos/${repository}/issues/${number}/comments`, token, {
         method: "POST",
-        body: { body: renderRemediationComment({ inputDigest, idempotencyKey, payload: remediation, maxAttempts }) },
+        body: {
+          body: renderRemediationComment({
+            inputDigest,
+            idempotencyKey,
+            payload: remediation,
+            maxAttempts,
+            authorization,
+          }),
+        },
       });
     }
     writeOutput("remediation", canonicalJson(remediation));
