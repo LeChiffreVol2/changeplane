@@ -6,6 +6,8 @@ on:
     types: [opened, synchronize, reopened, edited]
   pull_request_review:
     types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
   deployment_status:
   repository_dispatch:
     types: [changeplane_recheck]
@@ -17,7 +19,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: changeplane-guard-${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.deployment.sha || github.run_id }}
+  group: changeplane-guard-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.event.client_payload.pullRequestNumber || github.event.deployment.sha || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -40,7 +42,7 @@ jobs:
           path: controller
           persist-credentials: false
 
-      - name: Evaluate the exact pull-request revision
+      - name: Evaluate the exact GitHub revision
         env:
           INPUT_AGENT_DISPATCH: webhook
           INPUT_AGENT_WEBHOOK_TOKEN: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}

@@ -1,0 +1,13 @@
+{
+  "runtime": {
+    "funding": "byok",
+    "provider": "openai",
+    "secretName": "OPENAI_API_KEY",
+    "model": "gpt-5.6-luna",
+    "reasoningEffort": "high",
+    "managedSubscription": "reserved"
+  },
+  "review": {
+    "mode": "disabled"
+  }
+}

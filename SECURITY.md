@@ -15,5 +15,10 @@ Report a suspected vulnerability privately to the repository owner or through th
 - The setup PR vendors versioned managed workflows and helpers into the selected repository. Repository-owned edits to reserved managed bytes are never overwritten automatically.
 - Repository repair secrets begin inert. The controller derives a repository-bound HMAC and the proposal job receives no GitHub token, App key, controller master, Check authority, or push credential.
 - A one-time exact-repository Contents-write installation token is minted only after the App-signed grant is claimed and revalidated immediately before a force-with-lease push. A fresh pull-request event must re-run evidence before PASS.
+- `ChangePlane / review` is read-only, BYOK-gated, and bound to the exact diff. Findings must resolve to changed lines, are capped and deduplicated, and never approve, certify, repair, or contribute PASS.
+- `.changeplane/assurance.md` is read only from the trusted default branch. Its repository-owned invariants and policy-pack guidance are untrusted context, not behavioral evidence.
+- Agent handback Action outputs and receipt payloads carry findings and revision metadata only. They grant no GitHub credential, repair claim, controller authority, or certification.
+- A preview URL is published only when its deployment SHA matches the evaluated head. A stale or unverifiable preview is omitted.
+- `merge_group` is evaluated as a separate exact revision. Merge Queue runs publish guard evidence only and never invoke a proposal model or repair controller.
 
 The GitHub App user-token installer is limited to user-triggered setup and protected configuration pull requests. Autonomous execution requires the dedicated App controller and short-lived installation tokens. The broad OAuth fallback remains observe-only.

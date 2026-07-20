@@ -20,6 +20,7 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 - **Primary use case:** RouteThai production-informed shadow pilot using only synthetic data
 - **Public boundary:** self-serve autonomous onboarding plus a signed-out recorded replay
 - **BYOK boundary:** required for autonomous proposals and stored only as a per-repository GitHub Actions Secret
+- **Review boundary:** `ChangePlane / review` is exact-diff, advisory evidence; it never certifies, approves, or publishes PASS
 - **Repair boundary:** two attempts within one immutable 15-minute campaign; protected, ambiguous, stale, provider-failed, or exhausted cases stop for a human
 - **Production boundary:** no managed spend, direct default-branch write, model-held forge credential, or merge authority
 
@@ -79,6 +80,16 @@ The model job receives no GitHub token, App private key, controller secret, push
 
 The public replay is intentionally not a technical dashboard. It is a complete, automatically running explanation of this boundary. Connected onboarding is GitHub App-first: connect GitHub, choose one repository from any eligible personal or organization installation, bind one exact behavioral check, save BYOK directly to GitHub, and merge one setup PR. Scope-only users remain in observe mode; autonomous mode never activates without both the check and provider key.
 
+## Product surface
+
+ChangePlane keeps the daily workflow in GitHub and adds five repository-native controls:
+
+- **Independent review plane.** When repository BYOK is configured, GPT-5.6 may publish up to five validated, deduplicated findings on changed lines as `ChangePlane / review`. The review is advisory and exact-head bound. It cannot approve, repair, certify, or affect `ChangePlane / guard`.
+- **Assurance memory.** `.changeplane/assurance.md` stores reviewed repository invariants and [policy-pack guidance](examples/assurance-policy-packs) beside the code. It is read only from the trusted default branch and guides review; it is context, never proof.
+- **Agent handback.** A vendor-neutral, machine-readable GitHub payload returns bounded findings through the Action output and exact-head receipt comment. Any coding agent can consume it without agent-specific write authority.
+- **Exact-head preview binding.** Change receipts include an existing GitHub Deployment or Vercel preview only after its deployment SHA matches the evaluated head. ChangePlane does not host previews.
+- **Merge Queue guard.** `merge_group` is evaluated as its own exact revision and receives `ChangePlane / guard`. Queue evaluation never dispatches repair or a model review; GitHub remains the merge authority.
+
 ## Shared runtime contract
 
 The server, UI, workflow, and tests import one allowlist from [`src/lib/runtime.js`](src/lib/runtime.js):
@@ -101,6 +112,11 @@ The repository-owned trusted policy includes the bounded harness and runtime:
     "mode": "autonomous",
     "maxAttempts": 2,
     "budgetMinutes": 15
+  },
+  "review": {
+    "mode": "advisory",
+    "maxFindings": 5,
+    "memoryPath": ".changeplane/assurance.md"
   },
   "runtime": {
     "funding": "byok",
@@ -181,7 +197,7 @@ LeChiffreVol2/changeplane-disposable-canary-20260719
 
 Never use a RouteThai repository as the canary target. The RouteThai fixture is synthetic and may be copied into the disposable repository only.
 
-The self-serve setup PR vendors the small Action, harness policy reader, repair helpers, and two workflows into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
+The self-serve setup PR vendors the small Action, harness policy reader, advisory review helper, repair helpers, workflows, and starter assurance memory into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
 
 The tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. The disposable GitHub canary additionally proves the App-signed attempt ledger, one-time exact-repository push credential, App-authored repair commit, fresh `pull_request` synchronization, and PASS on only the repaired exact head. Stale-head, replay, path expansion, provider failure, and budget exhaustion remain fail-closed and are covered by the controller test suite.
 
@@ -195,7 +211,8 @@ The tracked adapter canary proves live Luna access, structured patch extraction,
 - Autonomous repair requires a repository-scoped GitHub App installation, one exact behavioral check, BYOK, and the managed harness setup PR.
 - ChangePlane publishes a Check but does not merge; repositories choose whether to require that Check through GitHub rulesets.
 - GitHub.com and same-repository pull requests only.
-- GitHub Merge Queue `merge_group` is not yet supported.
+- GitHub Merge Queue is supported for exact-`merge_group` guard evaluation only. Queue runs never dispatch repair or model review.
+- Independent review runs only when repository BYOK is configured, is advisory, and never contributes PASS.
 - No ChangePlane database, queue, billing service, CLI, TUI, proprietary agent runtime, merge service, or generalized provider framework.
 - The DeepSeek compatibility adapter remains in source but is not selectable in the Build Week UI.
 
