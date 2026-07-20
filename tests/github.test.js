@@ -960,6 +960,8 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
     "changeplane-grant.js",
     "changeplane-proposal.js",
     "changeplane-provider-openai.js",
+    "changeplane-review-openai.js",
+    "changeplane-review-run.js",
     "changeplane-repair.yml",
   ]) {
     assert.equal(
