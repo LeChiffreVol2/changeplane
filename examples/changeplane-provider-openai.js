@@ -8,7 +8,21 @@ import {
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MAX_RESPONSE_BYTES = 512 * 1024;
+const MAX_OUTPUT_TOKENS = 16_384;
 const INVALID_RESPONSE = "The proposal provider returned an empty or oversized response.";
+const PATCH_FORMAT = Object.freeze({
+  type: "json_schema",
+  name: "bounded_patch",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      patch: { type: "string", minLength: 1, maxLength: 256 * 1024 },
+    },
+    required: ["patch"],
+    additionalProperties: false,
+  },
+});
 
 async function boundedResponseText(response) {
   const contentLength = Number(response.headers?.get?.("content-length"));
@@ -74,7 +88,8 @@ export async function requestOpenAIProposal({
         instructions: messages[0].content,
         input: messages[1].content,
         reasoning: { effort: PROPOSAL_REASONING_EFFORT },
-        max_output_tokens: 4_096,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
+        text: { format: PATCH_FORMAT },
         store: false,
       }),
       signal: AbortSignal.timeout(90_000),
@@ -83,13 +98,6 @@ export async function requestOpenAIProposal({
     throw new Error("The proposal provider is temporarily unavailable.");
   }
   if (!response.ok) throw new Error(`The proposal provider rejected the request (${response.status}).`);
-  if (typeof onResponseMetadata === "function") {
-    onResponseMetadata({
-      model: selectedModel,
-      requestId: response.headers?.get?.("x-request-id") ?? null,
-    });
-  }
-
   let raw;
   try {
     raw = await boundedResponseText(response);
@@ -104,7 +112,27 @@ export async function requestOpenAIProposal({
   } catch {
     throw new Error("The proposal provider returned invalid JSON.");
   }
+  if (typeof onResponseMetadata === "function") {
+    onResponseMetadata({
+      model: selectedModel,
+      requestId: response.headers?.get?.("x-request-id") ?? null,
+      status: payload?.status === "completed" ? "completed" : "incomplete",
+    });
+  }
+  if (payload?.status !== "completed") {
+    throw new Error("The proposal provider returned an incomplete response.");
+  }
   const content = responseOutputText(payload);
   if (!content) throw new Error("The proposal provider returned no patch proposal.");
-  return content;
+  let envelope;
+  try {
+    envelope = JSON.parse(content);
+  } catch {
+    throw new Error("The proposal provider returned a malformed patch envelope.");
+  }
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)
+    || Object.keys(envelope).length !== 1 || typeof envelope.patch !== "string") {
+    throw new Error("The proposal provider returned a malformed patch envelope.");
+  }
+  return envelope.patch;
 }

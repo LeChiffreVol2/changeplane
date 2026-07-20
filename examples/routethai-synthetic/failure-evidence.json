@@ -7,7 +7,7 @@
   "failure": {
     "check": "synthetic-service-window",
     "code": "SERVICE_WINDOW_EXCEEDED",
-    "message": "SYN-STOP-B was scheduled after its synthetic service window"
+    "message": "SYN-STOP-B scheduled at minute 520 after window 500. Restore service-window-first ordering: sort by serviceWindowEndMinute ascending, using heuristicPriority only as a tie-breaker, so every stop is scheduled at or before its window."
   },
   "dataClassification": "synthetic"
 }

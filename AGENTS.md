@@ -16,6 +16,11 @@ When implementing from a selected generated mock, treat that image as the source
 
 ## Product direction
 
+- July 21 autonomous-release decision supersedes the earlier public-canary-only onboarding constraint: self-serve GitHub App onboarding is available to individual and organization/enterprise installations. Users connect GitHub, choose one writable repository, bind one exact behavioral check, save their own OpenAI key directly as an encrypted repository Actions Secret, and merge one protected setup PR.
+- The self-serve normal path is the managed autonomous harness: GitHub events trigger exact-head evaluation, fixable failed evidence may receive at most two bounded attempts within 15 minutes, and protected, ambiguous, stale, provider-failed, or exhausted cases stop for a human. Scope-only users remain in observe mode.
+- Autonomous mode must remain `model proposes; deterministic harness decides; trusted controller applies`. Repository policy is read only from the trusted default branch; the proposal job receives no GitHub credential; App-signed ledger entries and one-time exact-repository installation tokens authorize apply; only a fresh exact-head recheck may publish PASS. GitHub remains the merge authority.
+- Do not add a queue, database, proprietary agent workspace, or generalized orchestrator for the autonomous release. Vendor the small Action/controller/repair helpers into the setup PR, keep runtime configuration auditable through `.changeplane.json`, and use GitHub Actions, Checks, comments, artifacts, refs, and repository secrets as the operational substrate.
+
 - Selected direction: option 2, a Cursor-inspired hybrid with a quiet deep-teal textured frame and warm off-white product surface.
 - Keep the product global, minimal, and operational. Primary users are developers and PMs reviewing agent-authored pull requests.
 - Avoid generic AI gradients, dashboard-card grids, neon accents, marketing copy, and unexplained "world model" language in the product UI.

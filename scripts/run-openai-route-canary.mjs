@@ -56,9 +56,9 @@ try {
   const patchPath = path.join(tempRoot, "candidate.patch");
   writeFileSync(patchPath, proposal.patch, { encoding: "utf8", mode: 0o600 });
 
-  const check = spawnSync("git", ["apply", "--check", patchPath], { cwd: tempRoot, encoding: "utf8" });
+  const check = spawnSync("git", ["apply", "--check", "--recount", patchPath], { cwd: tempRoot, encoding: "utf8" });
   if (check.status !== 0) throw new Error("The provider patch failed clean git apply validation.");
-  const apply = spawnSync("git", ["apply", patchPath], { cwd: tempRoot, encoding: "utf8" });
+  const apply = spawnSync("git", ["apply", "--recount", patchPath], { cwd: tempRoot, encoding: "utf8" });
   if (apply.status !== 0) throw new Error("The validated provider patch could not be applied.");
   const passing = spawnSync(process.execPath, ["--test", TEST_PATH], { cwd: tempRoot, encoding: "utf8" });
   if (passing.status !== 0) throw new Error("The deterministic service-window evidence still fails after the patch.");

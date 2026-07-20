@@ -2,6 +2,7 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
+  createPublicKey,
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
@@ -29,6 +30,16 @@ import {
   RUNTIME_PROVIDER,
   proposalModel,
 } from "../src/lib/runtime.js";
+import {
+  HARNESS_BUDGET_MINUTES,
+  HARNESS_MAX_ATTEMPTS,
+  HARNESS_MODE,
+  harnessPolicy,
+} from "../src/lib/harness.js";
+import {
+  repairLedgerKeyId,
+  repairLedgerPublicKeyValue,
+} from "../server/repair-ledger.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -41,6 +52,13 @@ const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
 const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_OPENAI_API_KEY";
 const BYOK_MIN_LENGTH = 20;
 const BYOK_MAX_LENGTH = 512;
+const HARNESS_SECRETS = Object.freeze({
+  controller: "CHANGEPLANE_CONTROLLER_HMAC",
+  installation: "CHANGEPLANE_CONTROLLER_INSTALLATION_ID",
+  enabled: "CHANGEPLANE_REPAIR_ENABLED",
+  generation: "CHANGEPLANE_REPAIR_GENERATION",
+  publicKeys: "CHANGEPLANE_REPAIR_PUBLIC_KEYS",
+});
 const MAX_APP_INSTALLATIONS = 20;
 const MAX_INSTALLATION_REPOSITORIES = 1_000;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -54,15 +72,29 @@ const VERIFIED_VERCEL_SOURCE = Object.freeze({
 const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 1;
+const MANAGED_VERSION = 2;
 const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
   "changeplane/src/lib/changeplane.js",
+  "changeplane/src/lib/harness.js",
+  "changeplane/src/lib/runtime.js",
+  "changeplane/server/github-repair-controller.js",
+  "changeplane/server/repair-ledger.js",
+  "changeplane/examples/changeplane-claim.js",
+  "changeplane/examples/changeplane-grant.js",
+  "changeplane/examples/changeplane-proposal.js",
+  "changeplane/examples/changeplane-provider-openai.js",
   "changeplane/package.json",
   ".github/workflows/changeplane.yml",
+  ".github/workflows/changeplane-repair.yml",
 ];
-const PILOT_RESERVED_PATHS = ["changeplane", POLICY_PATH, ".github/workflows/changeplane.yml"];
+const PILOT_RESERVED_PATHS = [
+  "changeplane",
+  POLICY_PATH,
+  ".github/workflows/changeplane.yml",
+  ".github/workflows/changeplane-repair.yml",
+];
 // Version zero is the exact observe payload installed before managed manifests existed.
 // Keep these immutable when a future managed version is added so pristine older installs
 // remain distinguishable from repository-owned modifications.
@@ -200,6 +232,7 @@ function hasValidCanaryRepository() {
 
 function repairControllerConfiguration() {
   const canaryRepository = configuredCanaryRepository();
+  const selfServe = rolloutMode() === "self_serve";
   let repository = null;
   try {
     repository = validateRepository(process.env.CHANGEPLANE_REPAIR_REPOSITORY ?? "");
@@ -210,8 +243,8 @@ function repairControllerConfiguration() {
   const enabled = process.env.CHANGEPLANE_REPAIR_ENABLED === "true";
   const checks = {
     enabled,
-    repository: Boolean(repository),
-    canaryBound: Boolean(
+    repositoryScope: selfServe || Boolean(repository),
+    installationBound: selfServe || Boolean(
       canaryRepository
       && repository
       && canaryRepository.toLowerCase() === repository.toLowerCase()
@@ -228,7 +261,8 @@ function repairControllerConfiguration() {
     configured: enabled && Boolean(githubAppSlug()) && Object.values(checks).every(Boolean),
     checks,
     generation,
-    repository,
+    repository: selfServe ? null : repository,
+    scope: selfServe ? "verified_installation" : "controlled_canary",
   };
 }
 
@@ -728,34 +762,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  observe:
-    name: ChangePlane observe
-    runs-on: ubuntu-latest
+  guard:
+    name: ChangePlane guard
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
       - name: Check out trusted base revision
         # actions/checkout v4.2.2; keep the trusted checkout immutable.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: \${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
           persist-credentials: false
-      - name: Evaluate declared change
+      - name: Read the trusted harness policy
+        id: harness
+        env:
+          CHANGEPLANE_TRUSTED_POLICY: .changeplane.json
+        run: node changeplane/src/lib/harness.js
+      - name: Observe the exact revision
+        if: steps.harness.outputs.mode == 'observe'
         uses: ./changeplane
         with:
           token: \${{ github.token }}
+          mode: observe
+      - name: Run the autonomous exact-revision harness
+        if: steps.harness.outputs.mode == 'enforce'
+        uses: ./changeplane
+        with:
+          token: \${{ github.token }}
+          mode: enforce
+          agent_dispatch: \${{ steps.harness.outputs.dispatch }}
+          agent_webhook_url: https://changeplane.vercel.app/api/github?action=repair
+          agent_webhook_token: \${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          controller_installation_id: \${{ secrets.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
+          max_remediation_attempts: \${{ steps.harness.outputs.max_attempts }}
 `;
   return [
     { path: "changeplane/action.yml", content: readFileSync(path.join(ROOT, "action.yml"), "utf8") },
     { path: "changeplane/action/index.js", content: readFileSync(path.join(ROOT, "action/index.js"), "utf8") },
     { path: "changeplane/src/lib/changeplane.js", content: readFileSync(path.join(ROOT, "src/lib/changeplane.js"), "utf8") },
+    { path: "changeplane/src/lib/harness.js", content: readFileSync(path.join(ROOT, "src/lib/harness.js"), "utf8") },
+    { path: "changeplane/src/lib/runtime.js", content: readFileSync(path.join(ROOT, "src/lib/runtime.js"), "utf8") },
+    { path: "changeplane/server/github-repair-controller.js", content: readFileSync(path.join(ROOT, "server/github-repair-controller.js"), "utf8") },
+    { path: "changeplane/server/repair-ledger.js", content: readFileSync(path.join(ROOT, "server/repair-ledger.js"), "utf8") },
+    { path: "changeplane/examples/changeplane-claim.js", content: readFileSync(path.join(ROOT, "examples/changeplane-claim.js"), "utf8") },
+    { path: "changeplane/examples/changeplane-grant.js", content: readFileSync(path.join(ROOT, "examples/changeplane-grant.js"), "utf8") },
+    { path: "changeplane/examples/changeplane-proposal.js", content: readFileSync(path.join(ROOT, "examples/changeplane-proposal.js"), "utf8") },
+    { path: "changeplane/examples/changeplane-provider-openai.js", content: readFileSync(path.join(ROOT, "examples/changeplane-provider-openai.js"), "utf8") },
     // The vendored ESM action must work even when the host repository is CommonJS.
     { path: "changeplane/package.json", content: `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n` },
     { path: ".github/workflows/changeplane.yml", content: workflow },
+    { path: ".github/workflows/changeplane-repair.yml", content: readFileSync(path.join(ROOT, "examples/changeplane-repair.yml"), "utf8") },
   ];
 }
 
-export function buildPilotFiles(requiredCheck = null) {
+export function buildPilotFiles(requiredCheck = null, harnessMode = HARNESS_MODE.OBSERVE) {
   const managedFiles = buildManagedFiles();
+  const harness = harnessPolicy({ mode: harnessMode });
+  if (harness.mode === HARNESS_MODE.AUTONOMOUS && !requiredCheck) {
+    throw new HttpError(400, "Autonomous mode requires one exact behavioral check and publisher.");
+  }
   const policy = {
     version: 1,
     protectedPaths: {
@@ -766,6 +836,7 @@ export function buildPilotFiles(requiredCheck = null) {
       requiredChecks: requiredCheck ? [validateRequiredCheck(requiredCheck)] : [],
       timeoutSeconds: requiredCheck ? 120 : 0,
     },
+    harness,
     runtime: {
       funding: "byok",
       provider: RUNTIME_PROVIDER,
@@ -785,7 +856,7 @@ export function buildPilotFiles(requiredCheck = null) {
   ];
 }
 
-export function buildRuntimePolicy(value, model) {
+export function buildRuntimePolicy(value, model, harnessMode) {
   const selectedModel = validateRuntimeModel(model);
   let policy;
   try {
@@ -796,8 +867,21 @@ export function buildRuntimePolicy(value, model) {
   if (!policy || typeof policy !== "object" || Array.isArray(policy) || policy.version !== 1) {
     throw new HttpError(409, `${POLICY_PATH} is not a supported ChangePlane policy. Nothing was changed.`);
   }
+  const selectedHarness = harnessPolicy({
+    mode: harnessMode ?? policy?.harness?.mode,
+    maxAttempts: policy?.harness?.maxAttempts,
+    budgetMinutes: policy?.harness?.budgetMinutes,
+  });
+  if (selectedHarness.mode === HARNESS_MODE.AUTONOMOUS) {
+    const requiredChecks = policy?.evidence?.requiredChecks;
+    if (!Array.isArray(requiredChecks) || requiredChecks.length === 0
+      || requiredChecks.some((check) => !check || typeof check !== "object" || !check.name || !check.appSlug)) {
+      throw new HttpError(409, "Autonomous repair requires at least one exact behavioral check and publisher.");
+    }
+  }
   return `${JSON.stringify({
     ...policy,
+    harness: selectedHarness,
     runtime: {
       funding: "byok",
       provider: RUNTIME_PROVIDER,
@@ -842,17 +926,27 @@ export function classifyManagedInstallation({ files, reservedEntries = [] }) {
     .filter((entry) => typeof entry === "string" && entry.startsWith("changeplane/") && !allowedChangePlaneFiles.has(entry));
 
   if (typeof files[POLICY_PATH] !== "string") conflicts.push(POLICY_PATH);
-  for (const filePath of MANAGED_PATHS) {
-    if (typeof files[filePath] !== "string") conflicts.push(filePath);
-  }
 
   const manifest = files[MANAGED_MANIFEST_PATH];
   if (manifest == null) {
-    for (const filePath of MANAGED_PATHS) {
-      const content = files[filePath];
-      if (typeof content === "string" && contentDigest(content) !== LEGACY_MANAGED_HASHES[filePath]) {
-        conflicts.push(filePath);
+    const matchesCatalog = (catalog, { allowMissingOutsideCatalog = false } = {}) => (
+      Object.entries(catalog).every(([filePath, digest]) => (
+        typeof files[filePath] === "string" && contentDigest(files[filePath]) === digest
+      ))
+      && (allowMissingOutsideCatalog || MANAGED_PATHS.every((filePath) => (
+        Object.hasOwn(catalog, filePath) || files[filePath] == null
+      )))
+    );
+    const matchesLegacy = matchesCatalog(LEGACY_MANAGED_HASHES);
+    const matchesCurrentWithoutManifest = matchesCatalog(desiredHashes, { allowMissingOutsideCatalog: true });
+    if (!matchesLegacy && !matchesCurrentWithoutManifest) {
+      for (const filePath of MANAGED_PATHS) {
+        const content = files[filePath];
+        if (content == null) continue;
+        const digest = contentDigest(content);
+        if (digest !== LEGACY_MANAGED_HASHES[filePath] && digest !== desiredHashes[filePath]) conflicts.push(filePath);
       }
+      if (conflicts.length === 0) conflicts.push(MANAGED_MANIFEST_PATH);
     }
     const uniqueConflicts = [...new Set(conflicts)].sort();
     return uniqueConflicts.length === 0
@@ -870,9 +964,9 @@ export function classifyManagedInstallation({ files, reservedEntries = [] }) {
   if (!parsedManifest || parsedManifest.managedVersion > MANAGED_VERSION || manifest !== expectedManifest) {
     conflicts.push(MANAGED_MANIFEST_PATH);
   }
-  for (const filePath of MANAGED_PATHS) {
+  for (const filePath of Object.keys(catalogHashes ?? {})) {
     const content = files[filePath];
-    if (typeof content === "string" && (!catalogHashes || contentDigest(content) !== catalogHashes[filePath])) {
+    if (typeof content !== "string" || contentDigest(content) !== catalogHashes[filePath]) {
       conflicts.push(filePath);
     }
   }
@@ -929,7 +1023,11 @@ function encodeRef(ref) {
   return ref.split("/").map(encodeURIComponent).join("/");
 }
 
-function observeSetupResult(repo, pullRequest, { branch = OBSERVE_SETUP_BRANCH, operation = "install" } = {}) {
+function observeSetupResult(repo, pullRequest, {
+  branch = OBSERVE_SETUP_BRANCH,
+  operation = "install",
+  harnessMode = HARNESS_MODE.OBSERVE,
+} = {}) {
   if (!Number.isSafeInteger(pullRequest?.number) || typeof pullRequest?.html_url !== "string") {
     throw new Error("GitHub returned an invalid setup pull request.");
   }
@@ -937,6 +1035,7 @@ function observeSetupResult(repo, pullRequest, { branch = OBSERVE_SETUP_BRANCH, 
     repository: repo.full_name,
     branch,
     operation,
+    harnessMode,
     pullRequest: {
       number: pullRequest.number,
       url: pullRequest.html_url,
@@ -945,9 +1044,10 @@ function observeSetupResult(repo, pullRequest, { branch = OBSERVE_SETUP_BRANCH, 
   };
 }
 
-function observeSetupPlan(files, requiredCheck = null) {
+function observeSetupPlan(files, requiredCheck = null, harnessMode = HARNESS_MODE.OBSERVE) {
   const scope = files.map(({ path: filePath }) => filePath === "changeplane/package.json" ? "changeplane/**" : filePath);
-  const plan = { goal: "Install the ChangePlane observe-mode pilot", scope: [...new Set(scope)] };
+  const mode = harnessPolicy({ mode: harnessMode }).mode;
+  const plan = { goal: `Install the ChangePlane ${mode} harness`, scope: [...new Set(scope)], harnessMode: mode };
   if (requiredCheck) plan.requiredCheck = validateRequiredCheck(requiredCheck);
   return plan;
 }
@@ -958,8 +1058,9 @@ function readObserveSetupPlan(body, files) {
   try {
     const plan = JSON.parse(match[1]);
     const requiredCheck = validateRequiredCheck(plan?.requiredCheck);
-    const expected = observeSetupPlan(files, requiredCheck);
-    return JSON.stringify(plan) === JSON.stringify(expected) ? { plan, requiredCheck } : null;
+    const harnessMode = harnessPolicy({ mode: plan?.harnessMode }).mode;
+    const expected = observeSetupPlan(files, requiredCheck, harnessMode);
+    return JSON.stringify(plan) === JSON.stringify(expected) ? { plan, requiredCheck, harnessMode } : null;
   } catch {
     return null;
   }
@@ -998,7 +1099,7 @@ async function findObserveSetupPullRequest(encodedRepository, repo, token, files
       && pullRequest.head?.ref === OBSERVE_SETUP_BRANCH
       && pullRequest.head?.repo?.full_name?.toLowerCase() === repo.full_name.toLowerCase()
       && pullRequest.base?.ref === repo.default_branch
-      && pullRequest.title === "chore: install ChangePlane observe pilot"
+      && pullRequest.title === "chore: install ChangePlane harness"
       && parsed
       && (!expectedPlan || JSON.stringify(parsed.plan) === JSON.stringify(expectedPlan));
   });
@@ -1274,7 +1375,8 @@ async function createObserveUpgradePullRequest(target, session) {
   }
 }
 
-async function createObservePullRequest(repository, session, requiredCheck = null) {
+async function createObservePullRequest(repository, session, requiredCheck = null, harnessMode = HARNESS_MODE.OBSERVE) {
+  const selectedHarness = harnessPolicy({ mode: harnessMode });
   const token = session.token;
   const target = await inspectInstallTarget(repository, session);
   const { encodedRepository, repo, baseSha, conflicts, repositoryState, installation } = target;
@@ -1292,19 +1394,20 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
   const existingPullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, baseFiles);
   if (existingPullRequest) {
     const existingPlan = readObserveSetupPlan(existingPullRequest.body, baseFiles);
-    const existingFiles = buildPilotFiles(existingPlan.requiredCheck);
+    const existingFiles = buildPilotFiles(existingPlan.requiredCheck, existingPlan.harnessMode);
     await validateObserveSetupPullRequest(encodedRepository, existingPullRequest, baseSha, existingFiles, token);
-    if (JSON.stringify(existingPlan.requiredCheck) !== JSON.stringify(requiredCheck)) {
-      throw new HttpError(409, "The existing verified setup PR binds a different evidence choice. Open that PR, or close it and delete changeplane/observe-setup before creating a replacement.");
+    if (JSON.stringify(existingPlan.requiredCheck) !== JSON.stringify(requiredCheck)
+      || existingPlan.harnessMode !== selectedHarness.mode) {
+      throw new HttpError(409, "The existing verified setup PR binds a different evidence or harness choice. Open that PR, or close it and delete changeplane/observe-setup before creating a replacement.");
     }
-    return observeSetupResult(repo, existingPullRequest);
+    return observeSetupResult(repo, existingPullRequest, { harnessMode: selectedHarness.mode });
   }
 
-  const files = buildPilotFiles(requiredCheck);
+  const files = buildPilotFiles(requiredCheck, selectedHarness.mode);
   const behaviorEvidence = requiredCheck
     ? `\`${requiredCheck.name}\` from \`${requiredCheck.appSlug}\``
     : null;
-  const plan = observeSetupPlan(files, requiredCheck);
+  const plan = observeSetupPlan(files, requiredCheck, selectedHarness.mode);
 
   const baseCommit = await github(`/repos/${encodedRepository}/git/commits/${baseSha}`, token);
   const baseTree = baseCommit?.tree?.sha;
@@ -1333,7 +1436,7 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
     const commit = await github(`/repos/${encodedRepository}/git/commits`, token, {
       method: "POST",
       body: {
-        message: "chore: install ChangePlane observe pilot",
+        message: `chore: install ChangePlane ${selectedHarness.mode} harness`,
         tree: tree.sha,
         parents: [baseSha],
       },
@@ -1355,14 +1458,16 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
     const pullRequest = await github(`/repos/${encodedRepository}/pulls`, token, {
       method: "POST",
       body: {
-        title: "chore: install ChangePlane observe pilot",
+        title: "chore: install ChangePlane harness",
         head: OBSERVE_SETUP_BRANCH,
         base: repo.default_branch,
         body: [
           `<!-- changeplane ${JSON.stringify(plan)} -->`,
-          "## ChangePlane observe setup",
+          `## ChangePlane ${selectedHarness.mode} setup`,
           "",
-          "This adds reporting only. It cannot block merges, run repair, or execute pull-request code with a write token.",
+          selectedHarness.mode === HARNESS_MODE.AUTONOMOUS
+            ? "This installs the exact-revision harness. Fixable failed evidence may receive at most two bounded repair attempts within 15 minutes; protected, ambiguous, stale, or exhausted changes stop for a human."
+            : "This adds reporting only. It cannot block merges, run repair, or execute pull-request code with a write token.",
           "",
           `**Next:** review the ${files.length} added files, then merge to activate ChangePlane on future pull-request updates.`,
           "",
@@ -1376,19 +1481,21 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
           "<details>",
           "<summary>Technical safety boundary</summary>",
           "",
-          "ChangePlane binds each receipt to the pull request's exact head revision. Required enforcement and agent repair stay disabled until the dedicated-App, evidence-provenance, signed-ledger, merge-queue, and sandbox release gates pass.",
+          selectedHarness.mode === HARNESS_MODE.AUTONOMOUS
+            ? "The proposal job receives no forge credentials. A clean harness validates the candidate patch, an App-signed one-time grant authorizes a separate apply job, and only a fresh exact-head check may publish PASS. GitHub remains the merge authority."
+            : "ChangePlane binds each receipt to the pull request's exact head revision. Repair stays disabled until repository policy, provider funding, and the trusted controller are configured.",
           "",
           "</details>",
         ].join("\n"),
       },
     });
-    return observeSetupResult(repo, pullRequest);
+    return observeSetupResult(repo, pullRequest, { harnessMode: selectedHarness.mode });
   } catch (error) {
     if (error instanceof GitHubError && error.status === 422) {
       const pullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, files, plan);
       if (pullRequest) {
         await validateObserveSetupPullRequest(encodedRepository, pullRequest, baseSha, files, token);
-        return observeSetupResult(repo, pullRequest);
+        return observeSetupResult(repo, pullRequest, { harnessMode: selectedHarness.mode });
       }
     }
     throw error;
@@ -1849,7 +1956,13 @@ async function readRepositoryRuntime(encodedRepository, repo, token) {
   if (!/^[a-f0-9]{40}$/u.test(baseSha ?? "")) throw new Error("GitHub returned an invalid default-branch revision.");
   const content = await readRepositoryFile(encodedRepository, POLICY_PATH, baseSha, token);
   if (typeof content !== "string") {
-    return { baseSha, content: null, model: DEFAULT_PROPOSAL_MODEL, configured: false };
+    return {
+      baseSha,
+      content: null,
+      model: DEFAULT_PROPOSAL_MODEL,
+      configured: false,
+      harness: harnessPolicy(),
+    };
   }
   let policy;
   try {
@@ -1864,7 +1977,13 @@ async function readRepositoryRuntime(encodedRepository, repo, token) {
     configured = policy.runtime.secretName === BYOK_SECRET_NAME
       && policy.runtime.reasoningEffort === PROPOSAL_REASONING_EFFORT;
   }
-  return { baseSha, content, model, configured };
+  let harness;
+  try {
+    harness = harnessPolicy(policy?.harness);
+  } catch (error) {
+    throw new HttpError(409, error instanceof Error ? error.message : "Harness policy is invalid.");
+  }
+  return { baseSha, content, model, configured, harness };
 }
 
 async function validateRuntimePullRequest(encodedRepository, pullRequest, baseSha, headSha, treeSha, token) {
@@ -1886,15 +2005,28 @@ async function validateRuntimePullRequest(encodedRepository, pullRequest, baseSh
   }
 }
 
-async function createRuntimePullRequest(repository, session, model) {
-  const selectedModel = validateRuntimeModel(model);
+async function createRuntimePullRequest(repository, session, model, harnessMode) {
   const { encodedRepository, repo } = await requireWritableRepository(repository, session);
   const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
   if (!runtime.content) throw new HttpError(409, "Merge the ChangePlane setup pull request before choosing a proposal model.");
-  const updatedPolicy = buildRuntimePolicy(runtime.content, selectedModel);
+  const selectedModel = validateRuntimeModel(model ?? runtime.model);
+  const selectedHarness = harnessPolicy({ mode: harnessMode ?? runtime.harness.mode });
+  if (selectedHarness.mode === HARNESS_MODE.AUTONOMOUS) await prepareAutonomousHarness(repository, session);
+  const updatedPolicy = buildRuntimePolicy(runtime.content, selectedModel, selectedHarness.mode);
   if (updatedPolicy === runtime.content) {
-    return { repository, operation: "current", model: selectedModel, state: "current" };
+    return {
+      repository,
+      operation: "current",
+      model: selectedModel,
+      harnessMode: selectedHarness.mode,
+      state: "current",
+    };
   }
+  const changesModel = selectedModel !== runtime.model;
+  const changesHarness = selectedHarness.mode !== runtime.harness.mode;
+  const changeLabel = changesModel && changesHarness
+    ? `${selectedModel} and ${selectedHarness.mode} mode`
+    : changesHarness ? `${selectedHarness.mode} harness mode` : selectedModel;
 
   const baseCommit = await github(`/repos/${encodedRepository}/git/commits/${runtime.baseSha}`, session.token);
   const baseTree = baseCommit?.tree?.sha;
@@ -1917,7 +2049,7 @@ async function createRuntimePullRequest(repository, session, model) {
     const commit = await github(`/repos/${encodedRepository}/git/commits`, session.token, {
       method: "POST",
       body: {
-        message: `chore: use ${selectedModel} for ChangePlane proposals`,
+        message: `chore: use ${changeLabel} in ChangePlane`,
         tree: tree.sha,
         parents: [runtime.baseSha],
       },
@@ -1940,15 +2072,19 @@ async function createRuntimePullRequest(repository, session, model) {
     pullRequest = await github(`/repos/${encodedRepository}/pulls`, session.token, {
       method: "POST",
       body: {
-        title: `chore: use ${selectedModel} for ChangePlane proposals`,
+        title: `chore: configure ChangePlane ${changeLabel}`,
         head: RUNTIME_CONFIG_BRANCH,
         base: repo.default_branch,
         body: [
           "## ChangePlane runtime policy",
           "",
-          `This changes only \`${POLICY_PATH}\` and selects \`${selectedModel}\` for bounded patch proposals.`,
+          `This changes only \`${POLICY_PATH}\` and selects \`${selectedModel}\` with the \`${selectedHarness.mode}\` exact-revision harness.`,
           "",
-          "The model still receives no forge write, Check, approval, or merge authority. Closing this pull request keeps the current runtime unchanged.",
+          selectedHarness.mode === HARNESS_MODE.AUTONOMOUS
+            ? "Fixable failed evidence may receive at most two attempts within 15 minutes. The model still receives no forge write, Check, approval, or merge authority."
+            : "Observe mode publishes a neutral exact-revision receipt and does not dispatch repair.",
+          "",
+          "Closing this pull request keeps the current runtime unchanged.",
         ].join("\n"),
       },
     });
@@ -1968,6 +2104,7 @@ async function createRuntimePullRequest(repository, session, model) {
     branch: RUNTIME_CONFIG_BRANCH,
     operation: "runtime",
     model: selectedModel,
+    harnessMode: selectedHarness.mode,
     state: "pending",
     pullRequest: { number: pullRequest.number, url: pullRequest.html_url, state: pullRequest.state },
   };
@@ -1982,6 +2119,7 @@ async function runtimeStatus(req, res) {
   const byok = !canWriteSecrets
     ? { configured: false, state: "permission_required", secretName: BYOK_SECRET_NAME, updatedAt: null }
     : await readByokStatus(repository, await repositoryByokToken(session, repo, installationId));
+  const controller = repairControllerConfiguration();
   let managed = {
     state: "reserved",
     available: false,
@@ -2014,6 +2152,13 @@ async function runtimeStatus(req, res) {
     activeModel: runtime.model,
     modelConfigured: runtime.configured,
     effort: PROPOSAL_REASONING_EFFORT,
+    harness: {
+      mode: runtime.harness.mode,
+      autonomousAvailable: controller.configured && session.authMode === "github_app" && canWriteSecrets,
+      ready: runtime.harness.mode === HARNESS_MODE.AUTONOMOUS && byok.configured && controller.configured,
+      maxAttempts: HARNESS_MAX_ATTEMPTS,
+      budgetMinutes: HARNESS_BUDGET_MINUTES,
+    },
     managed,
     byok,
   });
@@ -2025,9 +2170,50 @@ async function configureRuntime(req, res) {
   assertCsrf(req, session);
   assertJsonRequest(req);
   const body = await readJson(req);
+  if (Object.hasOwn(body, "model")) validateRuntimeModel(body.model);
+  if (Object.hasOwn(body, "harnessMode")) harnessPolicy({ mode: body.harnessMode });
   const repository = validateRepository(body.repository);
-  const result = await createRuntimePullRequest(repository, session, body.model);
+  const result = await createRuntimePullRequest(repository, session, body.model, body.harnessMode);
   sendJson(res, result.state === "current" ? 200 : 201, result);
+}
+
+async function repositoryActionsPublicKey(encodedRepository, token) {
+  const publicKey = await github(`/repos/${encodedRepository}/actions/secrets/public-key`, token);
+  if (typeof publicKey?.key_id !== "string" || !publicKey.key_id
+    || typeof publicKey?.key !== "string" || !publicKey.key) {
+    throw new HttpError(502, "GitHub returned an invalid repository encryption key.");
+  }
+  return publicKey;
+}
+
+async function putRepositoryActionsSecret(encodedRepository, token, publicKey, name, value) {
+  if (!/^[A-Z0-9_]{1,100}$/u.test(name) || typeof value !== "string" || value.length === 0) {
+    throw new TypeError("Repository secret input is invalid.");
+  }
+  await sodium.ready;
+  let publicKeyBytes;
+  let secretBytes;
+  let encryptedBytes;
+  try {
+    publicKeyBytes = sodium.from_base64(publicKey.key, sodium.base64_variants.ORIGINAL);
+    if (publicKeyBytes.length !== sodium.crypto_box_PUBLICKEYBYTES) {
+      throw new HttpError(502, "GitHub returned an invalid repository encryption key.");
+    }
+    secretBytes = sodium.from_string(value);
+    encryptedBytes = sodium.crypto_box_seal(secretBytes, publicKeyBytes);
+    await github(`/repos/${encodedRepository}/actions/secrets/${name}`, token, {
+      method: "PUT",
+      body: {
+        encrypted_value: sodium.to_base64(encryptedBytes, sodium.base64_variants.ORIGINAL),
+        key_id: publicKey.key_id,
+      },
+      expectJson: false,
+    });
+  } finally {
+    if (publicKeyBytes) sodium.memzero(publicKeyBytes);
+    if (secretBytes) sodium.memzero(secretBytes);
+    if (encryptedBytes) sodium.memzero(encryptedBytes);
+  }
 }
 
 async function configureByok(req, res) {
@@ -2045,34 +2231,8 @@ async function configureByok(req, res) {
   const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
   await verifyOpenAIKey(apiKey, { model: runtime.model });
   const byokToken = await repositoryByokToken(session, repo, installationId);
-  const publicKey = await github(`/repos/${encodedRepository}/actions/secrets/public-key`, byokToken);
-  if (typeof publicKey?.key_id !== "string" || !publicKey.key_id
-    || typeof publicKey?.key !== "string" || !publicKey.key) {
-    throw new HttpError(502, "GitHub returned an invalid repository encryption key.");
-  }
-
-  await sodium.ready;
-  let publicKeyBytes;
-  let secretBytes;
-  let encryptedBytes;
-  try {
-    publicKeyBytes = sodium.from_base64(publicKey.key, sodium.base64_variants.ORIGINAL);
-    if (publicKeyBytes.length !== sodium.crypto_box_PUBLICKEYBYTES) {
-      throw new HttpError(502, "GitHub returned an invalid repository encryption key.");
-    }
-    secretBytes = sodium.from_string(apiKey);
-    encryptedBytes = sodium.crypto_box_seal(secretBytes, publicKeyBytes);
-    const encryptedValue = sodium.to_base64(encryptedBytes, sodium.base64_variants.ORIGINAL);
-    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, byokToken, {
-      method: "PUT",
-      body: { encrypted_value: encryptedValue, key_id: publicKey.key_id },
-      expectJson: false,
-    });
-  } finally {
-    if (publicKeyBytes) sodium.memzero(publicKeyBytes);
-    if (secretBytes) sodium.memzero(secretBytes);
-    if (encryptedBytes) sodium.memzero(encryptedBytes);
-  }
+  const publicKey = await repositoryActionsPublicKey(encodedRepository, byokToken);
+  await putRepositoryActionsSecret(encodedRepository, byokToken, publicKey, BYOK_SECRET_NAME, apiKey);
 
   const byok = await readByokStatus(repository, byokToken);
   sendJson(res, 200, {
@@ -2175,12 +2335,13 @@ async function preflight(req, res) {
     if (existingPullRequest) {
       try {
         const existingPlan = readObserveSetupPlan(existingPullRequest.body, files);
-        files = buildPilotFiles(existingPlan.requiredCheck);
+        files = buildPilotFiles(existingPlan.requiredCheck, existingPlan.harnessMode);
         await validateObserveSetupPullRequest(target.encodedRepository, existingPullRequest, target.baseSha, files, session.token);
         setup = {
           state: "pending",
           pullRequest: { number: existingPullRequest.number, url: existingPullRequest.html_url },
           requiredCheck: existingPlan.requiredCheck,
+          harnessMode: existingPlan.harnessMode,
         };
       } catch (error) {
         if (!(error instanceof HttpError) || error.status !== 409) throw error;
@@ -2256,16 +2417,83 @@ async function preflight(req, res) {
     setup,
     evidenceOptions,
     evidenceDiscovery,
+    harness: {
+      autonomousAvailable: repairControllerConfiguration().configured,
+      maxAttempts: HARNESS_MAX_ATTEMPTS,
+      budgetMinutes: HARNESS_BUDGET_MINUTES,
+    },
     boundary: {
       defaultBranchWrite: false,
       pullRequestOnly: true,
-      observeOnly: true,
       mergeBlocking: false,
-      agentRepair: false,
+      agentRepairDuringSetup: false,
       untrustedCodeExecution: false,
       providerSecretAccess: false,
     },
   });
+}
+
+async function prepareAutonomousHarness(repository, session) {
+  const configuration = repairControllerConfiguration();
+  if (!configuration.configured) {
+    throw new HttpError(503, "Autonomous repair is temporarily unavailable. Observe mode remains available.");
+  }
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  if (session.authMode !== "github_app" || !Number.isSafeInteger(repo?.id) || repo.id < 1
+    || !/^[1-9][0-9]{0,19}$/u.test(String(installationId ?? ""))) {
+    throw new HttpError(409, "Autonomous repair requires the repository-scoped ChangePlane GitHub App.");
+  }
+  if (!await installationCanWriteSecrets(session, installationId)) {
+    throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before autonomous repair can be enabled.");
+  }
+  const token = await repositoryByokToken(session, repo, installationId);
+  const byok = await readByokStatus(repository, token);
+  if (!byok.configured) {
+    throw new HttpError(409, "Add an OpenAI key before enabling autonomous repair.");
+  }
+
+  let publicKeys;
+  let controllerSecret;
+  try {
+    const privateKey = String(process.env.GITHUB_APP_PRIVATE_KEY ?? "").replaceAll("\\n", "\n").trim();
+    const publicKey = createPublicKey(privateKey);
+    publicKeys = JSON.stringify({
+      [repairLedgerKeyId(publicKey)]: repairLedgerPublicKeyValue(publicKey),
+    });
+    controllerSecret = deriveControllerSecret({
+      masterSecret: process.env.CHANGEPLANE_CONTROLLER_SECRET,
+      installationId: Number(installationId),
+      repositoryId: repo.id,
+      repository,
+    });
+  } catch {
+    throw new HttpError(503, "Autonomous controller identity is unavailable. Observe mode remains available.");
+  }
+
+  const publicKey = await repositoryActionsPublicKey(encodedRepository, token);
+  // Provision fail-closed: an interrupted rotation must leave repair disabled.
+  await putRepositoryActionsSecret(
+    encodedRepository,
+    token,
+    publicKey,
+    HARNESS_SECRETS.enabled,
+    "false",
+  );
+  for (const [name, value] of [
+    [HARNESS_SECRETS.controller, controllerSecret],
+    [HARNESS_SECRETS.installation, String(installationId)],
+    [HARNESS_SECRETS.generation, String(configuration.generation)],
+    [HARNESS_SECRETS.publicKeys, publicKeys],
+  ]) {
+    await putRepositoryActionsSecret(encodedRepository, token, publicKey, name, value);
+  }
+  await putRepositoryActionsSecret(
+    encodedRepository,
+    token,
+    publicKey,
+    HARNESS_SECRETS.enabled,
+    "true",
+  );
 }
 
 async function install(req, res) {
@@ -2279,7 +2507,12 @@ async function install(req, res) {
     throw new HttpError(400, "Choose one required GitHub check or explicitly continue with commit-and-scope-only receipts.");
   }
   const requiredCheck = validateRequiredCheck(body.requiredCheck);
-  const result = await createObservePullRequest(repository, session, requiredCheck);
+  const harnessMode = harnessPolicy({ mode: body.harnessMode }).mode;
+  if (harnessMode === HARNESS_MODE.AUTONOMOUS) {
+    if (!requiredCheck) throw new HttpError(400, "Autonomous repair requires one exact behavioral check and publisher.");
+    await prepareAutonomousHarness(repository, session);
+  }
+  const result = await createObservePullRequest(repository, session, requiredCheck, harnessMode);
   sendJson(res, 201, result);
 }
 

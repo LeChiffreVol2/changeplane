@@ -1,18 +1,39 @@
-name: ChangePlane Guard — observe pilot
-description: Bind exact pull request revision and publish a neutral scope and policy receipt. Observe only; no enforcement or repair.
+name: ChangePlane Guard
+description: Run the revision-bound assurance harness in observe or autonomous mode.
 inputs:
   token:
     description: GitHub token used to read pull requests, deployments, and reviewer permissions.
     required: true
+  mode:
+    description: Observe publishes a neutral receipt. Enforce enables the bounded repair controller.
+    required: false
+    default: observe
+  agent_dispatch:
+    description: Repair dispatch boundary. Must remain none unless the trusted harness selects webhook.
+    required: false
+    default: none
+  agent_webhook_url:
+    description: Trusted ChangePlane controller endpoint.
+    required: false
+  agent_webhook_token:
+    description: Repository-bound controller authentication secret.
+    required: false
+  controller_installation_id:
+    description: Exact GitHub App installation allowed to authorize this repository.
+    required: false
+  max_remediation_attempts:
+    description: Bounded autonomous repair attempts.
+    required: false
+    default: "2"
   policy_path:
     description: Policy file read from the pull request base SHA.
     required: false
     default: .changeplane.json
 outputs:
   mode:
-    description: Always observe in this pilot.
+    description: Active harness mode.
   decision:
-    description: Evaluator result shown in the receipt. PASS is not approval and the Check remains neutral and non-blocking.
+    description: Exact-head harness result.
   receipt:
     description: Canonical one-line JSON receipt bound to the exact revision and policy digest.
   actual_files:

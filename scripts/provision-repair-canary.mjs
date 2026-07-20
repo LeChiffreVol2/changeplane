@@ -68,29 +68,6 @@ async function putEncryptedSecret({ name, value, token }) {
   }
 }
 
-async function upsertVariable(name, value, token) {
-  const path = `/repos/${REPOSITORY}/actions/variables/${name}`;
-  const response = await fetch(`${API}${path}`, {
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "user-agent": "changeplane-canary-provisioner/1",
-      "x-github-api-version": "2022-11-28",
-    },
-    redirect: "error",
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (response.status === 404) {
-    await github(`/repos/${REPOSITORY}/actions/variables`, token, {
-      method: "POST",
-      body: { name, value },
-    });
-    return;
-  }
-  if (!response.ok) throw new Error(`GitHub GET ${path} failed (${response.status})`);
-  await github(path, token, { method: "PATCH", body: { name, value } });
-}
-
 async function main() {
   const appId = process.env.CHANGEPLANE_GITHUB_APP_ID;
   if (appId !== "4334716") throw new Error("CHANGEPLANE_GITHUB_APP_ID does not match the canary App");
@@ -103,7 +80,6 @@ async function main() {
       repository_ids: [REPOSITORY_ID],
       permissions: {
         secrets: "write",
-        variables: "write",
       },
     },
   });
@@ -125,16 +101,21 @@ async function main() {
   const keyId = repairLedgerKeyId(publicKey);
   const publicKeys = JSON.stringify({ [keyId]: repairLedgerPublicKeyValue(publicKey) });
 
-  // Make every partial provisioning state inert before writing any secret.
-  await upsertVariable("CHANGEPLANE_REPAIR_ENABLED", "false", installation.token);
-  await upsertVariable("CHANGEPLANE_CONTROLLER_INSTALLATION_ID", String(INSTALLATION_ID), installation.token);
-  await upsertVariable("CHANGEPLANE_REPAIR_GENERATION", "1", installation.token);
-  await upsertVariable("CHANGEPLANE_REPAIR_PUBLIC_KEYS", publicKeys, installation.token);
-
-  await putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC", value: repositorySecret, token: installation.token });
   const openAIPath = process.env.CHANGEPLANE_OPENAI_KEY_PATH;
+  const enableRepair = process.env.CHANGEPLANE_ENABLE_REPAIR === "true";
+  if (enableRepair && !openAIPath) throw new Error("CHANGEPLANE_OPENAI_KEY_PATH is required before enabling repair");
+
+  // Make every partial provisioning state inert before writing any authority or provider secret.
+  await putEncryptedSecret({ name: "CHANGEPLANE_REPAIR_ENABLED", value: "false", token: installation.token });
+  await putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_INSTALLATION_ID", value: String(INSTALLATION_ID), token: installation.token });
+  await putEncryptedSecret({ name: "CHANGEPLANE_REPAIR_GENERATION", value: "1", token: installation.token });
+  await putEncryptedSecret({ name: "CHANGEPLANE_REPAIR_PUBLIC_KEYS", value: publicKeys, token: installation.token });
+  await putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC", value: repositorySecret, token: installation.token });
   if (openAIPath) {
     await putEncryptedSecret({ name: "OPENAI_API_KEY", value: readSecretFile("CHANGEPLANE_OPENAI_KEY_PATH"), token: installation.token });
+  }
+  if (enableRepair) {
+    await putEncryptedSecret({ name: "CHANGEPLANE_REPAIR_ENABLED", value: "true", token: installation.token });
   }
 
   process.stdout.write(JSON.stringify({
@@ -142,8 +123,8 @@ async function main() {
     installationId: INSTALLATION_ID,
     keyId,
     controllerSecretStored: true,
-    deepSeekStored: Boolean(deepSeekPath),
-    repairEnabled: false,
+    openAIStored: Boolean(openAIPath),
+    repairEnabled: enableRepair,
   }));
 }
 

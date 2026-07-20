@@ -1,6 +1,6 @@
-# Inactive controlled-canary template. Installing this file does not enable enforcement.
-# Only a server-owned ChangePlane App may sign and dispatch a repair grant.
-name: ChangePlane repair adapter (controlled canary)
+# Managed autonomous harness. Only a server-owned ChangePlane App may sign and
+# dispatch a repair grant; repository secrets remain inert in observe mode.
+name: ChangePlane repair harness
 
 on:
   repository_dispatch:
@@ -27,16 +27,15 @@ jobs:
         with:
           node-version: 22.18.0
 
-      - name: Refuse repair while the global kill switch is off
-        if: vars.CHANGEPLANE_REPAIR_ENABLED != 'true'
+      - name: Refuse repair while the repository kill switch is off
+        if: secrets.CHANGEPLANE_REPAIR_ENABLED != 'true'
         run: exit 1
 
-      - name: Check out the trusted grant verifier
+      - name: Check out the trusted default-branch harness
         # actions/checkout v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          repository: LeChiffreVol2/changeplane
-          ref: __CHANGEPLANE_RELEASE_SHA__
+          ref: ${{ github.sha }}
           path: controller
           persist-credentials: false
 
@@ -45,11 +44,11 @@ jobs:
         env:
           CHANGEPLANE_BASE_REF: ${{ github.event.repository.default_branch }}
           CHANGEPLANE_CONTROLLER_SHA: ${{ github.sha }}
-          CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
-          CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
-          CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
-          CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
-        run: node controller/examples/changeplane-grant.js verify
+          CHANGEPLANE_PUBLISHER_RELEASE_SHA: ${{ github.event.client_payload.entry.publisherReleaseSha }}
+          CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
+          CHANGEPLANE_REPAIR_GENERATION: ${{ secrets.CHANGEPLANE_REPAIR_GENERATION }}
+          CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ secrets.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
+        run: node controller/changeplane/examples/changeplane-grant.js verify
 
       - name: Bind the live pull request and reserve the grant once
         # actions/github-script v7.0.1
@@ -93,7 +92,7 @@ jobs:
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-claim"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: node controller/examples/changeplane-claim.js claim
+        run: node controller/changeplane/examples/changeplane-claim.js claim
 
       - name: Materialize the one-time claim
         env:
@@ -164,7 +163,7 @@ jobs:
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: node controller/examples/changeplane-claim.js validate
+        run: node controller/changeplane/examples/changeplane-claim.js validate
 
       - name: Re-check the exact pull-request head immediately before OpenAI
         if: steps.grant.outputs.repair-kind == 'evidence'
@@ -199,7 +198,7 @@ jobs:
           CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
           CHANGEPLANE_TRUSTED_POLICY: ${{ github.workspace }}/trusted/.changeplane.json
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: node ../controller/examples/changeplane-proposal.js propose
+        run: node ../controller/changeplane/examples/changeplane-proposal.js propose
 
       - name: Validate and package the candidate patch
         working-directory: workspace
@@ -216,9 +215,9 @@ jobs:
           NODE_OPTIONS: ""
         run: |
           if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
-            node ../controller/examples/changeplane-proposal.js validate
+            node ../controller/changeplane/examples/changeplane-proposal.js validate
           fi
-          /usr/bin/git apply --check --whitespace=error "$CHANGEPLANE_PATCH"
+          /usr/bin/git apply --check --recount --whitespace=error "$CHANGEPLANE_PATCH"
 
       # actions/upload-artifact v4.6.2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -243,16 +242,15 @@ jobs:
         with:
           node-version: 22.18.0
 
-      - name: Refuse apply while the global kill switch is off
-        if: vars.CHANGEPLANE_REPAIR_ENABLED != 'true'
+      - name: Refuse apply while the repository kill switch is off
+        if: secrets.CHANGEPLANE_REPAIR_ENABLED != 'true'
         run: exit 1
 
-      - name: Check out the trusted grant verifier
+      - name: Check out the trusted default-branch harness
         # actions/checkout v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          repository: LeChiffreVol2/changeplane
-          ref: __CHANGEPLANE_RELEASE_SHA__
+          ref: ${{ github.sha }}
           path: controller
           persist-credentials: false
 
@@ -261,12 +259,12 @@ jobs:
         env:
           CHANGEPLANE_BASE_REF: ${{ github.event.repository.default_branch }}
           CHANGEPLANE_CONTROLLER_SHA: ${{ github.sha }}
-          CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
+          CHANGEPLANE_PUBLISHER_RELEASE_SHA: ${{ github.event.client_payload.entry.publisherReleaseSha }}
           CHANGEPLANE_EXPECTED_GRANT_DIGEST: ${{ needs.repair.outputs.grant-digest }}
-          CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
-          CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
-          CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
-        run: node controller/examples/changeplane-grant.js verify
+          CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
+          CHANGEPLANE_REPAIR_GENERATION: ${{ secrets.CHANGEPLANE_REPAIR_GENERATION }}
+          CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ secrets.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
+        run: node controller/changeplane/examples/changeplane-grant.js verify
 
       - name: Re-check the exact pull-request head before clean apply
         id: current
@@ -323,7 +321,7 @@ jobs:
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: node controller/examples/changeplane-claim.js validate
+        run: node controller/changeplane/examples/changeplane-claim.js validate
 
       - name: Apply and independently validate only the granted paths
         working-directory: workspace
@@ -340,16 +338,16 @@ jobs:
           CHANGEPLANE_INSTRUCTIONS: ${{ toJson(github.event.client_payload.entry.instructions) }}
           CHANGEPLANE_PATCH: ${{ runner.temp }}/changeplane.patch
           CHANGEPLANE_REPAIR_KIND: ${{ steps.grant.outputs.repair-kind }}
-          CHANGEPLANE_REPAIR_ENABLED: ${{ vars.CHANGEPLANE_REPAIR_ENABLED }}
-          CHANGEPLANE_REPAIR_GENERATION: ${{ vars.CHANGEPLANE_REPAIR_GENERATION }}
-          CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ vars.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
-          CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__
+          CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
+          CHANGEPLANE_REPAIR_GENERATION: ${{ secrets.CHANGEPLANE_REPAIR_GENERATION }}
+          CHANGEPLANE_REPAIR_PUBLIC_KEYS: ${{ secrets.CHANGEPLANE_REPAIR_PUBLIC_KEYS }}
+          CHANGEPLANE_PUBLISHER_RELEASE_SHA: ${{ github.event.client_payload.entry.publisherReleaseSha }}
         run: |
           if [ "$CHANGEPLANE_REPAIR_KIND" = "evidence" ]; then
-            node ../controller/examples/changeplane-proposal.js validate
+            node ../controller/changeplane/examples/changeplane-proposal.js validate
           fi
-          /usr/bin/git apply --check --index --whitespace=error "$CHANGEPLANE_PATCH"
-          /usr/bin/git apply --index --whitespace=error "$CHANGEPLANE_PATCH"
+          /usr/bin/git apply --check --index --recount --whitespace=error "$CHANGEPLANE_PATCH"
+          /usr/bin/git apply --index --recount --whitespace=error "$CHANGEPLANE_PATCH"
           node -e '
             const {execFileSync} = require("node:child_process");
             const allowedPaths = JSON.parse(process.env.CHANGEPLANE_ALLOWED);
@@ -371,15 +369,15 @@ jobs:
           /usr/bin/git config user.name "changeplane[bot]"
           /usr/bin/git config user.email "changeplane[bot]@users.noreply.github.com"
           /usr/bin/git -c core.hooksPath=/dev/null commit -m "chore: apply bounded ChangePlane repair"
-          node ../controller/examples/changeplane-grant.js verify
-          node ../controller/examples/changeplane-claim.js validate
+          node ../controller/changeplane/examples/changeplane-grant.js verify
+          node ../controller/changeplane/examples/changeplane-claim.js validate
 
       - name: Reserve one short-lived App push credential
         id: push-token
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-push-token"
           CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
-        run: node controller/examples/changeplane-claim.js push-token
+        run: node controller/changeplane/examples/changeplane-claim.js push-token
 
       # GITHUB_TOKEN pushes do not start fresh workflow runs. This Contents-only App token
       # lets GitHub emit pull_request synchronize for the repaired head, starting fresh CI
