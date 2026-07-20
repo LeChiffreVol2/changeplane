@@ -247,7 +247,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 3);
+  assert.equal(manifest.managedVersion, 4);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -358,20 +358,47 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 3,
-    targetVersion: 3,
+    currentVersion: 4,
+    targetVersion: 4,
     conflicts: [],
   });
 
   const currentManifest = JSON.parse(currentFiles["changeplane/manifest.json"]);
-  const currentRepairWorkflow = currentFiles[".github/workflows/changeplane-repair.yml"];
+  const v3Files = {
+    ...currentFiles,
+    "changeplane/examples/changeplane-proposal.js": currentFiles["changeplane/examples/changeplane-proposal.js"]
+      .replace(
+        'if (!patch.startsWith("diff --git ") || /^\\*\\*\\* (?:Begin|End) Patch$/mu.test(patch)) {',
+        'if (!patch.startsWith("diff --git ")) {',
+      )
+      .replace('        "The patch field must be raw `git diff --no-ext-diff --no-renames` output. End on the final hunk line; `*** End Patch` is invalid.\",\n', ""),
+    "changeplane/examples/changeplane-provider-openai.js": currentFiles["changeplane/examples/changeplane-provider-openai.js"]
+      .replace(/      patch: \{\n        type: "string",\n        description: "Raw git diff output only\. Start with diff --git and end on a hunk line; never use Markdown or apply_patch markers\.",\n        minLength: 1,\n        maxLength: 256 \* 1024,\n      \},/u, '      patch: { type: "string", minLength: 1, maxLength: 256 * 1024 },'),
+  };
+  const v3Hashes = Object.fromEntries(Object.keys(currentManifest.managedFiles).map((filePath) => [
+    filePath,
+    createHash("sha256").update(v3Files[filePath]).digest("hex"),
+  ]));
+  v3Files["changeplane/manifest.json"] = `${JSON.stringify({
+    schemaVersion: 1,
+    managedVersion: 3,
+    managedFiles: v3Hashes,
+  }, null, 2)}\n`;
+  assert.deepEqual(classifyManagedInstallation({ files: v3Files, reservedEntries }), {
+    state: "outdated",
+    currentVersion: 3,
+    targetVersion: 4,
+    conflicts: [],
+  });
+
+  const currentRepairWorkflow = v3Files[".github/workflows/changeplane-repair.yml"];
   const v2RepairWorkflow = currentRepairWorkflow.replaceAll(
     /        env:\n          CHANGEPLANE_REPAIR_ENABLED: \$\{\{ secrets\.CHANGEPLANE_REPAIR_ENABLED \}\}\n        run: test "\$CHANGEPLANE_REPAIR_ENABLED" = "true"/gu,
     "        if: secrets.CHANGEPLANE_REPAIR_ENABLED != 'true'\n        run: exit 1",
   );
   const v2Files = {
-    ...currentFiles,
-    "changeplane/action/index.js": currentFiles["changeplane/action/index.js"].replace(
+    ...v3Files,
+    "changeplane/action/index.js": v3Files["changeplane/action/index.js"].replace(
       "AbortSignal.timeout(30_000)",
       "AbortSignal.timeout(10_000)",
     ),
@@ -390,7 +417,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: v2Files, reservedEntries }), {
     state: "outdated",
     currentVersion: 2,
-    targetVersion: 3,
+    targetVersion: 4,
     conflicts: [],
   });
 
@@ -398,7 +425,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 3,
+    targetVersion: 4,
     conflicts: [],
   });
 
@@ -415,7 +442,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v3 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v4 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -485,7 +512,7 @@ test("pristine manifestless install creates one manifest-only v3 upgrade PR from
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v3") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v4") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1779,7 +1806,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 3,
+        targetVersion: 4,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);

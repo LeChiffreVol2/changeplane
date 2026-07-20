@@ -34,7 +34,7 @@ export function validatePatchProposal(value, rules) {
   if (!patch || Buffer.byteLength(patch) > MAX_PATCH_BYTES || patch.includes("\0") || patch.includes("\r")) {
     throw new Error("The proposal patch is empty or exceeds the bounded patch format.");
   }
-  if (!patch.startsWith("diff --git ")) {
+  if (!patch.startsWith("diff --git ") || /^\*\*\* (?:Begin|End) Patch$/mu.test(patch)) {
     throw new Error("The proposal must contain only a unified Git patch.");
   }
   if (/^(?:new file mode|deleted file mode|old mode|new mode|similarity index|rename from|rename to|copy from|copy to|GIT binary patch|Binary files )/mu.test(patch)) {
@@ -151,6 +151,7 @@ export function buildProposalMessages({ request, files }) {
         `Allowed paths: ${JSON.stringify(request.allowedPaths)}`,
         `Bound failure diagnostics: ${JSON.stringify(request.instructions)}`,
         "Propose the smallest patch that addresses the reported failure.",
+        "The patch field must be raw `git diff --no-ext-diff --no-renames` output. End on the final hunk line; `*** End Patch` is invalid.",
         "",
         context,
       ].join("\n"),

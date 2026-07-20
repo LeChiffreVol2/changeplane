@@ -17,7 +17,12 @@ const PATCH_FORMAT = Object.freeze({
   schema: {
     type: "object",
     properties: {
-      patch: { type: "string", minLength: 1, maxLength: 256 * 1024 },
+      patch: {
+        type: "string",
+        description: "Raw git diff output only. Start with diff --git and end on a hunk line; never use Markdown or apply_patch markers.",
+        minLength: 1,
+        maxLength: 256 * 1024,
+      },
     },
     required: ["patch"],
     additionalProperties: false,
