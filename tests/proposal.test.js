@@ -98,6 +98,7 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
                 description: "Raw git diff output only. Start with diff --git and end on a hunk line; never use Markdown or apply_patch markers.",
                 minLength: 1,
                 maxLength: 256 * 1024,
+                pattern: "^diff --git ",
               },
             },
             required: ["patch"],
@@ -134,6 +135,7 @@ test("describes the raw Git diff contract and rejects apply_patch markers locall
     fetchImpl: async (_url, options) => {
       const schema = JSON.parse(options.body).text.format.schema.properties.patch;
       assert.match(schema.description, /Raw git diff output only/u);
+      assert.equal(schema.pattern, "^diff --git ");
       return new Response(JSON.stringify({
         status: "completed",
         output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ patch: wrapped }) }] }],
