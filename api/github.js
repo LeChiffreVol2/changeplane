@@ -72,7 +72,7 @@ const VERIFIED_VERCEL_SOURCE = Object.freeze({
 const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 3;
+const MANAGED_VERSION = 4;
 const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
@@ -124,6 +124,22 @@ const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
     "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
     ".github/workflows/changeplane.yml": "573a24fc6b18124f706ff7a557dc3a155e7642db7da76ef653cd34e1bd0a487f",
     ".github/workflows/changeplane-repair.yml": "3786efb2077b8d3bd4db4de507f2842b485c03ac976b5265acb1ef474921a0d6",
+  }),
+  3: Object.freeze({
+    "changeplane/action.yml": "5efe0e2140283081e3e0390506c681fc881dbe47334a16038c0da9198dcba868",
+    "changeplane/action/index.js": "86c6e763d78288352d024f60ebe7dbd90839b2997871a474b80aa43c2dec9ee2",
+    "changeplane/src/lib/changeplane.js": "4578704217c2c5d3eac50ade6a40ee588ab75d1de736aeb0041fbfe8ce5536e6",
+    "changeplane/src/lib/harness.js": "0eb54fec0d65c7668d3b81be6174e8474ebcca670b834e5186e17b4efd6a1ac8",
+    "changeplane/src/lib/runtime.js": "26cff8ddc82756d16577c938fb567c0a13cdd0ee3cf3a94f4f1a4bdd93293b3d",
+    "changeplane/server/github-repair-controller.js": "fb0bd189e96193a73ea17692f99999ee0dd033f1b8d060b4c1c442fb0b141070",
+    "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+    "changeplane/examples/changeplane-claim.js": "e74f6ba36c273f775380035fd74a91f59ebc43878f4700d01a834af1adf6322d",
+    "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
+    "changeplane/examples/changeplane-proposal.js": "77e27bdafcdc94ceda9fdbdcc26cfae9f45e00fa77e0ae39c878c73126ca1333",
+    "changeplane/examples/changeplane-provider-openai.js": "359be60bd45a44d208998e6350408e4cf80f2a4a0f99403e40a8e476a256ee9e",
+    "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+    ".github/workflows/changeplane.yml": "573a24fc6b18124f706ff7a557dc3a155e7642db7da76ef653cd34e1bd0a487f",
+    ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
   }),
 });
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);

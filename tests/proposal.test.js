@@ -92,7 +92,14 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
           strict: true,
           schema: {
             type: "object",
-            properties: { patch: { type: "string", minLength: 1, maxLength: 256 * 1024 } },
+            properties: {
+              patch: {
+                type: "string",
+                description: "Raw git diff output only. Start with diff --git and end on a hunk line; never use Markdown or apply_patch markers.",
+                minLength: 1,
+                maxLength: 256 * 1024,
+              },
+            },
             required: ["patch"],
             additionalProperties: false,
           },
@@ -101,6 +108,7 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
       assert.equal(body.store, false);
       assert.match(body.instructions, /not the verifier/u);
       assert.match(body.input, /expected one charge but observed two/u);
+      assert.match(body.input, /End Patch.*invalid/u);
       return {
         ok: true,
         status: 200,
@@ -115,6 +123,23 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
   });
   assert.deepEqual(result.paths, ["src/payments/retry.js"]);
   assert.equal(JSON.stringify(result).includes(apiKey), false);
+});
+
+test("describes the raw Git diff contract and rejects apply_patch markers locally", async () => {
+  const wrapped = `${patch}\n*** End Patch`;
+  await assert.rejects(requestPatchProposal({
+    apiKey: `provider-${"k".repeat(32)}`,
+    request,
+    files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+    fetchImpl: async (_url, options) => {
+      const schema = JSON.parse(options.body).text.format.schema.properties.patch;
+      assert.match(schema.description, /Raw git diff output only/u);
+      return new Response(JSON.stringify({
+        status: "completed",
+        output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ patch: wrapped }) }] }],
+      }));
+    },
+  }), /corrupt patch|unified Git patch|standard text modification patch/u);
 });
 
 test("reads only an allowlisted model from a trusted runtime policy", () => {
