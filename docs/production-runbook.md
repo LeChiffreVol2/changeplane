@@ -25,9 +25,10 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 | `GITHUB_CLIENT_ID` | Vercel Production; isolated value for trusted Preview only | No | Connector owner; rotate with the paired GitHub credential. |
 | `GITHUB_CLIENT_SECRET` | Vercel Production; isolated non-production value for trusted Preview only | Yes | Connector owner; revoke/rotate in GitHub after suspected disclosure. |
 | `GITHUB_APP_SLUG` | Vercel Production and trusted Preview | No | Connector owner; unset means the explicitly limited OAuth observe fallback. |
+| `CHANGEPLANE_SELF_SERVE_ENABLED` | Vercel Production | No | Release owner; `true` opens observe onboarding across eligible personal and organization installations without enabling repair. |
 | `CHANGEPLANE_SESSION_SECRET` | Vercel Production; independent value per environment | Yes | ChangePlane owner; rotation invalidates every session in that environment. |
 | `CHANGEPLANE_APP_ORIGIN` | Vercel Production; exact HTTPS origin, no path or trailing slash | No | ChangePlane owner; update with domain or callback changes. |
-| `CHANGEPLANE_CANARY_REPOSITORY` | Vercel Production during controlled rollout; exact `owner/repository` | No | Release owner; hides and rejects every other repository before GitHub access. Remove only for an approved broader rollout. |
+| `CHANGEPLANE_CANARY_REPOSITORY` | Vercel Production; exact disposable `owner/repository` | No | Repair owner; remains the live repair boundary even when observe onboarding is self-serve. |
 | `CHANGEPLANE_REPAIR_REPOSITORY` | Vercel Production; exact disposable `owner/repository` | No | Repair owner; must equal `CHANGEPLANE_CANARY_REPOSITORY` or repair stays unconfigured. |
 | `CHANGEPLANE_REPAIR_ENABLED` | Vercel Production | No | Repair owner; keep `false` until activation, restore `false` for containment, then redeploy. |
 | `CHANGEPLANE_REPAIR_GENERATION` | Vercel Production; positive integer | No | Repair owner; advance to invalidate grants during rollback or compromise containment. |
@@ -41,7 +42,7 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 | `CHANGEPLANE_REPAIR_GENERATION` | Disposable repository Actions Variable | No | Repair owner; must equal the active Vercel generation. |
 | `CHANGEPLANE_REPAIR_PUBLIC_KEYS` | Disposable repository Actions Variable | No | GitHub App owner; JSON map from the pinned PS256 key ID to its SPKI public key. |
 | `CHANGEPLANE_CONTROLLER_HMAC` | Disposable repository Actions Secret | Yes | Repair owner; repository-bound derived secret, never the Vercel master secret. Rotate with the controller master or repository/App identity. |
-| `OPENAI_API_KEY` | Disposable repository Actions Secret | Yes | Repository owner; verified Enterprise BYOK for evidence repair only. Omit for deterministic scope repair. |
+| `OPENAI_API_KEY` | Connected repository Actions Secret | Yes | Repository owner; verified BYOK for bounded repair only. Omit for observe-only assurance. |
 | `GITHUB_TOKEN` | GitHub Actions job, issued automatically | Yes | GitHub; ephemeral and read-only in the apply job. Never use it for a repair push because GitHub suppresses fresh workflow triggers. |
 | One-time repair push token | Trusted apply job runner temp only | Yes | GitHub App installation token; exact repository and Contents write only. Mint after signed claim validation, use only for force-with-lease push, then delete on every exit. |
 
@@ -142,7 +143,7 @@ Instant Rollback restores the previous build configuration; it does not apply ne
 
 ### Customer provider-key concern
 
-1. Disconnect Enterprise BYOK or delete `OPENAI_API_KEY` from the repository's Actions Secrets.
+1. Disconnect BYOK or delete `OPENAI_API_KEY` from the repository's Actions Secrets.
 2. Rotate or revoke the key at the provider.
 3. Review GitHub audit events for secret updates and workflow runs.
 4. Reconnect only after the repository owner confirms the new key and allowed workflows.

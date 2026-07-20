@@ -12,6 +12,7 @@ import sodium from "libsodium-wrappers";
 
 import {
   claimTrustedRepair,
+  createSecretsWriteInstallationAccessToken,
   deriveControllerSecret,
   issueTrustedRepairPushToken,
   publishTrustedRepair,
@@ -40,6 +41,8 @@ const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
 const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_OPENAI_API_KEY";
 const BYOK_MIN_LENGTH = 20;
 const BYOK_MAX_LENGTH = 512;
+const MAX_APP_INSTALLATIONS = 20;
+const MAX_INSTALLATION_REPOSITORIES = 1_000;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const VERIFIED_VERCEL_SOURCE = Object.freeze({
   environment: "production",
@@ -184,15 +187,15 @@ function configuredCanaryRepository() {
 }
 
 function rolloutMode() {
+  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true") return "self_serve";
   return process.env.CHANGEPLANE_CANARY_REPOSITORY || process.env.VERCEL === "1"
     ? "controlled_canary"
     : "self_serve";
 }
 
 function hasValidCanaryRepository() {
-  return process.env.VERCEL === "1"
-    ? Boolean(configuredCanaryRepository())
-    : !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
+  if (rolloutMode() === "self_serve") return true;
+  return Boolean(configuredCanaryRepository());
 }
 
 function repairControllerConfiguration() {
@@ -517,7 +520,17 @@ function readSession(req) {
     const authMode = session.authMode === "github_app" ? "github_app" : "oauth";
     const configuredAuthMode = githubAppSlug() ? "github_app" : "oauth";
     if (authMode !== configuredAuthMode) return null;
-    if (authMode === "github_app" && !/^[1-9][0-9]{0,19}$/u.test(String(session.installationId ?? ""))) return null;
+    if (authMode === "github_app") {
+      const sourceIds = Array.isArray(session.installationIds)
+        ? session.installationIds
+        : [session.installationId];
+      const installationIds = [...new Set(sourceIds
+        .map((value) => String(value ?? ""))
+        .filter((value) => /^[1-9][0-9]{0,19}$/u.test(value)))]
+        .slice(0, MAX_APP_INSTALLATIONS);
+      if (installationIds.length === 0) return null;
+      return { ...session, authMode, installationId: installationIds[0], installationIds };
+    }
     return { ...session, authMode };
   } catch {
     return null;
@@ -581,20 +594,32 @@ async function githubPathExists(repository, filePath, ref, token) {
 }
 
 async function installationRepositories(session) {
-  const repos = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const payload = await github(`/user/installations/${encodeURIComponent(session.installationId)}/repositories?per_page=100&page=${page}`, session.token);
-    const batch = payload?.repositories;
-    if (!Array.isArray(batch)) throw new HttpError(502, "GitHub returned an invalid repository list.");
-    repos.push(...batch);
-    if (batch.length < 100) break;
+  const installationIds = session.installationIds ?? [session.installationId];
+  const repositories = new Map();
+  for (const installationId of installationIds.slice(0, MAX_APP_INSTALLATIONS)) {
+    for (let page = 1; page <= 10; page += 1) {
+      const payload = await github(`/user/installations/${encodeURIComponent(installationId)}/repositories?per_page=100&page=${page}`, session.token);
+      const batch = payload?.repositories;
+      if (!Array.isArray(batch)) throw new HttpError(502, "GitHub returned an invalid repository list.");
+      for (const repository of batch) {
+        if (typeof repository?.full_name !== "string") continue;
+        const key = repository.full_name.toLowerCase();
+        if (!repositories.has(key)) {
+          repositories.set(key, { ...repository, changeplaneInstallationId: installationId });
+        }
+        if (repositories.size >= MAX_INSTALLATION_REPOSITORIES) break;
+      }
+      if (batch.length < 100 || repositories.size >= MAX_INSTALLATION_REPOSITORIES) break;
+    }
+    if (repositories.size >= MAX_INSTALLATION_REPOSITORIES) break;
   }
-  return repos;
+  return [...repositories.values()];
 }
 
 async function requireWritableRepository(repository, session) {
-  const canaryRepository = configuredCanaryRepository();
-  if (process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
+  const controlledCanary = rolloutMode() === "controlled_canary";
+  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
+  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
     throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
   }
   if (canaryRepository && repository.toLowerCase() !== canaryRepository.toLowerCase()) {
@@ -610,7 +635,11 @@ async function requireWritableRepository(repository, session) {
   if (!repo.permissions?.push && !repo.permissions?.admin) {
     throw new HttpError(403, "Push or admin repository access is required.");
   }
-  return { encodedRepository, repo };
+  return {
+    encodedRepository,
+    repo,
+    installationId: session.authMode === "github_app" ? repo.changeplaneInstallationId : null,
+  };
 }
 
 async function inspectInstallTarget(repository, session) {
@@ -1602,6 +1631,42 @@ async function userInstallations(token) {
   return installations;
 }
 
+function missingRequiredInstallationPermissions(installation) {
+  return Object.entries(REQUIRED_GITHUB_APP_PERMISSIONS)
+    .filter(([permission, level]) => {
+      const actual = installation?.permissions?.[permission];
+      return level === "write" ? actual !== "write" : !["read", "write"].includes(actual);
+    })
+    .map(([permission]) => permission);
+}
+
+async function installationCanWriteSecrets(session, installationId) {
+  if (session.authMode !== "github_app") return true;
+  if (typeof session.byokSecretWrite === "boolean") return session.byokSecretWrite;
+  if (!/^[1-9][0-9]{0,19}$/u.test(String(installationId ?? ""))) return false;
+  const installations = await userInstallations(session.token);
+  const installation = installations.find(({ id }) => String(id) === String(installationId));
+  return installation?.permissions?.secrets === "write";
+}
+
+async function repositoryByokToken(session, repo, installationId) {
+  if (session.authMode !== "github_app") return session.token;
+  if (!Number.isSafeInteger(repo?.id) || repo.id <= 0) {
+    throw new HttpError(502, "GitHub returned an invalid repository identifier.");
+  }
+  try {
+    return await createSecretsWriteInstallationAccessToken({
+      appId: process.env.GITHUB_APP_ID,
+      privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+      installationId: Number(installationId),
+      repositoryId: repo.id,
+      request: (pathname, token, options) => github(pathname, token, options),
+    });
+  } catch {
+    throw new HttpError(503, "GitHub App secret storage is not available. Reconnect the App or contact the repository owner.");
+  }
+}
+
 async function callback(req, res) {
   const state = queryValue(req, "state");
   if (typeof state !== "string" || !/^[A-Za-z0-9_-]{32,128}$/u.test(state)) throw new HttpError(400, "Invalid OAuth state.");
@@ -1661,43 +1726,44 @@ async function callback(req, res) {
   }
   const user = await github("/user", exchange.access_token);
   if (typeof user?.login !== "string" || !user.login) throw new HttpError(502, "GitHub returned an invalid user profile.");
-  let byokSecretWrite = configuration.authMode !== "github_app";
-  let installationId = saved.installationId;
+  let installationIds = [];
   if (configuration.authMode === "github_app") {
     const installations = await userInstallations(exchange.access_token);
-    if (saved.existingInstallation === true && typeof installationId !== "string") {
-      const matching = installations.filter(({ app_slug: appSlug }) => appSlug === configuration.appSlug);
-      if (matching.length === 0) {
+    const matching = installations.filter(({ id, app_slug: appSlug }) => (
+      appSlug === configuration.appSlug || String(id) === String(saved.installationId ?? "")
+    ));
+    if (matching.length === 0) {
+      if (saved.existingInstallation === true) {
         if (rolloutMode() === "controlled_canary") {
           redirectCanaryOwnerError(req, res, "owner_required");
           return;
         }
         throw new HttpError(404, "No existing ChangePlane installation is available to this GitHub user. Install the GitHub App first.");
       }
-      if (matching.length > 1) {
-        if (rolloutMode() === "controlled_canary") {
-          redirectCanaryOwnerError(req, res, "owner_ambiguous");
-          return;
-        }
-        throw new HttpError(409, "More than one ChangePlane installation is available. Re-open the installer and choose the GitHub account you want to connect.");
-      }
-      installationId = String(matching[0].id);
-    }
-    if (typeof installationId !== "string") throw new HttpError(400, "GitHub App installation is missing.");
-    const installation = installations.find(({ id }) => String(id) === installationId);
-    if (!installation) {
       throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
-    const missingPermissions = Object.entries(REQUIRED_GITHUB_APP_PERMISSIONS)
-      .filter(([permission, level]) => {
-        const actual = installation.permissions?.[permission];
-        return level === "write" ? actual !== "write" : !["read", "write"].includes(actual);
-      })
-      .map(([permission]) => permission);
-    if (missingPermissions.length > 0) {
-      throw new HttpError(403, `The GitHub App installation is missing required write permissions: ${missingPermissions.join(", ")}.`);
+    const selectedInstallation = saved.installationId == null
+      ? null
+      : matching.find(({ id }) => String(id) === String(saved.installationId));
+    if (saved.installationId != null && !selectedInstallation) {
+      throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
-    byokSecretWrite = installation.permissions?.secrets === "write";
+    const invalidSelectedPermissions = selectedInstallation
+      ? missingRequiredInstallationPermissions(selectedInstallation)
+      : [];
+    if (invalidSelectedPermissions.length > 0) {
+      throw new HttpError(403, `The selected GitHub App installation is missing required permissions: ${invalidSelectedPermissions.join(", ")}.`);
+    }
+    const validInstallations = matching.filter((installation) => (
+      missingRequiredInstallationPermissions(installation).length === 0
+    ));
+    if (validInstallations.length === 0) {
+      throw new HttpError(403, "No ChangePlane installation available to this user has the required repository permissions.");
+    }
+    installationIds = validInstallations
+      .map(({ id }) => String(id))
+      .filter((value) => /^[1-9][0-9]{0,19}$/u.test(value))
+      .slice(0, MAX_APP_INSTALLATIONS);
   }
 
   const providerTtlMs = Number.isFinite(exchange.expires_in) && exchange.expires_in > 0
@@ -1711,7 +1777,10 @@ async function callback(req, res) {
     login: user.login,
     csrf: randomBytes(32).toString("base64url"),
     authMode: configuration.authMode,
-    ...(configuration.authMode === "github_app" ? { installationId, byokSecretWrite } : {}),
+    ...(configuration.authMode === "github_app" ? {
+      installationId: installationIds[0],
+      installationIds,
+    } : {}),
   }, sessionSecret(), { ttlMs });
   redirect(res, `${configuredOrigin(req)}/?github=connected`, [
     clearCookie(OAUTH_COOKIE),
@@ -1721,8 +1790,9 @@ async function callback(req, res) {
 
 async function repositories(req, res) {
   const session = requireSession(req);
-  const canaryRepository = configuredCanaryRepository();
-  if (process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
+  const controlledCanary = rolloutMode() === "controlled_canary";
+  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
+  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
     throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
   }
   const repos = [];
@@ -1906,11 +1976,12 @@ async function createRuntimePullRequest(repository, session, model) {
 async function runtimeStatus(req, res) {
   const session = requireSession(req);
   const repository = validateRepository(queryValue(req, "repository"));
-  const { encodedRepository, repo } = await requireWritableRepository(repository, session);
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
   const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
-  const byok = session.authMode === "github_app" && session.byokSecretWrite !== true
+  const canWriteSecrets = await installationCanWriteSecrets(session, installationId);
+  const byok = !canWriteSecrets
     ? { configured: false, state: "permission_required", secretName: BYOK_SECRET_NAME, updatedAt: null }
-    : await readByokStatus(repository, session.token);
+    : await readByokStatus(repository, await repositoryByokToken(session, repo, installationId));
   let managed = {
     state: "reserved",
     available: false,
@@ -1967,13 +2038,14 @@ async function configureByok(req, res) {
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
   const apiKey = validateByokKey(body.apiKey);
-  const { encodedRepository, repo } = await requireWritableRepository(repository, session);
-  if (session.authMode === "github_app" && session.byokSecretWrite !== true) {
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before BYOK can be configured. No provider request was made.");
   }
   const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
   await verifyOpenAIKey(apiKey, { model: runtime.model });
-  const publicKey = await github(`/repos/${encodedRepository}/actions/secrets/public-key`, session.token);
+  const byokToken = await repositoryByokToken(session, repo, installationId);
+  const publicKey = await github(`/repos/${encodedRepository}/actions/secrets/public-key`, byokToken);
   if (typeof publicKey?.key_id !== "string" || !publicKey.key_id
     || typeof publicKey?.key !== "string" || !publicKey.key) {
     throw new HttpError(502, "GitHub returned an invalid repository encryption key.");
@@ -1991,7 +2063,7 @@ async function configureByok(req, res) {
     secretBytes = sodium.from_string(apiKey);
     encryptedBytes = sodium.crypto_box_seal(secretBytes, publicKeyBytes);
     const encryptedValue = sodium.to_base64(encryptedBytes, sodium.base64_variants.ORIGINAL);
-    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, session.token, {
+    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, byokToken, {
       method: "PUT",
       body: { encrypted_value: encryptedValue, key_id: publicKey.key_id },
       expectJson: false,
@@ -2002,7 +2074,7 @@ async function configureByok(req, res) {
     if (encryptedBytes) sodium.memzero(encryptedBytes);
   }
 
-  const byok = await readByokStatus(repository, session.token);
+  const byok = await readByokStatus(repository, byokToken);
   sendJson(res, 200, {
     repository,
     provider: RUNTIME_PROVIDER,
@@ -2020,12 +2092,13 @@ async function disconnectByok(req, res) {
   assertJsonRequest(req);
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
-  const { encodedRepository } = await requireWritableRepository(repository, session);
-  if (session.authMode === "github_app" && session.byokSecretWrite !== true) {
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before BYOK can be disconnected.");
   }
+  const byokToken = await repositoryByokToken(session, repo, installationId);
   try {
-    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, session.token, { method: "DELETE" });
+    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, byokToken, { method: "DELETE" });
   } catch (error) {
     if (!(error instanceof GitHubError) || error.status !== 404) throw error;
   }

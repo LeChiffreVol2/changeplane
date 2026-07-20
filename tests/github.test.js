@@ -39,6 +39,7 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_SESSION_SECRET",
     "CHANGEPLANE_APP_ORIGIN",
     "CHANGEPLANE_CANARY_REPOSITORY",
+    "CHANGEPLANE_SELF_SERVE_ENABLED",
     "CHANGEPLANE_REPAIR_REPOSITORY",
     "CHANGEPLANE_REPAIR_ENABLED",
     "CHANGEPLANE_REPAIR_GENERATION",
@@ -72,6 +73,7 @@ async function withOAuthEnvironment(callback) {
   delete process.env.VERCEL_GIT_COMMIT_SHA;
   delete process.env.VERCEL_DEPLOYMENT_ID;
   delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+  delete process.env.CHANGEPLANE_SELF_SERVE_ENABLED;
   delete process.env.CHANGEPLANE_REPAIR_REPOSITORY;
   delete process.env.CHANGEPLANE_REPAIR_ENABLED;
   delete process.env.CHANGEPLANE_REPAIR_GENERATION;
@@ -268,8 +270,8 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.doesNotMatch(actionInputs, /^  (mode|agent_dispatch|agent_webhook_url|agent_webhook_token|max_remediation_attempts):/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-  assert.match(appSource, /Independent exact-head assurance for agent PRs/u);
-  assert.match(appSource, /The model may propose a patch; only a separate deterministic harness and trusted controller can publish the result/u);
+  assert.match(appSource, /Assurance for agent-written code/u);
+  assert.match(appSource, /verifies every agent pull request against the exact commit before GitHub decides what ships/u);
   assert.match(installerSource, /\*\*Done when:\*\* open or update one normal pull request/u);
   assert.match(installerSource, /\*\*Neutral\*\* means ChangePlane reported findings without changing merge rules/u);
   assert.match(installerSource, /\*\*Scope only\*\* means the exact commit and files were checked/u);
@@ -1037,6 +1039,39 @@ test("hosted rollout stays closed when the disposable canary setting is missing"
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+test("explicit self-serve rollout opens GitHub onboarding without weakening repair configuration", async () => {
+  await withGitHubAppEnvironment(async () => {
+    Object.assign(process.env, {
+      CHANGEPLANE_SELF_SERVE_ENABLED: "true",
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+      VERCEL_GIT_REPO_SLUG: "changeplane",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: "c".repeat(40),
+    });
+    delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+
+    const readinessResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+    const readinessPayload = JSON.parse(readinessResponse.body);
+    assert.equal(readinessResponse.statusCode, 200);
+    assert.equal(readinessPayload.rolloutMode, "self_serve");
+    assert.equal(readinessPayload.checks.canaryRepository, true);
+    assert.equal(readinessPayload.repairController.configured, false);
+
+    const sessionResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+    assert.deepEqual(JSON.parse(sessionResponse.body), {
+      authenticated: false,
+      configured: true,
+      authMode: "github_app",
+      rolloutMode: "self_serve",
+    });
   });
 });
 
@@ -2235,7 +2270,7 @@ test("returning GitHub App users authorize without reopening installation settin
   });
 });
 
-test("returning authorization fails closed when the GitHub App installation is ambiguous", async () => {
+test("returning authorization keeps every eligible personal and organization installation", async () => {
   await withGitHubAppEnvironment(async () => {
     const authorizeResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
@@ -2259,8 +2294,16 @@ test("returning authorization fails closed when the GitHub App installation is a
           async json() {
             return {
               installations: [
-                { id: 1, app_slug: "changeplane-test", permissions: {} },
-                { id: 2, app_slug: "changeplane-test", permissions: {} },
+                {
+                  id: 1,
+                  app_slug: "changeplane-test",
+                  permissions: { contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
+                },
+                {
+                  id: 2,
+                  app_slug: "changeplane-test",
+                  permissions: { contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
+                },
               ],
             };
           },
@@ -2275,8 +2318,15 @@ test("returning authorization fails closed when the GitHub App installation is a
         url: `/api/github?action=callback&code=valid-code-789&state=${oauthState}`,
         headers: { cookie: oauthCookie },
       }, callbackResponse);
-      assert.equal(callbackResponse.statusCode, 409);
-      assert.match(JSON.parse(callbackResponse.body).error, /More than one ChangePlane installation/u);
+      assert.equal(callbackResponse.statusCode, 302);
+      const sessionCookie = callbackResponse.getHeader("set-cookie")[1].split(";", 1)[0];
+      const sessionResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=session",
+        headers: { cookie: sessionCookie },
+      }, sessionResponse);
+      assert.equal(JSON.parse(sessionResponse.body).authenticated, true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -2320,6 +2370,52 @@ test("GitHub App repository picker is limited to the verified installation", asy
       }, response);
       assert.equal(response.statusCode, 200);
       assert.equal(JSON.parse(response.body).repositories[0].fullName, "alice/private-service");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("GitHub App repository picker combines eligible personal and organization installations", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "ghu_user_token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "github_app",
+      installationId: "12345",
+      installationIds: ["12345", "67890"],
+    }, SECRET);
+    const requestedInstallations = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      const match = requestUrl.pathname.match(/^\/user\/installations\/(\d+)\/repositories$/u);
+      assert.ok(match);
+      requestedInstallations.push(match[1]);
+      const fullName = match[1] === "12345" ? "alice/personal-service" : "acme/platform-service";
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { repositories: [{ full_name: fullName, default_branch: "main", permissions: { push: true, admin: false } }] };
+        },
+      };
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=repos",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(requestedInstallations, ["12345", "67890"]);
+      assert.deepEqual(JSON.parse(response.body).repositories.map(({ fullName }) => fullName), [
+        "alice/personal-service",
+        "acme/platform-service",
+      ]);
     } finally {
       globalThis.fetch = originalFetch;
     }

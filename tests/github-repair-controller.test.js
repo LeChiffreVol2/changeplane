@@ -8,6 +8,7 @@ import {
   claimTrustedRepair,
   createGitHubAppJwt,
   createInstallationAccessToken,
+  createSecretsWriteInstallationAccessToken,
   deriveControllerSecret,
   issueTrustedRepairPushToken,
   publishTrustedRepair,
@@ -407,6 +408,19 @@ test("GitHub App JWT and repository token stay narrowly scoped", async () => {
     checks: "write",
     contents: "write",
     pull_requests: "read",
+  });
+
+  await createSecretsWriteInstallationAccessToken({
+    appId: APP_ID,
+    privateKey,
+    installationId: INSTALLATION_ID,
+    repositoryId: REPOSITORY_ID,
+    request: github.request,
+    now: Date.parse("2026-07-19T00:00:00.000Z"),
+  });
+  assert.deepEqual(github.tokenRequests[1], {
+    repository_ids: [REPOSITORY_ID],
+    permissions: { secrets: "write" },
   });
 });
 

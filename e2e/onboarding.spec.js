@@ -42,7 +42,7 @@ test("controlled-canary public root replays RouteThai assurance from failed head
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "See RouteThai assurance from failure to PASS." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "See how assurance works." })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
@@ -56,10 +56,10 @@ test("controlled-canary public root replays RouteThai assurance from failed head
   await expect(page.getByRole("heading", { name: "Keep every stop inside its service window" })).toBeFocused();
   await expect(page.locator(".decision-pill")).toHaveText("Ready to check");
   await expect(page.getByText("GPT-5.6 Luna · recorded canary evidence")).toBeVisible();
-  await page.getByRole("button", { name: "Replay RouteThai assurance" }).click();
-  await expect(page.getByText("GPT-5.6 Luna is proposing a bounded patch")).toBeVisible();
+  await page.getByRole("button", { name: "Run assurance replay" }).click();
+  await expect(page.getByText("Luna is proposing a bounded fix")).toBeVisible();
   await expect(page.locator(".decision-pill")).toHaveText("Check passed");
-  await expect(page.getByText("PASS published on 9fc82a1")).toBeVisible();
+  await expect(page.getByText("Verified on 9fc82a1")).toBeVisible();
   await expect(page.getByText("Exact new head passed")).toBeVisible();
   await expect(page.locator("time").filter({ hasText: "ChangePlane / guard · 9fc82a1" })).toBeVisible();
   expect(externalRequests).toEqual([]);
@@ -173,14 +173,14 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   });
 
   await page.goto("/");
-  const connectButton = page.getByRole("button", { name: "Install ChangePlane on GitHub" });
+  const connectButton = page.getByRole("button", { name: "Connect GitHub" });
   await expect(connectButton).toBeVisible();
   await connectButton.focus();
   await page.keyboard.press("Enter");
 
-  const setupHeading = page.getByRole("heading", { name: "Connect once. Then close this tab." });
+  const setupHeading = page.getByRole("heading", { name: "One repository. One setup PR." });
   await expect(setupHeading).toBeFocused();
-  await expect(page.getByRole("heading", { name: "Choose one GitHub project" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose where ChangePlane runs" })).toBeVisible();
 
   await page.keyboard.press("Tab");
   const search = page.getByPlaceholder("Search repositories");
@@ -190,11 +190,9 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   await expect(repository).toBeFocused();
   await page.keyboard.press("Enter");
 
-  await expect(page.getByText("Safe to install · choose evidence below")).toBeVisible();
-  await page.getByText("Optional · connect a provider key").click();
+  await expect(page.getByText("Ready to install")).toBeVisible();
   await expect(page.getByLabel("OpenAI API key")).toBeVisible();
-  await expect(page.getByText("Stored in GitHub only · repair remains disabled")).toBeVisible();
-  await page.getByText("Optional · connect a provider key").click();
+  await expect(page.getByText("Bring your own OpenAI key")).toBeVisible();
   const evidenceSelect = page.getByLabel("Use a test from GitHub");
   await expect(evidenceSelect).toBeVisible();
   await expect(evidenceSelect).toHaveValue("test\0github-actions");
@@ -203,7 +201,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   await page.keyboard.press("Space");
   await expect(evidenceConfirmation).toBeChecked();
 
-  const installButton = page.getByRole("button", { name: "Create observe setup PR" });
+  const installButton = page.getByRole("button", { name: "Create setup PR" });
   await expect(installButton).toBeEnabled();
   await installButton.focus();
   await page.keyboard.press("Enter");
@@ -332,16 +330,16 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("button", { name: "Connect GitHub" }).click();
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
-  await expect(page.getByText("Safe managed upgrade ready")).toBeVisible();
-  await expect(page.getByText("A verified earlier installation can be updated to managed version 1 without changing .changeplane.json.")).toBeVisible();
+  await expect(page.getByText("Upgrade ready")).toBeVisible();
+  await expect(page.getByText("Update managed files to version 1 without changing your policy.")).toBeVisible();
   await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
   await expect(page.getByRole("group", { name: "Choose what the first receipt proves" })).toHaveCount(0);
-  await expect(page.getByText("ChangePlane is active")).toHaveCount(0);
+  await expect(page.getByText("Setup complete")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Create managed upgrade PR" }).click();
+  await page.getByRole("button", { name: "Create upgrade PR" }).click();
 
   await expect(page.getByRole("heading", { name: "Review the managed upgrade" })).toBeVisible();
   await expect(page.getByText("Upgrade pull request only")).toBeVisible();
@@ -350,12 +348,12 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
     "https://github.com/acme/payments-api/pull/43",
   );
   await page.getByRole("button", { name: "I merged it — check this repository" }).click();
-  await expect(page.getByText("Checking the repository boundary")).toBeVisible();
+  await expect(page.getByText("Checking repository safety")).toBeVisible();
   await expect(page.locator(".safety-preflight")).toHaveAttribute("aria-busy", "true");
   await expect(page.getByRole("button", { name: /Create .* PR/u })).toHaveCount(0);
   await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
   await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
-  await expect(page.getByText("ChangePlane is active")).toBeVisible();
+  await expect(page.getByText("Setup complete")).toBeVisible();
   await expect(page.getByText("No repository change is needed", { exact: true })).toBeVisible();
   await expect(page.getByText(/No test PR is required/u)).toBeVisible();
   await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
@@ -493,7 +491,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("button", { name: "Connect GitHub" }).click();
 
   await page.getByRole("radio", { name: /acme\/pending-api/u }).click();
   await expect(page.getByText("Upgrade PR already ready")).toBeVisible();
@@ -510,8 +508,8 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
 
   await page.getByRole("radio", { name: /acme\/current-api/u }).click();
   await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
-  await expect(page.getByText("ChangePlane is active")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create managed upgrade PR" })).toHaveCount(0);
+  await expect(page.getByText("Setup complete")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create upgrade PR" })).toHaveCount(0);
 
   await page.getByRole("radio", { name: /acme\/retry-api/u }).click();
   await expect(page.getByRole("alert")).toContainText("Read-only check could not finish");
@@ -530,9 +528,9 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   await expect(page.locator(".safety-preflight-attention")).toBeVisible();
   await expect(page.getByText("No repository change was made.")).toBeVisible();
   await expect(page.getByText("Blocked safely")).toBeVisible();
-  await expect(page.getByText("Repository owner review")).toBeVisible();
+  await expect(page.getByText("Owner review needed")).toBeVisible();
   await expect(page.getByText("ChangePlane stopped before writing", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create observe setup PR" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Create setup PR" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Open repository for owner review" })).toHaveAttribute(
     "href",
     "https://github.com/acme/conflict-api",

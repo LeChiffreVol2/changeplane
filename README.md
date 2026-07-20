@@ -6,7 +6,7 @@ Independent, exact-revision assurance for code written and repaired by AI agents
 
 ChangePlane is an OpenAI Build Week project in the **Developer Tools** track. Its operating principle is simple: **agents can propose and repair code; they should never certify themselves.** A proposal model may return a bounded unified diff. A deterministic harness validates the exact head, allowed paths, evidence, stale-head state, and attempt budget. Only a separately credentialed trusted controller may apply the accepted patch and publish `ChangePlane / guard` on the new exact head.
 
-The public product is available at [changeplane.vercel.app](https://changeplane.vercel.app/). It opens a signed-out RouteThai assurance replay without repository access.
+The public product is available at [changeplane.vercel.app](https://changeplane.vercel.app/). Install the repository-scoped GitHub App on a personal account or organization, choose one repository, and merge one observe-mode setup pull request. A signed-out RouteThai assurance replay remains available without repository access.
 
 ## Build Week submission summary
 
@@ -18,11 +18,12 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 - **Connected alternatives:** `gpt-5.6-terra`, `gpt-5.6-sol`
 - **OpenAI API:** Responses API through native `fetch`, `reasoning.effort: "high"`, `store: false`
 - **Primary use case:** RouteThai production-informed shadow pilot using only synthetic data
-- **Public boundary:** recorded replay; no GitHub connection, live key field, or live model selector
-- **Private boundary:** invite-only BYOK on one disposable canary repository
-- **Production boundary:** observe-only; no managed spend, self-serve installation, production repair enforcement, or merge authority
+- **Public boundary:** self-serve observe onboarding plus a signed-out recorded replay
+- **BYOK boundary:** optional per-repository OpenAI key stored only as a GitHub Actions Secret
+- **Repair boundary:** live repair and trusted apply remain bound to one disposable canary repository
+- **Production boundary:** observe-only; no managed spend, production repair enforcement, or merge authority
 
-Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path.
+Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path. Product and competitive priorities are in [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md).
 
 ## What was built with Codex and GPT-5.6
 
@@ -74,7 +75,7 @@ flowchart LR
 
 The model job receives no GitHub token, App private key, controller secret, push credential, merge permission, or Check authority. Provider output is treated as untrusted data and must pass the same patch-only validator as every compatibility adapter. A model cannot return PASS.
 
-The public replay is intentionally not a technical dashboard. It is a complete, clickable explanation of this boundary. Connected onboarding remains GitHub App-first: connect GitHub, choose one repository, merge one setup PR. BYOK is optional after setup and never blocks observe onboarding.
+The public replay is intentionally not a technical dashboard. It is a complete, clickable explanation of this boundary. Connected onboarding is GitHub App-first: connect GitHub, choose one repository from any eligible personal or organization installation, and merge one setup PR. BYOK is optional and never blocks observe onboarding.
 
 ## Shared runtime contract
 
@@ -122,6 +123,8 @@ It fails closed on invalid credentials, unsupported models, provider refusal, ti
 
 ## GitHub and BYOK API
 
+The GitHub App supports GitHub.com personal accounts and organizations, including Enterprise Cloud organizations. A returning user may select repositories across multiple eligible App installations. Repository access remains installation-scoped; GitHub Enterprise Server is not supported in this release.
+
 - `GET /api/github?action=byok&repository=owner/repo` returns only configuration state, provider, and active model.
 - `POST /api/github?action=byok` verifies the selected OpenAI model, encrypts the key with GitHub's repository public key, and stores it only as `OPENAI_API_KEY`.
 - `DELETE /api/github?action=byok` deletes only that Actions Secret. Runtime policy stays unchanged and repair fails closed.
@@ -145,7 +148,7 @@ Run the public product locally:
 npm run dev
 ```
 
-The signed-out root falls back to the RouteThai replay when the GitHub connector is absent or the hosted rollout is in controlled-canary mode.
+The signed-out root offers GitHub connection when self-serve is enabled and always keeps the RouteThai example available. It falls back to the example-only entry when the connector is absent or the hosted rollout is in controlled-canary mode.
 
 Run the deliberately failing synthetic evidence:
 
@@ -178,10 +181,10 @@ The current tracked adapter canary proves live Luna access, bounded patch parsin
 ## Current limits
 
 - Public execution is a recorded replay, not a browser-side model call.
-- Connected BYOK and model settings are invite-only and single-repository.
+- BYOK is configured per repository after GitHub connection; it is not stored by ChangePlane.
 - Observe mode cannot block merge or deploy.
 - Managed model execution, metering, billing, and subscription checkout are disabled.
-- Self-serve GitHub installation and new-install stages remain disabled for this release.
+- GitHub Enterprise Server is not supported; self-serve onboarding targets GitHub.com personal accounts, organizations, and Enterprise Cloud.
 - Production repair enforcement is not enabled.
 - GitHub.com and same-repository pull requests only.
 - GitHub Merge Queue `merge_group` is not yet supported.

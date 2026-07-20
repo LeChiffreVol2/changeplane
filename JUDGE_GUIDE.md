@@ -4,12 +4,12 @@
 
 Open [https://changeplane.vercel.app/](https://changeplane.vercel.app/) in a signed-out browser.
 
-1. Confirm the page says **Sanitized production replay · no repository access**.
-2. Select **Open RouteThai example workspace**.
-3. Read the boundary banner: production-informed shadow pilot, synthetic data, no repository access, public replay only.
-4. Select **Replay RouteThai assurance**.
+1. Confirm the primary action is **Connect GitHub** and the page explains the one-repository setup.
+2. Select **View RouteThai example**. No sign-in is required.
+3. Read the boundary banner: production-informed shadow pilot, synthetic data, public replay, no repository access.
+4. Select **Run assurance replay**.
 5. Watch the exact sequence: bound head `71b04c2` → deterministic service-window failure → GPT-5.6 Luna proposal → clean validation → trusted apply → new head `9fc82a1` → `ChangePlane / guard` PASS.
-6. Open **New revision certified independently** to inspect the authority separation.
+6. Open **New commit verified independently** to inspect the authority separation.
 7. Confirm the model has no Check, push, approval, merge, or PASS authority.
 
 The replay lasts about five seconds and makes no live OpenAI or GitHub request.
@@ -18,6 +18,7 @@ The replay lasts about five seconds and makes no live OpenAI or GitHub request.
 
 | Surface | Status | Evidence |
 | --- | --- | --- |
+| Self-serve GitHub onboarding | Public observe setup | Personal and organization installations; one protected setup PR; no repair enforcement |
 | Public RouteThai workspace | Public recorded replay | Synthetic data; no authentication or repository access |
 | GPT-5.6 Luna API adapter | Live verified | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) |
 | Patch boundary | Live verified | One allowed file, unified diff, patch hash recorded |
@@ -66,9 +67,9 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 ## Known limitations
 
 - The public experience is a replay, not live browser execution.
-- Live BYOK/model selection is invite-only on a single disposable repository.
+- BYOK is available per connected repository and stored only as a GitHub Actions Secret.
 - Observe mode cannot block merge or deploy.
-- Managed execution, billing, self-serve installation, production repair enforcement, and merge-queue support are not enabled.
+- Managed execution, billing, production repair enforcement, GitHub Enterprise Server, and merge-queue support are not enabled.
 - The tracked adapter canary does not prove an App-authored push, signed ledger publication, or exact-head GitHub Check dispatch.
 - RouteThai is a production-informed shadow pilot, not a customer claim or production-connected integration.
 
