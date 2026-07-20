@@ -2,13 +2,17 @@
 
 ## Autonomous harness release record — 2026-07-21
 
-- [ ] Record the protected release commit, CI run, Preview deployment, Production deployment, readiness request ID, and rollback target.
+- [x] Record the protected release commit, CI run, Preview result, Production deployment, and immediately previous rollback target in `evidence/changeplane-v9-production-release.json`.
+  - Protected source `3af23a881175fb82f7bbb4ab5bda89f3b0945e58` from [PR #35](https://github.com/LeChiffreVol2/changeplane/pull/35); [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29788007157) and Vercel Preview passed on exact head `91311d54342f5211580122d122c05b2ae9d969d5`.
+  - Vercel Production `dpl_Fwr7Rm2Fr7TUaJCFRJKFyemTyZGE` is `READY` and aliases `https://changeplane.vercel.app`; previous known-good `dpl_7GWdo5SAUGLatDQL5GTmJj1Pvtt1` remains available.
+- [ ] Capture a direct readiness response for the final evidence-only release. The selected in-app browser blocked direct navigation to the JSON; this was not bypassed. Signed-out root, authenticated preflight, exact Vercel source, and managed-v9 state were verified separately.
 - [x] Self-serve GitHub App onboarding supports eligible personal and organization installations and limits repository selection to the verified installation.
 - [x] Autonomous setup requires one exact behavioral check plus verified repository BYOK and creates one protected setup PR; scope-only remains observe mode.
 - [x] The managed payload vendors the trusted harness, repair helpers, and workflows without a queue, database, proprietary workspace, or model-held GitHub credential.
 - [x] Luna Responses transport uses a strict one-field patch schema; unified-diff, allowed-path, clean-apply, stale-head, two-attempt/15-minute, and deterministic re-validation gates remain independent.
 - [x] Live synthetic Luna adapter evidence passed with redacted request ID and patch hash in `evidence/routethai-luna-adapter-canary.json`.
-- [ ] Capture the disposable repository's App-signed grant, clean apply, synchronize event, new exact head, and `ChangePlane / guard` result from this release commit.
+- [x] Capture the disposable repository's App-signed grant, redacted Luna request metadata, clean apply, App-authored push, synchronize event, new exact head, and `ChangePlane / guard` result.
+  - Managed v9 [PR #31](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/31): `7b670f341662cfd97699d3957e6491a2bc026f9a` → `e053526676f0fb189b4fa87d8da4612725ffd9ee`; repair run `29788370891`; grant Check `88504652456`; final guard Check `88504854987`; zero human repair commits; closed without merge.
 
 ## Controlled-canary release record — 2026-07-19
 
@@ -27,16 +31,20 @@
 - [x] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
 - [ ] Keep the release on the fixed free Vercel phase. Verify public repository discovery is limited to each signed-in user's eligible App installations while controlled repair-canary routes remain bound to the exact disposable `CHANGEPLANE_CANARY_REPOSITORY`.
 - [x] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
-- [x] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and optional inactive repair templates. No database, queue, merge service, or paid observability is required.
+- [x] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and reviewed managed repair helpers. No database, queue, merge service, or paid observability is required. Repair is active only in explicitly configured repository setups and the controlled canary.
 - [ ] Confirm GitHub Merge Queue publishes `ChangePlane / guard` on the exact `merge_group` SHA and does not dispatch review, proposal, repair, apply, or handback work.
-- [ ] Confirm `ChangePlane / review` runs only with repository BYOK, validates changed-line locations, caps and deduplicates findings, and never contributes PASS or approval.
-- [ ] Confirm `.changeplane/assurance.md` is repository-owned, read from the trusted default branch, and changed only through a protected pull request.
-- [ ] Confirm the agent-handback Action output and receipt payload carry no credential or authority and stale-head consumers stop safely.
-- [ ] Confirm a receipt includes a preview only when the deployment SHA equals the evaluated head.
+  - Blocked for positive live evidence: GitHub Merge Queue is unavailable on the private personal-account canary. Exact-revision and stale-base automated tests pass.
+- [x] Confirm `ChangePlane / review` runs only with repository BYOK, validates changed-line locations, caps and deduplicates findings, and never contributes PASS or approval.
+  - Live canary [PR #25](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/25) published one advisory annotation through Check Run `88499084548`; guard remained independent and the PR closed without merge.
+- [x] Confirm `.changeplane/assurance.md` is repository-owned, read from the trusted default branch, and changed only through a reviewed pull request.
+  - Canary [PR #24](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/24) added the synthetic RouteThai assurance memory with the trusted review policy.
+- [x] Confirm the agent-handback Action output and receipt payload carry no credential or authority and stale-head consumers stop safely.
+  - Canary PR #31 bound the payload to the initial exact head and declared proposal-only authority with Git, Check, merge, and PASS all false.
+- [ ] Capture a positive live receipt containing an exact-head preview. The automated contract passes, and PR #31 correctly omitted the preview because no matching deployment existed.
 
 ## Source and CI gate
 
-- [ ] Protect `main`, disallow direct pushes/bypasses, and require the pinned `CI / verify` job before merge.
+- [x] Protect `main`, disallow direct pushes/bypasses, and require the pinned `CI / verify` job before merge.
 - [x] Confirm `CI / verify` is the exact required check name and the workflow has `contents: read`, immutable action SHAs, one canceling concurrency lane, a job timeout, and no deployment secret.
 - [x] Confirm the activation-boundary step finds only `.github/workflows/ci.yml`; observe and repair templates must remain under `examples/`.
 - [x] From a clean checkout, confirm `npm ci --cache .npm-cache`, `npm run verify`, and `npm run audit:prod` pass with Node `22.18.0`.
@@ -48,10 +56,10 @@
 ## Configuration and secrets
 
 - [ ] Inventory observe Vercel settings `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SELF_SERVE_ENABLED`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, optional `CHANGEPLANE_MANAGED_OPENAI_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
-- [ ] Inventory repair Vercel settings `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; keep the switch false and keep all secret values out of the release record.
-- [ ] Inventory repository Actions Secrets `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, `CHANGEPLANE_CONTROLLER_HMAC`, and `OPENAI_API_KEY`; write the worker switch false first and true only after complete provisioning.
+- [x] Inventory repair Vercel setting names `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; record only active/inactive state, never values. The controlled v9 canary is active; containment restores the switch to false.
+- [x] Inventory repository Actions Secret names `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, `CHANGEPLANE_CONTROLLER_HMAC`, and `OPENAI_API_KEY`; the worker switch was enabled only after complete provisioning. Secret values remain unreadable and absent from evidence.
 - [x] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
-- [ ] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers Connect GitHub and the RouteThai example; personal and organization installations list only repositories in their verified App installations; autonomous setup remains gated by exact test + BYOK + protected setup PR.
+- [x] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers Connect GitHub and the RouteThai example; personal and organization installations list only repositories in their verified App installations; autonomous setup remains gated by exact test + BYOK + protected setup PR.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_OPENAI_API_KEY` server-side and absent unless the private canary is explicitly approved.
@@ -75,6 +83,7 @@
 - [x] Verify one exact-head receipt and neutral `ChangePlane / guard` Check Run in observe mode.
   - [PR #2](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/2) has one idempotently updated receipt on final head `bab424f625052aad5d0038de5bccb04e71b06053`; `test` and `ChangePlane observe` succeeded, `ChangePlane / guard` concluded neutral, and the receipt bound the successful `github-actions` evidence to that exact head.
 - [ ] Verify personal and organization BYOK create, rotate, disconnect, provider-key revocation, and fail-closed OpenAI model access without retaining plaintext. Keep the managed key unset.
+  - Live status and Luna use passed; atomic create/rotation/deletion and key-redaction tests pass. Live deletion was not exercised because GitHub Secrets cannot be read back and no replacement key was available for safe restoration.
 
 ## Release and rollback
 
@@ -106,12 +115,12 @@
 - [x] Record the active Vercel Production deployment's full 40-character source SHA and confirm its first 12 characters equal readiness `release`.
   - Autonomous runtime evidence captured 2026-07-20: Production source `0e8e093262a175d8ffa8284106c0c62ed2f68f65`, readiness release `0e8e093262a1`, repair enabled/configured with every nested check true. Later evidence-only documentation releases may advance the deployment SHA without changing these runtime bytes.
   - Observe-release evidence captured 2026-07-19: Production source `38d4c4d261ba43df7e6d580b56e797100519526e`, readiness release `38d4c4d261ba`. This is not authorization to reuse that SHA for a later repair install; pin the full active reviewed repair-capable release at activation time.
-- [x] Install the v6 managed guard, repair workflow, and reviewed helper payload together through reviewed upgrade PRs; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.
+- [x] Install the v9 managed guard, repair workflow, review plane, assurance memory contract, provider request metadata, and reviewed helpers through upgrade PRs #23, #28, and #30; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.
 - [x] Pin every third-party Action in the installed repair workflows to a reviewed full commit SHA.
 - [ ] With both switches false, deploy the complete configuration; confirm readiness remains observe-ready, repair is disabled/unconfigured with only the enabled check false, and `repair`, `repair-claim`, `repair-validate`, and `repair-push-token` each fail closed with `503` before GitHub access.
 - [ ] Pass stale-head, expiry, path-boundary, replay, idempotency, fork, and sandbox escape tests in a disposable repository.
-- [x] Run the RouteThai synthetic service-window canary end to end: expected-App evidence fails on `a9d2058`, Luna proposes only `routethai/route-planning.js`, the clean apply job creates `9f9efd6`, fresh evidence succeeds, and only then does `ChangePlane / guard` pass with zero human repair commits. See `evidence/routethai-luna-github-canary.json`.
-- [ ] Exercise the generation-based kill switch before provider access and again before clean apply in the disposable repair canary.
+- [x] Run the managed-v9 RouteThai synthetic service-window canary end to end: expected-App evidence fails on `7b670f3`, Luna proposes only `routethai/route-planning.js`, the clean apply job creates `e053526`, fresh evidence succeeds, and only then does `ChangePlane / guard` pass with zero human repair commits. See `evidence/changeplane-v9-production-release.json`.
+- [x] Exercise the generation and repository kill-switch checks before provider access and again before clean apply in the disposable repair canary. Both gates passed in workflow run `29788370891`.
 - [x] Activate in order: set the repository worker switch true, deploy the reviewed protected-source commit with the Vercel switch true, and stop unless readiness reports repair enabled/configured with every nested check true for the expected release.
 - [ ] Run deterministic scope repair before adding or exercising `OPENAI_API_KEY`; never reuse the stale observe pull request as repair evidence.
 - [ ] Exercise rollback in order: repository switch false, cancel runs, Vercel switch false, generation advanced and mirrored, disabled deployment verified, repair endpoints `503`. Do not rely on Instant Rollback alone because an older deployment may carry enabled configuration.

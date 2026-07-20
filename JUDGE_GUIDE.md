@@ -23,11 +23,13 @@ The replay lasts about five seconds and makes no live OpenAI or GitHub request.
 | GPT-5.6 Luna API adapter | Live verified | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) |
 | Structured patch boundary | Live verified | Official Responses API schema; one extracted patch field; one allowed file; patch hash recorded |
 | Clean apply and deterministic re-validation | Live verified | Original fixture failed; patched temporary worktree passed |
-| App-signed attempt ledger and one-time push credential | Live verified | [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json) plus controller tests |
-| App-authored GitHub push and exact-head PASS | Live verified | Initial head `a9d2058` → controller repair `9f9efd6` → Check Run `88461760023` |
-| `ChangePlane / review` | Available in managed setup | BYOK-gated, exact-diff advisory findings; never PASS or approval |
-| Assurance memory and agent handback | Available in managed setup | Trusted `.changeplane/assurance.md` plus vendor-neutral Action output and receipt payload |
-| Preview and Merge Queue binding | Available in managed setup | Exact-head preview receipt; exact-`merge_group` guard-only evaluation |
+| App-signed attempt ledger and one-time push credential | Live verified | [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json), canary PR #31, repair run `29788370891` |
+| App-authored GitHub push and exact-head PASS | Live verified | Initial head `7b670f3` → controller repair `e053526` → Check Run `88504854987` |
+| `ChangePlane / review` | Live verified | Canary PR #25, one exact changed-line advisory, Check Run `88499084548`; guard remained independent |
+| Assurance memory | Live verified | Canary PR #24 added trusted `.changeplane/assurance.md` through a reviewed configuration pull request |
+| Agent handback | Live verified | Canary PR #31 exact-head receipt carries a proposal-only payload with no Git, Check, merge, or PASS authority |
+| Exact-head preview binding | Automated contract; live omission verified | The canary receipt omitted its preview because no exact-head deployment existed; positive live preview evidence is not captured |
+| Merge Queue binding | Automated contract; live blocked | Exact-`merge_group` and stale-base tests pass; the private personal-account canary is not eligible for GitHub Merge Queue |
 
 This distinction is deliberate. The model adapter result alone is never represented as proof of GitHub write or Check authority.
 
@@ -70,6 +72,7 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - Synthetic RouteThai fixture: [`examples/routethai-synthetic`](examples/routethai-synthetic)
 - Redacted Luna evidence: [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json)
 - Redacted autonomous GitHub evidence: [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json)
+- Managed-v9 production and final autonomous evidence: [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json)
 
 ## Known limitations
 
@@ -78,7 +81,9 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - Scope-only observe mode cannot block merge or deploy.
 - Managed model execution, billing, and GitHub Enterprise Server are not enabled. GitHub remains merge authority.
 - `ChangePlane / review` requires repository BYOK, is advisory, and never certifies or contributes PASS.
-- Merge Queue support is guard-only on the exact `merge_group`; it never dispatches repair or model review.
+- Merge Queue support is guard-only on the exact `merge_group`; it never dispatches repair or model review. Positive live evidence still requires an eligible organization repository and GitHub plan.
+- Exact-head preview binding is implemented and tested, but the current private canary has no preview deployment provider; its live receipt correctly omitted the URL.
+- The connected canary's BYOK status and live Luna calls passed. Destructive secret deletion was not exercised because GitHub Secrets are unreadable and no replacement key was available for safe restoration.
 - The disposable canary is owner-controlled lab evidence on GitHub Free, not a claim of customer production enforcement or branch protection.
 - RouteThai is a production-informed shadow pilot, not a customer claim or production-connected integration.
 
