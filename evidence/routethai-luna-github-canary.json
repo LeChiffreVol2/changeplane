@@ -6,7 +6,7 @@
   "pullRequest": 21,
   "pullRequestUrl": "https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/21",
   "productionReleaseAtRun": "4832d8c2a65359ce314355134d0d120d68a558b2",
-  "currentProductionRelease": "0e8e093262a175d8ffa8284106c0c62ed2f68f65",
+  "productionReleaseAfterHardening": "0e8e093262a175d8ffa8284106c0c62ed2f68f65",
   "currentManagedVersion": 6,
   "model": "gpt-5.6-luna",
   "reasoningEffort": "high",
