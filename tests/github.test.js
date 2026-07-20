@@ -800,6 +800,7 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   const claimClient = readFileSync(new URL("../examples/changeplane-claim.js", import.meta.url), "utf8");
   const provisioner = readFileSync(new URL("../scripts/provision-repair-canary.mjs", import.meta.url), "utf8");
   const installerApi = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
+  const vercelConfig = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
   assert.match(workflow, /Managed autonomous harness/u);
   assert.match(workflow, /cancel-in-progress: false/u);
@@ -911,6 +912,12 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   assert.ok(
     disableIndex > 0 && controllerIndex > disableIndex && enableIndex > controllerIndex,
     "self-serve harness provisioning must disable repair before rotation and enable it last",
+  );
+  const includedFiles = vercelConfig.functions["api/github.js"].includeFiles;
+  assert.equal(
+    includedFiles,
+    "{action.yml,action/**,src/lib/**,server/**,examples/changeplane-*.{js,yml}}",
+    "the Vercel installer must bundle every managed harness source",
   );
 });
 
