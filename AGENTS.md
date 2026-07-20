@@ -1,5 +1,13 @@
 # Prototype Instructions
 
+## Current launch decisions (July 20, 2026)
+
+- Public observe onboarding is self-serve when `CHANGEPLANE_SELF_SERVE_ENABLED=true`. This supersedes the earlier public-root canary restriction for onboarding only: GitHub.com personal accounts and organizations, including Enterprise Cloud organizations, may install the repository-scoped GitHub App, choose any writable repository granted to an eligible installation, and create one protected setup pull request. GitHub Enterprise Server is not supported yet.
+- A returning user may have more than one eligible GitHub App installation. Repository discovery must combine only the installations visible to that signed-in user, retain the installation-to-repository binding internally, and never fall back to broad repository access.
+- Bring-your-own OpenAI credentials are a per-repository option for personal and organization users, not an enterprise-only feature. The browser sends a key once; ChangePlane verifies it, encrypts it with GitHub's repository public key, stores only `OPENAI_API_KEY` as an Actions Secret, and clears the field. Never store the key in localStorage, logs, API responses, cookies, or a ChangePlane database.
+- Self-serve observe onboarding does not broaden repair authority. Live repair, App-signed apply, and Check publication remain fail-closed to the exact disposable canary repository until their release gates pass.
+- Product copy should read like a minimal YC-grade developer product: lead with the user outcome and one next action, use plain language, and move exact-head, authority, and runtime detail into progressive disclosure. Preserve the exact hero `Keep GitHub. Let agents ship.` and the existing deep-teal frame/warm off-white visual system.
+
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.

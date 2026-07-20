@@ -1110,7 +1110,8 @@ button {
   text-transform: uppercase;
 }
 
-.byok-input input {
+.byok-input input,
+.byok-input select {
   width: 100%;
   height: 39px;
   padding: 0 11px;
@@ -1122,7 +1123,12 @@ button {
   font-size: 11px;
 }
 
-.byok-input input:focus {
+.byok-input select {
+  appearance: auto;
+}
+
+.byok-input input:focus,
+.byok-input select:focus {
   border-color: #0a6069;
   box-shadow: 0 0 0 1px #0a6069;
 }
@@ -2695,12 +2701,9 @@ code,
 }
 
 .preview-proof small {
-  overflow: hidden;
   color: var(--muted);
-  font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .preview-proof-blocked {

@@ -32,6 +32,12 @@ import {
   evaluateChange,
 } from "./lib/changeplane.js";
 import { ApiError, responseJson } from "./lib/api-client.js";
+import {
+  BYOK_SECRET_NAME,
+  DEFAULT_PROPOSAL_MODEL,
+  PROPOSAL_REASONING_EFFORT,
+  SUPPORTED_PROPOSAL_MODELS,
+} from "./lib/runtime.js";
 
 const POLICY = {
   requireApproval: [".github/workflows/**", "migrations/**", "infra/**"],
@@ -65,50 +71,27 @@ const PRESENTATION_USER = {
 
 const PREVIEW_REPOSITORIES = [
   {
-    fullName: "example-org/payments-api",
+    fullName: "routethai-shadow/synthetic-routing",
     private: true,
     defaultBranch: "main",
     permissions: { push: true, admin: false },
   },
-  {
-    fullName: "example-org/web-platform",
-    private: true,
-    defaultBranch: "main",
-    permissions: { push: true, admin: true },
-  },
-  {
-    fullName: "example-org/developer-portal",
-    private: false,
-    defaultBranch: "main",
-    permissions: { push: true, admin: true },
-  },
 ];
 
-const RUNNING_STATES = new Set(["evaluating", "testing", "publishing"]);
+const RUNNING_STATES = new Set(["binding", "failing", "proposing", "validating", "applying", "rechecking", "publishing"]);
 const FILTERS = ["All changes", "Active", "Exceptions"];
 const RUNTIME = {
-  provider: "DeepSeek",
-  model: "DeepSeek V4 Flash",
-  modelId: "deepseek-v4-flash",
-  effort: "high",
-  secretName: "DEEPSEEK_API_KEY",
+  provider: "OpenAI",
+  model: "GPT-5.6 Luna",
+  modelId: DEFAULT_PROPOSAL_MODEL,
+  effort: PROPOSAL_REASONING_EFFORT,
+  secretName: BYOK_SECRET_NAME,
 };
 const EMPTY_BYOK = {
   configured: false,
   state: "not_connected",
   secretName: RUNTIME.secretName,
   updatedAt: null,
-};
-const RESERVED_MANAGED = {
-  state: "reserved",
-  available: false,
-  providerVerified: false,
-  executionReady: false,
-};
-const PREVIEW_MANAGED = {
-  ...RESERVED_MANAGED,
-  state: "provider_verified",
-  providerVerified: true,
 };
 const PREVIEW_PREFLIGHT = {
   repositoryState: "active",
@@ -129,110 +112,46 @@ const PREVIEW_PREFLIGHT = {
 
 const CHANGES = [
   {
-    id: "payment",
-    changeId: "chg_01J9F3",
-    title: "Prevent duplicate checkout charges",
-    repo: "example-org/payments-api",
-    pr: 421,
+    id: "route",
+    changeId: "chg_RTH_01",
+    title: "Keep every stop inside its service window",
+    repo: "routethai-shadow/synthetic-routing",
+    pr: 48,
     initialStatus: "ready",
     time: "Just now",
-    summary: "Claude Code added retry handling for checkout requests that time out after payment capture.",
-    impact: "Ready to bind this exact commit to the allowed checkout files and the repository's duplicate-charge test.",
-    reportedImpact: "The project test expected one payment capture and observed two. The neutral receipt is bound to this exact commit.",
-    scope: "src/checkout/**",
+    summary: "An agent changed the route-planning heuristic.",
+    impact: "One synthetic stop now falls outside its service window.",
+    reportedImpact: "The new commit passed the same service-window test that caught the failure.",
+    scope: "src/routing/**",
+    initialHead: "71b04c2",
     head: "71b04c2",
+    repairedHead: "9fc82a1",
     base: "a1f9d7c (main)",
-    author: "dev-automation[bot]",
+    author: "coding-agent[bot]",
     opened: "58m ago",
     updated: "7m ago",
-    worktree: "cp/pr-421",
-    agent: "dev-automation[bot]",
-    origin: "Claude Code",
-    previewProvider: "vercel[bot]",
-    previewUrl: "payments-api-pr-421.preview.example",
+    worktree: "cp/pr-48",
+    agent: "coding-agent[bot]",
+    origin: "Codex",
     risk: "R2",
     riskLabel: "Standard",
     plannedFiles: 3,
     files: [
-      { path: "src/checkout/retry.ts", add: 48, remove: 12, scope: "In scope" },
-      { path: "src/checkout/idempotency.ts", add: 21, remove: 7, scope: "In scope", evidenceRelevant: true },
-      { path: "src/checkout/idempotency.race.test.ts", add: 86, remove: 0, scope: "In scope" },
-    ],
-    advisory: "Another proposed change also updates checkout retry timing",
-    advisoryTime: "35m ago",
-  },
-  {
-    id: "retry",
-    changeId: "chg_01J9E8",
-    title: "Retry worker",
-    repo: "example-org/payments-api",
-    pr: 419,
-    initialStatus: "passed",
-    time: "18m ago",
-    summary: "The change matched its contract, evidence requirements, and repository policy.",
-    impact: "Passed with zero human exceptions. GitHub merge rules remained in control.",
-    scope: "src/workers/**",
-    head: "4ad2f16",
-    base: "a1f9d7c (main)",
-    author: "dev-automation[bot]",
-    opened: "2h ago",
-    updated: "18m ago",
-    worktree: "cp/pr-419",
-    agent: "dev-automation[bot]",
-    origin: "Codex",
-    previewProvider: "vercel[bot]",
-    previewUrl: "payments-api-pr-419.preview.example",
-    risk: "R1",
-    riskLabel: "Low",
-    plannedFiles: 2,
-    files: [
-      { path: "src/workers/retry.ts", add: 64, remove: 18, scope: "In scope" },
-      { path: "src/workers/retry.test.ts", add: 89, remove: 2, scope: "In scope" },
-    ],
-  },
-  {
-    id: "auth",
-    changeId: "chg_01J9D7",
-    title: "Production credential rotation",
-    repo: "example-org/payments-api",
-    pr: 417,
-    initialStatus: "blocked",
-    time: "47m ago",
-    summary: "The agent attempted to change a non-overridable credential path.",
-    impact: "Automation stopped before merge. A repository owner must redesign the change.",
-    scope: "src/auth/**",
-    head: "db991ae",
-    base: "a1f9d7c (main)",
-    author: "security-rotation[bot]",
-    opened: "3h ago",
-    updated: "47m ago",
-    worktree: "cp/pr-417",
-    agent: "security-rotation[bot]",
-    origin: "Grok Build",
-    risk: "R3",
-    riskLabel: "High",
-    plannedFiles: 1,
-    blockedPolicy: "secrets/**",
-    ownerAction: "Redesign without the protected credential path.",
-    files: [
-      { path: "src/auth/rotate.ts", add: 42, remove: 11, scope: "In scope" },
-      {
-        path: "secrets/production.enc",
-        add: 1,
-        remove: 1,
-        scope: "Blocked by policy",
-        blocked: true,
-      },
+      { path: "src/routing/heuristic.ts", add: 34, remove: 11, scope: "In scope", evidenceRelevant: true },
+      { path: "src/routing/service-window.ts", add: 12, remove: 4, scope: "In scope" },
+      { path: "src/routing/service-window.test.ts", add: 61, remove: 0, scope: "In scope" },
     ],
   },
 ];
 
 const PIPELINE = [
-  ["contract", "Bind exact commit"],
-  ["scope", "Confirm allowed files"],
-  ["evidence", "Run project test"],
-  ["policy", "Apply project rules"],
-  ["check", "Post GitHub receipt"],
+  ["contract", "Bind exact head"],
+  ["evidence", "Reproduce failure"],
+  ["proposal", "Luna proposes patch"],
+  ["validation", "Validate cleanly"],
+  ["apply", "Trusted apply"],
+  ["recheck", "Check new head"],
+  ["check", "Publish PASS"],
 ];
 
 function readStoredJson(key, fallback) {
@@ -317,10 +236,10 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
   const controlledCanary = rolloutMode === "controlled_canary";
   const exampleOnly = (configured === false || controlledCanary) && !checking;
   const buttonLabel = checking
-    ? "Checking GitHub setup…"
+    ? "Checking GitHub…"
     : configured === false
-      ? "GitHub connection unavailable here"
-      : authMode === "github_app" ? "Install ChangePlane on GitHub" : "Continue with GitHub";
+      ? "GitHub connection unavailable"
+      : "Connect GitHub";
 
   return (
     <main className="auth-stage">
@@ -332,44 +251,44 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <div className="auth-message">
-            <p className="auth-kicker"><span /> Independent exact-head assurance for agent PRs</p>
+            <p className="auth-kicker"><span /> Assurance for agent-written code</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Any agent can write the change. A separate deterministic harness checks the exact commit against your project rules and the test you trust, then posts the receipt in GitHub. The pilot observes only—it cannot block a merge or change code. Best for projects that use pull requests and already run at least one automated test; direct-publish projects should start with the example.</p>
+            <p>ChangePlane verifies every agent pull request against the exact commit before GitHub decides what ships.</p>
           </div>
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">
             <div className="auth-signal-heading">
-              <span><i /> Automatic on every pull request update in that project</span>
-              <time>No per-PR handoff</time>
+              <span><i /> Runs on every pull request update</span>
+              <time>Inside GitHub</time>
             </div>
             <div className="auth-signal-row">
               <div>
                 <strong>{exampleOnly
-                  ? "See one agent-authored checkout change checked against its exact commit and project test."
-                  : "ChangePlane checks the exact commit against project rules and required evidence."}</strong>
+                  ? "See a real assurance loop without connecting a repository."
+                  : "Agent opens PR → ChangePlane verifies → GitHub decides"}</strong>
                 <span>{exampleOnly
-                  ? "Agent writes → project test runs → exact-revision receipt in GitHub"
-                  : "Any coding agent → exact commit → receipt in GitHub"}</span>
+                  ? "Synthetic RouteThai case · recorded Luna evidence"
+                  : "Works with Codex, Cursor, Claude Code, and other coding agents"}</span>
               </div>
-              <span className="auth-pass-label">{exampleOnly ? "Observe-only example" : "Pilot cannot block or change code"}</span>
+              <span className="auth-pass-label">{exampleOnly ? "No repository access" : "Observe mode first"}</span>
             </div>
           </div>
         </div>
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{exampleOnly ? "Fictional example · no GitHub access" : "One-time GitHub setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "See what ChangePlane checks on one agent-authored PR." : "Connect once. Then stay in GitHub."}</h2>
+            <p className="auth-eyebrow">{exampleOnly ? "Public example" : "GitHub-native setup"}</p>
+            <h2 id="sign-in-title">{exampleOnly ? "See how assurance works." : "Make every agent PR prove it works."}</h2>
             <p>{exampleOnly
-              ? "A coding agent changed checkout retries. ChangePlane binds that exact commit and its allowed files to the repository's duplicate-charge test, then posts a neutral receipt in GitHub. This example does not repair code or block a merge."
-              : "Choose one GitHub project and open a safe setup pull request. After it is merged, every agent-authored pull request update in that project triggers ChangePlane automatically."}</p>
+              ? "Replay one synthetic routing failure from failed evidence to a verified new commit. Nothing connects to GitHub."
+              : "Install ChangePlane on a personal account or organization. Choose a repository and merge one setup pull request."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
             {exampleOnly ? (
               <button className={`github-sign-in ${isSigningIn ? "is-loading" : ""}`} type="button" onClick={onExplore} disabled={isSigningIn}>
                 {isSigningIn ? <ArrowsClockwise className="spin" size={20} weight="bold" aria-hidden="true" /> : <Play size={19} weight="fill" aria-hidden="true" />}
-                <span>{isSigningIn ? "Opening workspace…" : "Open example workspace"}</span>
+                <span>{isSigningIn ? "Opening workspace…" : "Open RouteThai example workspace"}</span>
                 {!isSigningIn && <ArrowRight size={18} aria-hidden="true" />}
               </button>
             ) : (
@@ -395,17 +314,25 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               </button>
             )}
 
+            {!exampleOnly && (
+              <button className="github-existing" type="button" onClick={onExplore} disabled={isSigningIn}>
+                View RouteThai example
+              </button>
+            )}
+
             <p className="auth-security"><LockKey size={15} /> {controlledCanary
               ? "The example never accesses GitHub. Private canary access can see only the pre-authorized disposable repository."
               : exampleOnly
-              ? "No GitHub account needed. This opens a fictional project and changes nothing."
+              ? "Synthetic data only. The public example cannot push, merge, or deploy."
               : authMode === "github_app"
-                ? "Choose the repositories ChangePlane may see. The installer writes only to the one you select, through one setup PR."
-                : "Pilot access lists writable repositories; writes happen only to the one you select, through one setup PR."}</p>
+                ? "Bring your own OpenAI key after setup. It is encrypted into GitHub Actions and never stored by ChangePlane."
+                : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
               <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>
             ) : exampleOnly ? (
-              <p className="auth-deployment-note">This share link uses fictional repository data and cannot access GitHub.</p>
+              <p className="auth-deployment-note">Recorded evidence only. Live repair remains gated by repository policy.</p>
+            ) : configured ? (
+              <p className="auth-deployment-note">GitHub.com personal accounts, organizations, and Enterprise Cloud. GitHub Enterprise Server is not yet supported.</p>
             ) : configured === false && !checking && (
               <p className="auth-deployment-note">
                 This deployment needs GitHub connection credentials before it can connect a repository.
@@ -414,8 +341,8 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <footer className="auth-footer">
-            <span>Exact commit · project rules · GitHub receipt</span>
-            <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App ready" : "GitHub OAuth pilot" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+            <span>Exact commit · trusted checks · clear receipt</span>
+            <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
           </footer>
         </div>
       </section>
@@ -429,18 +356,18 @@ function SetupProgress({ complete, isPreview, repositorySelected, isUpgrade, isC
       <li className="is-complete">
         <span><Check size={13} weight="bold" /></span>
         <div>
-          <strong>{isPreview ? "Setup flow opened" : "Connect GitHub"}</strong>
-          <small>{isPreview ? "No account access granted" : "Account access confirmed"}</small>
+          <strong>{isPreview ? "Example opened" : "GitHub connected"}</strong>
+          <small>{isPreview ? "No account access" : "Account verified"}</small>
         </div>
       </li>
       <li className={repositorySelected ? "is-complete" : "is-active"}>
         <span>{repositorySelected ? <Check size={13} weight="bold" /> : "2"}</span>
-        <div><strong>Choose a project</strong><small>Select one repository</small></div>
+        <div><strong>Choose repository</strong><small>Personal or organization-owned</small></div>
       </li>
       <li className={isCurrent ? "is-complete" : needsOwnerReview || needsRetry ? "is-attention" : complete ? "is-active" : ""}>
         <span>{isCurrent ? <Check size={13} weight="bold" /> : needsOwnerReview || needsRetry ? <Warning size={13} weight="fill" /> : "3"}</span>
         <div>
-          <strong>{isCurrent ? "ChangePlane is active" : needsOwnerReview ? "Repository owner review" : needsRetry ? "Retry repository check" : `Review and merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
+          <strong>{isCurrent ? "Setup complete" : needsOwnerReview ? "Owner review needed" : needsRetry ? "Retry repository check" : `Merge ${isUpgrade ? "upgrade" : "setup"} PR`}</strong>
           <small>{isCurrent
             ? "No repository change is needed"
             : needsOwnerReview
@@ -466,40 +393,27 @@ function SetupAccount({ session, onSignOut }) {
   );
 }
 
-function SetupJourney() {
-  return (
-    <section className="setup-journey" aria-labelledby="setup-journey-title">
-      <div className="setup-journey-heading">
-        <p>Normal workflow</p>
-        <strong id="setup-journey-title">No new developer handoff.</strong>
-      </div>
-      <ol>
-        <li><span>01</span><div><strong>You or a repository owner · once</strong><small>Connect GitHub and merge one observe-mode setup PR.</small></div></li>
-        <li><span>02</span><div><strong>Coding agent · as usual</strong><small>Codex, Claude Code, Cursor, or OpenCode opens or updates the PR.</small></div></li>
-        <li><span>03</span><div><strong>ChangePlane · automatic</strong><small>Observe every update and publish an exact-revision receipt in GitHub. This pilot cannot block, merge, or repair.</small></div></li>
-      </ol>
-    </section>
-  );
-}
-
 function RuntimeFunding({
   isPreview,
   repositorySelected,
   runtimeStatus,
   runtimeError,
-  managed,
   byok,
+  activeModel,
+  modelConfigured,
+  modelSaving,
+  runtimeUpdate,
+  runtimeConfigurable,
   saving,
   onSave,
   onDisconnect,
+  onChangeModel,
 }) {
   const [apiKey, setApiKey] = useState("");
   const [replaceOpen, setReplaceOpen] = useState(false);
   const connected = Boolean(byok?.configured);
   const permissionRequired = byok?.state === "permission_required";
   const showForm = (!connected || replaceOpen) && !permissionRequired;
-  const managedVerified = Boolean(managed?.providerVerified);
-
   useEffect(() => {
     setApiKey("");
     setReplaceOpen(false);
@@ -508,30 +422,63 @@ function RuntimeFunding({
   async function submit(event) {
     event.preventDefault();
     try {
-      const saved = await onSave(isPreview ? null : apiKey);
+      const saved = await onSave(apiKey);
       if (saved) setReplaceOpen(false);
     } finally {
       setApiKey("");
     }
   }
 
+  if (isPreview) {
+    return (
+      <section className="runtime-funding" aria-labelledby="runtime-funding-title">
+        <div className="runtime-heading">
+          <div><p className="runtime-kicker">Recorded canary evidence</p><h3 id="runtime-funding-title">GPT-5.6 Luna</h3></div>
+          <span className="runtime-model">Read only</span>
+        </div>
+        <div className="runtime-option runtime-option-managed">
+          <span className="runtime-option-icon"><ShieldCheck size={17} weight="fill" /></span>
+          <div className="runtime-option-copy">
+            <div><strong>Public replay boundary</strong><span className="runtime-badge is-verified">Synthetic</span></div>
+            <p>No API key field or live selector is exposed here. The public workspace replays redacted evidence from the controlled canary.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="runtime-funding" aria-labelledby="runtime-funding-title">
       <div className="runtime-heading">
         <div>
-          <p className="runtime-kicker">Agent runtime</p>
-          <h3 id="runtime-funding-title">Choose who funds repair usage</h3>
+          <p className="runtime-kicker">Optional repair</p>
+          <h3 id="runtime-funding-title">OpenAI for bounded fixes</h3>
         </div>
-        <span className="runtime-model">{RUNTIME.model} · {RUNTIME.effort}</span>
+        <span className="runtime-model">{activeModel || RUNTIME.modelId}</span>
       </div>
 
-      <div className="runtime-option runtime-option-managed" aria-disabled="true">
-        <span className="runtime-option-icon"><Lightning size={17} weight="fill" /></span>
+      <div className="runtime-option runtime-option-model">
+        <span className="runtime-option-icon"><Robot size={17} weight="duotone" /></span>
         <div className="runtime-option-copy">
-          <div><strong>ChangePlane Managed</strong><span className={`runtime-badge ${managedVerified ? "is-verified" : ""}`}>{managedVerified ? "Canary verified" : "Reserved"}</span></div>
-          <p>{managedVerified
-            ? "A server-side provider canary passed. Managed execution, spend controls, metering, and billing remain disabled."
-            : "No managed provider credential is configured. Managed execution, spend, metering, and billing are disabled."}</p>
+          <div><strong>Repair model</strong><span className="runtime-badge is-available">Reviewable change</span></div>
+          <p>GPT-5.6 Luna is the default. Changing the model opens a configuration pull request.</p>
+          <label className="byok-input">
+            <span>OpenAI model</span>
+            <select
+              value={runtimeUpdate?.model || activeModel || DEFAULT_PROPOSAL_MODEL}
+              onChange={(event) => onChangeModel(event.target.value)}
+              disabled={!runtimeConfigurable || modelSaving}
+            >
+              {SUPPORTED_PROPOSAL_MODELS.map((model) => (
+                <option key={model} value={model}>{model === DEFAULT_PROPOSAL_MODEL ? `${model} · default` : model}</option>
+              ))}
+            </select>
+          </label>
+          {!runtimeConfigurable && <p className="runtime-inline-note">Merge the setup pull request before choosing a model.</p>}
+          {modelConfigured === false && runtimeConfigurable && <p className="runtime-inline-note">The next model change also updates this repository to the current OpenAI policy.</p>}
+          {runtimeUpdate?.pullRequest?.url && (
+            <a className="text-action" href={runtimeUpdate.pullRequest.url} target="_blank" rel="noreferrer">Review runtime PR #{runtimeUpdate.pullRequest.number} <ArrowRight size={13} /></a>
+          )}
         </div>
       </div>
 
@@ -539,15 +486,15 @@ function RuntimeFunding({
         <span className="runtime-option-icon"><LockKey size={17} weight="fill" /></span>
         <div className="runtime-option-copy">
           <div>
-            <strong>Enterprise BYOK</strong>
+            <strong>Bring your own OpenAI key</strong>
             <span className={`runtime-badge ${connected ? "is-connected" : "is-available"}`}>
               {connected ? "Connected" : permissionRequired ? "Permission needed" : "Available"}
             </span>
           </div>
-          <p>Your key is verified with {RUNTIME.provider}, then encrypted into this repository's GitHub Actions Secret. ChangePlane never stores it or returns it to the browser.</p>
+          <p>Your key is checked once, encrypted with GitHub's repository key, and saved only as <code>{RUNTIME.secretName}</code> in GitHub Actions.</p>
 
           {!repositorySelected && <p className="runtime-inline-note">Select a repository before connecting a provider key.</p>}
-          {permissionRequired && <p className="runtime-error" role="alert"><Warning size={14} weight="fill" /> Reconnect the GitHub App with Actions Secrets write permission before adding BYOK. No key will be sent to DeepSeek.</p>}
+          {permissionRequired && <p className="runtime-error" role="alert"><Warning size={14} weight="fill" /> Reconnect the GitHub App with Actions Secrets write permission before adding a key.</p>}
           {runtimeStatus === "loading" && repositorySelected && (
             <p className="runtime-inline-note"><ArrowsClockwise className="spin" size={13} /> Checking GitHub secret status…</p>
           )}
@@ -565,37 +512,30 @@ function RuntimeFunding({
 
           {showForm && repositorySelected && runtimeStatus !== "loading" && (
             <form className="byok-form" onSubmit={submit}>
-              {isPreview ? (
-                <div className="byok-preview-copy">
-                  <span>Public walkthrough</span>
-                  <p>Credential entry is disabled here. Production verifies {RUNTIME.modelId} before storing the encrypted GitHub secret.</p>
-                </div>
-              ) : (
-                <label className="byok-input">
-                  <span>{RUNTIME.provider} API key</span>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    placeholder="Paste once — never shown again"
-                    autoComplete="new-password"
-                    spellCheck={false}
-                    minLength={20}
-                    maxLength={512}
-                    required
-                  />
-                </label>
-              )}
+              <label className="byok-input">
+                <span>{RUNTIME.provider} API key</span>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  placeholder="Paste once — never shown again"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  minLength={20}
+                  maxLength={512}
+                  required
+                />
+              </label>
               <div className="byok-actions">
                 {connected && <button className="secondary-action" type="button" onClick={() => setReplaceOpen(false)}>Cancel</button>}
-                <button className="runtime-save" type="submit" disabled={saving || (!isPreview && !apiKey)}>
+                <button className="runtime-save" type="submit" disabled={saving || !apiKey}>
                   {saving ? <ArrowsClockwise className="spin" size={14} weight="bold" /> : <LockKey size={14} weight="fill" />}
-                  {saving ? "Securing…" : isPreview ? "Verify example key" : connected ? "Replace securely" : "Save to GitHub"}
+                  {saving ? "Securing…" : connected ? "Replace securely" : "Save to GitHub"}
                 </button>
               </div>
             </form>
           )}
-          <small className="runtime-observe-note">Optional in observe mode. Required only when a repair adapter is enabled.</small>
+          <small className="runtime-observe-note">Optional while ChangePlane only observes. Required for bounded repair.</small>
         </div>
       </div>
     </section>
@@ -619,11 +559,15 @@ function GitHubSetup({
   installResult,
   runtimeStatus,
   runtimeError,
-  managedRuntime,
   byok,
+  activeModel,
+  modelConfigured,
+  modelSaving,
+  runtimeUpdate,
   byokSaving,
   onSaveByok,
   onDisconnectByok,
+  onChangeModel,
   onInstall,
   onRecheckInstall,
   onResetInstall,
@@ -685,9 +629,9 @@ function GitHubSetup({
 
         <div className="setup-grid" id="setup">
           <aside className="setup-context">
-            <p className="setup-context-kicker">One-time installation</p>
-            <h1 id="setup-main-title" tabIndex={-1}>Connect once. Then close this tab.</h1>
-            <p>After the setup PR is merged, GitHub triggers ChangePlane on every pull request update in that repository. Developers keep working in their coding agent and GitHub.</p>
+            <p className="setup-context-kicker">Setup</p>
+            <h1 id="setup-main-title" tabIndex={-1}>One repository. One setup PR.</h1>
+            <p>Choose where ChangePlane runs. Review the setup in GitHub, merge it, then return to your normal pull request workflow.</p>
             <SetupProgress
               complete={complete}
               isPreview={session.isPreview}
@@ -699,20 +643,18 @@ function GitHubSetup({
             />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
-              <p><strong>Safe by default</strong><span>Observe mode cannot block a merge or dispatch an agent repair.</span></p>
+              <p><strong>Nothing touches the default branch directly.</strong><span>Observe mode cannot merge, deploy, or run a repair.</span></p>
             </div>
           </aside>
 
           <section className="setup-panel">
             {!installResult ? (
               <>
-                <p className="auth-eyebrow">Observe rollout</p>
-                <h2 id="setup-title">Choose one GitHub project</h2>
+                <p className="auth-eyebrow">Repository</p>
+                <h2 id="setup-title">Choose where ChangePlane runs</h2>
                 <p className="setup-intro">{session.isPreview
-                  ? "Choose a fictional repository to see exactly what the production installer creates."
-                  : "A repository is the project folder that contains your code. ChangePlane will only access the one you choose and will never overwrite existing files."}</p>
-
-                <SetupJourney />
+                  ? "Choose the synthetic RouteThai repository to preview the setup."
+                  : "Your personal and organization repositories appear here only when the GitHub App can access them."}</p>
 
                 {session.isPreview && (
                   <button className="setup-skip-action" type="button" onClick={onOpenWorkspace}>
@@ -781,8 +723,8 @@ function GitHubSetup({
                         <span>Selected repository</span>
                         <strong>{selected?.fullName || "Choose a repository"}</strong>
                       </div>
-                      <div><span>Rollout mode</span><strong>Observe only</strong></div>
-                      <div><span>Repository write</span><strong>{isCurrent
+                      <div><span>Mode</span><strong>Observe</strong></div>
+                      <div><span>Change</span><strong>{isCurrent
                         ? "None needed"
                         : preflightFailed
                           ? "Blocked safely"
@@ -811,7 +753,7 @@ function GitHubSetup({
                           <strong>{!selected
                             ? "Choose a repository to continue"
                             : preflightStatus === "loading"
-                            ? "Checking the repository boundary"
+                            ? "Checking repository safety"
                             : isCurrent
                               ? "Setup is merged. ChangePlane is ready."
                               : preflightFailed
@@ -819,12 +761,12 @@ function GitHubSetup({
                               : preflightReady
                               ? pendingSetup
                                 ? pendingUpgrade ? "Upgrade PR already ready" : "Setup PR already ready"
-                                : isUpgrade ? "Safe managed upgrade ready" : "Safe to install · choose evidence below"
+                                : isUpgrade ? "Upgrade ready" : "Ready to install"
                               : "Setup needs attention"}</strong>
                           <span>{!selected
                             ? "Nothing is accessed until you make a selection."
                             : preflightStatus === "loading"
-                            ? "Read-only checks only. Nothing is being changed."
+                            ? "Read-only checks. Nothing is being changed."
                             : isCurrent
                               ? `Managed version ${preflight.installation.currentVersion} is up to date. Your project policy remains repository-owned.`
                             : preflightFailed
@@ -832,12 +774,12 @@ function GitHubSetup({
                             : preflightReady
                               ? pendingSetup
                                 ? pendingUpgrade
-                                  ? "Open the verified upgrade PR to review the managed-file update. Your .changeplane.json policy is unchanged."
+                                  ? "Open the existing upgrade PR to review the managed-file update."
                                   : preflight.setup.requiredCheck
                                     ? `The existing PR binds ${preflight.setup.requiredCheck.name} from ${preflight.setup.requiredCheck.appSlug}. Open it to review and merge; no new write is needed.`
                                     : "The existing PR is explicitly scope-only. Open it to review and merge; no new write is needed."
                               : isUpgrade
-                                ? `A verified earlier installation can be updated to managed version ${preflight.installation.targetVersion} without changing .changeplane.json.`
+                                ? `Update managed files to version ${preflight.installation.targetVersion} without changing your policy.`
                               : evidenceOptions.length > 0
                                   ? `Found ${evidenceOptions.length} recent GitHub check${evidenceOptions.length === 1 ? "" : "s"}. A likely test is selected; confirm what it protects below.`
                                   : preflight?.evidenceDiscovery?.state === "unavailable"
@@ -854,9 +796,9 @@ function GitHubSetup({
                       </div>
                       {(preflightReady || isCurrent) && (
                         <ul className="safety-preflight-facts">
-                          <li><Check size={13} weight="bold" /> No direct default-branch write</li>
-                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? ".changeplane.json stays repository-owned" : "Cannot block merge or deploy"}</li>
-                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Managed files must match a known version" : "No PR code or provider secret runs"}</li>
+                          <li><Check size={13} weight="bold" /> Pull request only</li>
+                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Policy stays repository-owned" : "Cannot block merge or deploy"}</li>
+                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Managed files are versioned" : "No repair runs during setup"}</li>
                         </ul>
                       )}
                       {preflight?.setup?.state === "stale" && preflight.setup.pullRequest?.url && (
@@ -921,26 +863,23 @@ function GitHubSetup({
                       </fieldset>
                     )}
 
-                    <p className="install-note install-note-provider">No provider key or repair funding is needed for the observe pilot.</p>
-
                     {selected && runtimeStatus === "ready" && (
-                      <details className="runtime-optional">
-                        <summary>
-                          <span><strong>{byok?.configured ? "Manage connected provider key" : "Optional · connect a provider key"}</strong><small>Stored in GitHub only · repair remains disabled</small></span>
-                          <CaretDown size={16} aria-hidden="true" />
-                        </summary>
-                        <RuntimeFunding
-                          isPreview={session.isPreview}
-                          repositorySelected={selected?.fullName || ""}
-                          runtimeStatus={runtimeStatus}
-                          runtimeError={runtimeError}
-                          managed={managedRuntime}
-                          byok={byok}
-                          saving={byokSaving}
-                          onSave={onSaveByok}
-                          onDisconnect={onDisconnectByok}
-                        />
-                      </details>
+                      <RuntimeFunding
+                        isPreview={session.isPreview}
+                        repositorySelected={selected?.fullName || ""}
+                        runtimeStatus={runtimeStatus}
+                        runtimeError={runtimeError}
+                        byok={byok}
+                        activeModel={activeModel}
+                        modelConfigured={modelConfigured}
+                        modelSaving={modelSaving}
+                        runtimeUpdate={runtimeUpdate}
+                        runtimeConfigurable={isCurrent}
+                        saving={byokSaving}
+                        onSave={onSaveByok}
+                        onDisconnect={onDisconnectByok}
+                        onChangeModel={onChangeModel}
+                      />
                     )}
 
                     {installError && <p className="install-error" role="alert"><Warning size={16} weight="fill" /> {installError}</p>}
@@ -973,7 +912,7 @@ function GitHubSetup({
                         {installStatus === "installing" ? <ArrowsClockwise className="spin" size={17} weight="bold" /> : <GitBranch size={17} weight="bold" />}
                         {installStatus === "installing"
                           ? session.isPreview ? "Preparing installation flow…" : `Creating ${isUpgrade ? "upgrade" : "installation"} pull request…`
-                          : isUpgrade ? "Create managed upgrade PR" : session.isPreview ? "Prepare observe setup" : "Create observe setup PR"}
+                          : isUpgrade ? "Create upgrade PR" : session.isPreview ? "Preview setup" : "Create setup PR"}
                       </button>
                     )}
                     <p className="install-note">{session.isPreview
@@ -1053,7 +992,6 @@ function GitHubSetup({
 
 function displayState(status) {
   if (RUNNING_STATES.has(status)) return { state: "running", label: "Checking" };
-  if (status === "reported") return { state: "ready", label: "Finding reported" };
   if (status === "passed") return { state: "pass", label: "Check passed" };
   if (status === "blocked") return { state: "blocked", label: "Exception" };
   return { state: "ready", label: "Ready to check" };
@@ -1186,50 +1124,30 @@ function evidenceFor(change) {
       ["blocked", "Sensitive-file rule matched", "secrets/**"],
     ];
   }
-  if (change.status === "reported") {
-    return [
-      ["pass", "Exact commit and allowed files bound", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["warning", "Duplicate-charge test failed", "Expected 1 capture · received 2"],
-      ["pass", "Project rules evaluated", "No protected path changed"],
-      ["pass", "Neutral receipt posted to GitHub", "ChangePlane / guard · GitHub merge rules unchanged"],
-    ];
-  }
   if (change.status === "passed") {
     return [
-      ["pass", "Allowed files recorded", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["pass", "Configured GitHub tests passed", "Results matched this version"],
-      ["pass", "Result posted to GitHub", "GitHub still decides whether to merge"],
+      ["warning", "Synthetic service-window evidence failed", `${change.initialHead} · one stop scheduled after window`],
+      ["pass", "GPT-5.6 Luna proposed a bounded patch", "1 file · model had no Check, push, merge, or PASS authority"],
+      ["pass", "Clean validation accepted the patch", "Allowed paths · fresh worktree · attempt 1 of 2"],
+      ["pass", "Trusted controller applied the patch", `${change.initialHead} → ${change.head}`],
+      ["pass", "Exact new head passed", `ChangePlane / guard · ${change.head}`],
     ];
   }
-  if (change.status === "testing") {
-    return [
-      ["pass", "Exact commit bound", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["pass", "Allowed files confirmed", change.scope],
-      ["active", "Running duplicate-charge test", "Repository-owned evidence"],
-    ];
-  }
-  if (change.status === "publishing") {
-    return [
-      ["pass", "Exact commit and allowed files bound", `${change.base.split(" ")[0]} → ${change.head}`],
-      ["warning", "Duplicate-charge test failed", "Expected 1 capture · received 2"],
-      ["pass", "Project rules evaluated", "No protected path changed"],
-      ["active", "Posting neutral receipt to GitHub", "ChangePlane / guard"],
-    ];
-  }
-  if (change.status === "evaluating") {
-    return [
-      ["active", "Binding exact commit", change.head],
-      ["pending", "Confirm allowed files", change.scope],
-      ["pending", "Run duplicate-charge test", "Repository-owned evidence"],
-      ["pending", "Post neutral receipt", "ChangePlane / guard"],
-    ];
-  }
-  return [
-    ["pending", "Bind exact commit", change.head],
-    ["pending", "Confirm allowed files", change.scope],
-    ["pending", "Run duplicate-charge test", "Repository-owned evidence"],
-    ["pending", "Post neutral receipt", "ChangePlane / guard"],
+  const stages = [
+    ["binding", "Bind exact head and allowed paths", `${change.initialHead} · ${change.scope}`],
+    ["failing", "Reproduce synthetic service-window failure", "One stop scheduled after its allowed window"],
+    ["proposing", "Ask GPT-5.6 Luna for a unified diff", "Failure evidence + allowed-path source only"],
+    ["validating", "Validate patch in a clean harness", "Paths · stale head · attempt budget"],
+    ["applying", "Trusted controller applies accepted patch", "Credential separated from model job"],
+    ["rechecking", "Dispatch exact-head recheck", change.repairedHead],
+    ["publishing", "Publish ChangePlane / guard", "PASS on the new exact head"],
   ];
+  const activeIndex = stages.findIndex(([status]) => status === change.status);
+  return stages.map(([status, label, detail], index) => [
+    index < activeIndex ? (status === "failing" ? "warning" : "pass") : index === activeIndex ? "active" : "pending",
+    label,
+    detail,
+  ]);
 }
 
 function Evidence({ change }) {
@@ -1281,12 +1199,12 @@ function Workspace({ change, isPreview, onInspect }) {
   const automationLabel = change.status === "blocked" ? "Exception only" : "Zero-touch eligible";
   const actualFiles = change.files.filter(({ resolved }) => !resolved).length;
   const drift = actualFiles - change.plannedFiles;
-  const paymentFacts = change.id === "payment";
+  const routeFacts = change.id === "route";
   return (
     <main className="workspace">
       <div className="workspace-title-row">
         <div>
-          <p className="workspace-kicker">{isPreview ? "Fictional proposed change · no GitHub access" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
+          <p className="workspace-kicker">{isPreview ? "Synthetic RouteThai example" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
           <h1 id="workspace-main-title" tabIndex={-1}>{change.title}</h1>
         </div>
         <span className={`decision-pill pill-${state}`}>{label}</span>
@@ -1299,7 +1217,7 @@ function Workspace({ change, isPreview, onInspect }) {
         </div>
         <div>
           <dt>Outcome</dt>
-          <dd>{change.status === "reported" && change.reportedImpact ? change.reportedImpact : change.impact}</dd>
+          <dd>{change.status === "passed" && change.reportedImpact ? change.reportedImpact : change.impact}</dd>
         </div>
         <div>
           <dt>Allowed files</dt>
@@ -1326,10 +1244,10 @@ function Workspace({ change, isPreview, onInspect }) {
       <dl className="change-facts" aria-label="Change contract comparison">
         <div><dt>Coding agent</dt><dd>{change.origin}</dd></div>
         <div><dt>Risk</dt><dd>{change.risk} · {change.riskLabel}</dd></div>
-        {paymentFacts ? (
+        {routeFacts ? (
           <>
             <div><dt>Version</dt><dd className="mono">{change.head}</dd></div>
-            <div className={change.status === "reported" ? "has-drift" : ""}><dt>Tests</dt><dd>{change.status === "reported" ? "1 failed · receipt posted" : RUNNING_STATES.has(change.status) ? "Running" : "Not run"}</dd></div>
+            <div className={change.status === "failing" ? "has-drift" : ""}><dt>Evidence</dt><dd>{change.status === "passed" ? "PASS · new exact head" : RUNNING_STATES.has(change.status) ? "Replay in progress" : "Ready"}</dd></div>
             <div><dt>Human actions</dt><dd>0</dd></div>
           </>
         ) : (
@@ -1348,30 +1266,22 @@ function Workspace({ change, isPreview, onInspect }) {
 }
 
 function pipelineState(status, key) {
-  const order = { contract: 0, scope: 1, evidence: 2, policy: 3, check: 4 };
-  if (status === "passed" || status === "reported") return "complete";
-  if (status === "blocked") return key === "contract" || key === "scope" || key === "evidence" ? "complete" : key === "policy" ? "blocked" : "pending";
+  const order = { contract: 0, evidence: 1, proposal: 2, validation: 3, apply: 4, recheck: 5, check: 6 };
+  if (status === "passed") return "complete";
+  if (status === "blocked") return key === "contract" ? "complete" : "blocked";
   if (status === "ready") return "pending";
-  const activeIndex = { evaluating: 0, testing: 2, publishing: 4 }[status] ?? -1;
+  const activeIndex = { binding: 0, failing: 1, proposing: 2, validating: 3, applying: 4, rechecking: 5, publishing: 6 }[status] ?? -1;
   if (order[key] < activeIndex) return "complete";
   if (order[key] === activeIndex) return "active";
   return "pending";
 }
 
 function AssuranceNotice({ change }) {
-  if (change.status === "reported") {
-    return (
-      <div className="decision-notice notice-ready" role="status">
-        <Warning size={22} weight="fill" aria-hidden="true" />
-        <div><strong>Duplicate-charge evidence failed on {change.head}</strong><p>This neutral receipt is tied to the exact commit. A new commit invalidates it and starts a new check.</p></div>
-      </div>
-    );
-  }
   if (change.status === "passed") {
     return (
       <div className="decision-notice notice-pass">
         <GitMerge size={22} weight="fill" aria-hidden="true" />
-        <div><strong>Verified on this version</strong><p>{change.id === "payment" ? "The duplicate-charge test passed." : "Every configured project test passed."} GitHub still decides whether to merge.</p></div>
+        <div><strong>Verified on {change.head}</strong><p>The same service-window test now passes. GitHub still decides whether to merge.</p></div>
       </div>
     );
   }
@@ -1385,9 +1295,13 @@ function AssuranceNotice({ change }) {
   }
   if (RUNNING_STATES.has(change.status)) {
     const messages = {
-      evaluating: ["Binding the exact commit", "ChangePlane is recording this revision before any evidence is evaluated."],
-      testing: ["Running the project test", "The repository-owned duplicate-charge evidence is running against this exact revision."],
-      publishing: ["Posting the neutral receipt", "The failed evidence stays visible while GitHub remains responsible for the merge decision."],
+      binding: ["Locking the exact commit", "The receipt is now tied to 71b04c2 and the allowed routing files."],
+      failing: ["Service-window test failed", "One synthetic stop was scheduled too late."],
+      proposing: ["Luna is proposing a bounded fix", "The model sees the failure and allowed source files—not GitHub credentials."],
+      validating: ["Validating the fix", "A clean job checks the patch, file scope, commit, and attempt limit."],
+      applying: ["Applying the validated fix", "A separate trusted controller applies the accepted patch."],
+      rechecking: ["Checking the new commit", `The same evidence is running on ${change.repairedHead}.`],
+      publishing: ["Publishing the result", `ChangePlane / guard is being published on ${change.repairedHead}.`],
     };
     return (
       <div className="decision-notice notice-progress" aria-live="polite">
@@ -1399,7 +1313,7 @@ function AssuranceNotice({ change }) {
   return (
     <div className="decision-notice notice-ready">
       <Lightning size={22} weight="fill" aria-hidden="true" />
-      <div><strong>Ready to check this exact version</strong><p>ChangePlane will bind commit {change.head}, confirm allowed files, run the project test, and post a neutral GitHub receipt.</p></div>
+      <div><strong>Ready to verify</strong><p>ChangePlane will reproduce the failure, validate Luna's fix, and check the new commit before publishing a result.</p></div>
     </div>
   );
 }
@@ -1413,25 +1327,25 @@ function previewEvidenceFor(change) {
       tone: "blocked",
     };
   }
-  if (change.status === "passed" || change.status === "reported") {
+  if (change.status === "passed") {
     return {
-      label: change.status === "reported" ? "Preview bound to receipt" : "Existing preview matched",
-      detail: "Successful deployment status matched",
+      label: "Canary evidence matched",
+      detail: "Request and commit metadata redacted",
       receipt: "Included",
       tone: "pass",
     };
   }
   if (RUNNING_STATES.has(change.status)) {
     return {
-      label: "Preview status refreshing",
-      detail: "Waiting for the current head",
+      label: "Canary evidence replaying",
+      detail: "No live request from this page",
       receipt: "Pending verification",
       tone: "active",
     };
   }
   return {
-    label: "Existing preview found",
-    detail: "Waiting to match this version",
+    label: "Canary evidence ready",
+    detail: "Synthetic data only",
     receipt: "Pending verification",
     tone: "ready",
   };
@@ -1448,32 +1362,24 @@ function backboneStateFor(change) {
   }
   if (RUNNING_STATES.has(change.status)) {
     return {
-      label: "Harness evaluating change",
-      detail: "Authoring agent has no result authority",
-      summary: "The repository-owned harness is binding the revision, scope, evidence, and policy independently of the coding agent.",
+      label: change.status === "proposing" ? "Luna proposes. ChangePlane decides." : "Independent verification running",
+      detail: "The model cannot push, merge, or publish a result",
+      summary: "GPT-5.6 Luna may propose a diff, but the clean deterministic harness and trusted controller independently own validation, apply, and the result.",
       tone: "active",
-    };
-  }
-  if (change.status === "reported") {
-    return {
-      label: "Independent receipt posted",
-      detail: "Failed evidence preserved · no model PASS",
-      summary: "The coding agent authored the change, but only the deterministic harness published this exact-revision receipt.",
-      tone: "pass",
     };
   }
   if (change.status === "passed") {
     return {
-      label: "Revision checked independently",
-      detail: "No fix needed · agent cannot approve itself",
-      summary: "The deterministic harness passed this revision without dispatching a repair model.",
+      label: "New commit verified independently",
+      detail: `${change.initialHead} → ${change.head}`,
+      summary: "Luna proposed one bounded patch. A clean job validated it, a separate controller applied it, and only fresh evidence on the new exact head produced PASS.",
       tone: "pass",
     };
   }
   return {
-    label: "Harness ready",
-    detail: "Exact commit · allowed files · project test",
-    summary: "The coding agent supplies the pull request. The deterministic harness independently owns the receipt.",
+    label: "Assurance ready",
+    detail: "Exact commit · trusted test · bounded fix",
+    summary: "The coding agent supplies the pull request. The model can propose a patch, while the deterministic harness and trusted controller independently own the outcome.",
     tone: "ready",
   };
 }
@@ -1486,9 +1392,10 @@ function MetaRows({ change }) {
     ["Head", change.head],
     ["Risk", `${change.risk} · ${change.riskLabel}`],
     ["Policy", "Release Governance v3 · protected paths"],
-    ["Evidence source", change.id === "payment" ? "checkout-race · github-actions" : "configured checks · github-actions"],
+    ["Evidence source", change.id === "route" ? "synthetic-service-window · github-actions" : "configured checks · github-actions"],
+    ["Proposal model", "gpt-5.6-luna · high"],
     ["Evaluator", "ChangePlane guard v1"],
-    ["Receipt", "Observe only · neutral"],
+    ["Receipt", change.status === "passed" ? "Recorded canary · PASS" : "Public replay · observe only"],
     ["Human", change.status === "blocked" ? "Required" : "0 actions"],
   ];
   return (
@@ -1510,7 +1417,7 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
   const railRef = useRef(null);
 
   useEffect(() => {
-    if (change.status === "reported" && railRef.current) {
+    if (change.status === "passed" && railRef.current) {
       railRef.current.scrollTop = 0;
     }
   }, [change.status]);
@@ -1518,8 +1425,8 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
   return (
     <aside className="decision-rail" aria-label="Change receipt details" ref={railRef}>
       <div className="rail-heading">
-        <div><p>{isPreview ? "Guided example" : `${change.changeId} · report only`}</p><h2>Change result</h2></div>
-        <span className="mode-live"><i /> {isPreview ? "Fictional" : "Connected"}</span>
+        <div><p>{isPreview ? "Assurance replay" : `${change.changeId} · report only`}</p><h2>Result</h2></div>
+        <span className="mode-live"><i /> {isPreview ? "Synthetic" : "Connected"}</span>
       </div>
       <AssuranceNotice change={change} />
 
@@ -1535,33 +1442,29 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
           {preview.tone === "blocked"
             ? <WarningOctagon size={19} weight="fill" aria-hidden="true" />
             : <GithubLogo size={19} weight="fill" aria-hidden="true" />}
-          <span><strong>{preview.label}</strong><small>Existing GitHub deployment · {change.head}</small></span>
+          <span><strong>{preview.label}</strong><small>GPT-5.6 Luna · recorded canary evidence</small></span>
           <CaretRight size={16} aria-hidden="true" />
         </button>
       </div>
 
-      {change.id === "payment" && (
-        <p className="canary-disclaimer">Fictional receipt only. Connected projects run automatically and currently report results without repair or merge blocking.</p>
-      )}
-
       {change.status === "ready" && (
         <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
-          <Play size={17} weight="fill" /> Run the exact-revision check
+          <Play size={17} weight="fill" /> Run assurance replay
         </button>
       )}
       {running && (
         <button className="primary-action run-action" type="button" disabled>
-          <ArrowsClockwise className="spin" size={17} weight="bold" /> Exact-revision check in progress
+          <ArrowsClockwise className="spin" size={17} weight="bold" /> Verifying change
         </button>
       )}
-      {change.status === "reported" && change.id === "payment" && (
+      {change.status === "passed" && change.id === "route" && (
         <div className="result-actions">
           <button className="secondary-action run-action" type="button" onClick={() => onReplay(change.id)}>
-            <ArrowsClockwise size={17} /> Replay check
+            <ArrowsClockwise size={17} /> Replay assurance
           </button>
           {isPreview && (
             <button className="setup-link-action" type="button" onClick={onShowSetup}>
-              See the three-step GitHub setup <ArrowRight size={15} />
+              Set up your repository <ArrowRight size={15} />
             </button>
           )}
         </div>
@@ -1588,10 +1491,10 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
       </details>
 
       <section className="rail-section audit-section">
-        <h3>Operational guarantee</h3>
+        <h3>What ChangePlane guarantees</h3>
         <div className="guarantee-row"><ShieldCheck size={18} weight="fill" /><span>A new commit cancels the old result and starts again</span></div>
         <div className="guarantee-row"><LockKey size={18} /><span>The authoring agent cannot issue or change the receipt</span></div>
-        <div className="guarantee-row"><Clock size={18} /><span>Failed evidence stays tied to the exact revision</span></div>
+        <div className="guarantee-row"><Clock size={18} /><span>Every failure, patch, and result stays tied to one exact revision</span></div>
         <div className="guarantee-row"><GithubLogo size={18} /><span>GitHub remains responsible for the merge decision</span></div>
       </section>
     </aside>
@@ -1602,7 +1505,7 @@ function FileDialog({ file, onClose }) {
   const dialogRef = useDialogFocus(Boolean(file), onClose);
   if (!file) return null;
   const explanation = file.evidenceRelevant
-    ? "This in-scope file is tied to the failing duplicate-charge test. ChangePlane reports the evidence on this exact revision without changing the code."
+    ? "This allowed file is tied to the synthetic service-window failure. Luna may propose a diff, but a clean harness must validate it before a separate controller can apply it."
     : file.blocked
         ? "Matched blocked path secrets/**. Automation stops and this path cannot be overridden."
         : "Matched the declared scope for this pull request.";
@@ -1636,12 +1539,12 @@ function GuideDrawer({ onClose, onStart }) {
         <ShieldCheck size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Normal user journey</p>
         <h2 id="guide-title">No handoff to ChangePlane.</h2>
-        <p className="guide-intro">A platform lead installs once. After that, the trigger is a GitHub pull request event—not a developer visiting this app after Codex or Claude Code finishes.</p>
+        <p className="guide-intro">A platform lead installs once. After that, GitHub pull request events trigger the assurance loop; developers stay in their coding agent and GitHub.</p>
         <ol className="guide-steps">
           <li><span>01</span><div><strong>Platform lead · once</strong><p>Merge one trusted observe-mode setup PR for a repository. No developer installs a new CLI or changes coding tools.</p></div></li>
           <li><span>02</span><div><strong>Coding agent · normal workflow</strong><p>Codex, Claude Code, Cursor, or another agent opens or updates the pull request with its declared goal and scope.</p></div></li>
-          <li><span>03</span><div><strong>ChangePlane · independent receipt</strong><p>The harness binds the exact commit and allowed files to repository-owned tests and policy, then publishes the neutral result.</p></div></li>
-          <li><span>04</span><div><strong>GitHub · final authority</strong><p>If evidence fails, ask the coding agent to update the same pull request. A new commit invalidates the old receipt and runs again.</p></div></li>
+          <li><span>03</span><div><strong>Luna · proposal only</strong><p>Receives bounded failure evidence and allowed-path source, then returns only a unified diff without GitHub credentials.</p></div></li>
+          <li><span>04</span><div><strong>ChangePlane · independent result</strong><p>A clean harness validates, a trusted controller applies, and only a fresh exact-head recheck may publish PASS.</p></div></li>
         </ol>
         <button className="primary-action guide-primary" type="button" onClick={onStart}>Replay the exact-revision check <ArrowRight size={17} /></button>
       </section>
@@ -1659,22 +1562,22 @@ function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
       <section className="guide-drawer preview-drawer" ref={dialogRef} tabIndex={-1}>
         <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
         <GithubLogo size={28} weight="duotone" aria-hidden="true" />
-        <p className="eyebrow">Existing deployment evidence</p>
-        <h2 id="preview-evidence-title">{accepted ? "Preview URL bound to" : "Preview evidence at"} {change.head}</h2>
-        <p className="guide-intro">ChangePlane does not host, open, or execute this preview. It binds the successful deployment status reported through GitHub to the pull request's exact head, then invalidates the evidence when a new commit arrives.</p>
+        <p className="eyebrow">Recorded canary evidence</p>
+        <h2 id="preview-evidence-title">{accepted ? "Canary evidence bound to" : "Canary replay at"} {change.head}</h2>
+        <p className="guide-intro">The public workspace makes no model or GitHub request. It replays redacted evidence from the disposable canary using the same synthetic RouteThai fixture and exact-head contract.</p>
 
         <dl className="preview-evidence-facts">
-          <div><dt>Source</dt><dd>GitHub deployment status</dd></div>
-          <div><dt>Provider</dt><dd>{change.previewProvider || "Not reported"}</dd></div>
-          <div><dt>Preview URL</dt><dd className="mono">{change.previewUrl || "Not published"}</dd></div>
-          <div><dt>Signal</dt><dd>deployment_status</dd></div>
+          <div><dt>Source</dt><dd>Disposable GitHub canary</dd></div>
+          <div><dt>Model</dt><dd>gpt-5.6-luna</dd></div>
+          <div><dt>Data</dt><dd>Synthetic route fixture</dd></div>
+          <div><dt>Signal</dt><dd>exact-head recheck</dd></div>
           <div><dt>Exact head</dt><dd className="mono">{change.head}</dd></div>
           <div><dt>Receipt</dt><dd className={`preview-receipt-${preview.tone}`}>{preview.receipt}</dd></div>
         </dl>
 
         <div className="preview-evidence-note">
           <ShieldCheck size={20} weight="fill" aria-hidden="true" />
-          <div><strong>{preview.label}</strong><p>{preview.detail}. Localhost and IP-literal URLs are rejected; access remains the deployment provider's responsibility.</p></div>
+          <div><strong>{preview.label}</strong><p>{preview.detail}. Request IDs and timestamps are redacted; no customer, coordinate, or private repository data appears.</p></div>
         </div>
 
         <div className="preview-drawer-actions">
@@ -1697,7 +1600,7 @@ function BackboneDrawer({ change, onClose }) {
         <Robot size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Bounded repair adapter</p>
         <h2 id="backbone-title">Agentic work, without agent authority.</h2>
-        <p className="guide-intro" id="backbone-intro">The target enforce design separates execution into GitHub Actions jobs. Production remains observe-only; this preview visualizes those states and does not invoke a model in your browser.</p>
+        <p className="guide-intro" id="backbone-intro">The controlled canary separates proposal, clean validation, trusted apply, and exact-head Check publication. This public replay does not invoke a model in your browser.</p>
 
         <div className={`backbone-status backbone-status-${backbone.tone}`}>
           {backbone.tone === "blocked" ? <WarningOctagon size={20} weight="fill" aria-hidden="true" /> : <ShieldCheck size={20} weight="fill" aria-hidden="true" />}
@@ -1707,7 +1610,7 @@ function BackboneDrawer({ change, onClose }) {
         <ol className="backbone-jobs" aria-label="Agentic backbone job boundaries">
           <li>
             <span>01</span>
-            <div><strong>Model job</strong><p><b>{RUNTIME.model} · {RUNTIME.effort} effort</b><br />Hard-coded provider endpoint, bounded source context, no GitHub write. A strict network canary is still required before activation.</p></div>
+            <div><strong>Model job</strong><p><b>{RUNTIME.model} · {RUNTIME.effort} effort</b><br />Native Responses API, bounded source context, unified diff only, and no GitHub token or Check authority.</p></div>
           </li>
           <li>
             <span>02</span>
@@ -1715,19 +1618,19 @@ function BackboneDrawer({ change, onClose }) {
           </li>
           <li>
             <span>03</span>
-            <div><strong>Trusted apply job</strong><p>In the inactive design, a separate GitHub Actions job rechecks the live PR head, applies only granted paths, then pushes with force-with-lease.</p></div>
+            <div><strong>Trusted apply job</strong><p>A separate job rechecks the live PR head, applies only the validated granted paths, then dispatches a fresh exact-head recheck.</p></div>
           </li>
         </ol>
 
         <div className="backbone-boundary">
           <LockKey size={20} aria-hidden="true" />
-          <div><strong>Hard authority boundary</strong><p>The model cannot issue PASS, approve a pull request, publish the required Check, or merge code. Activation still requires the dedicated App publisher and live repair canary in the rollout gate.</p></div>
+          <div><strong>Hard authority boundary</strong><p>The model cannot push, issue PASS, approve a pull request, publish the required Check, or merge code. Only the trusted controller can cross the apply boundary.</p></div>
         </div>
 
         <div className="backbone-runtime">
           <span>Funding</span>
-          <strong>Enterprise BYOK · Managed reserved</strong>
-          <p>BYOK stays in GitHub Actions; Managed remains disabled. The provider can change, but the revision-bound harness and authority boundary do not.</p>
+          <strong>Bring your own OpenAI key</strong>
+          <p>Your key stays in GitHub Actions. The model can change; the verification boundary does not.</p>
         </div>
 
         <button className="primary-action backbone-close" type="button" onClick={onClose}>Back to receipt</button>
@@ -1758,8 +1661,11 @@ export function App() {
   const [installResult, setInstallResult] = useState(null);
   const [runtimeStatus, setRuntimeStatus] = useState("idle");
   const [runtimeError, setRuntimeError] = useState("");
-  const [managedRuntime, setManagedRuntime] = useState(RESERVED_MANAGED);
   const [byok, setByok] = useState(EMPTY_BYOK);
+  const [activeModel, setActiveModel] = useState(DEFAULT_PROPOSAL_MODEL);
+  const [modelConfigured, setModelConfigured] = useState(false);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [runtimeUpdate, setRuntimeUpdate] = useState(null);
   const [byokSaving, setByokSaving] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(CHANGES[0].id);
@@ -1850,15 +1756,19 @@ export function App() {
     if (!session || !selectedRepository) {
       setRuntimeStatus("idle");
       setRuntimeError("");
-      setManagedRuntime(RESERVED_MANAGED);
       setByok(EMPTY_BYOK);
+      setActiveModel(DEFAULT_PROPOSAL_MODEL);
+      setModelConfigured(false);
+      setRuntimeUpdate(null);
       return;
     }
     if (session.isPreview) {
       setRuntimeStatus("ready");
       setRuntimeError("");
-      setManagedRuntime(PREVIEW_MANAGED);
       setByok(EMPTY_BYOK);
+      setActiveModel(DEFAULT_PROPOSAL_MODEL);
+      setModelConfigured(true);
+      setRuntimeUpdate(null);
       return;
     }
 
@@ -1869,8 +1779,10 @@ export function App() {
       .then(responseJson)
       .then((payload) => {
         if (cancelled) return;
-        setManagedRuntime(payload.managed || RESERVED_MANAGED);
         setByok(payload.byok);
+        setActiveModel(payload.activeModel || DEFAULT_PROPOSAL_MODEL);
+        setModelConfigured(Boolean(payload.modelConfigured));
+        setRuntimeUpdate(null);
         setRuntimeStatus("ready");
       })
       .catch((error) => {
@@ -1890,7 +1802,7 @@ export function App() {
   const changes = useMemo(() => CHANGES.map((item) => {
     const record = runs[item.id];
     const status = record?.status ?? item.initialStatus;
-    const head = item.head;
+    const head = record?.head ?? item.head;
     const files = item.files;
     const activeFiles = files.filter(({ resolved }) => !resolved);
     const result = evaluateChange({
@@ -1902,7 +1814,7 @@ export function App() {
     });
     const timeLabel = RUNNING_STATES.has(status)
       ? "Now"
-      : status === "reported" && item.id === "payment" ? "Just now" : item.time;
+      : status === "passed" && item.id === "route" ? "Just now" : item.time;
     return { ...item, status, head, files, analysis: result, timeLabel };
   }), [runs]);
 
@@ -1926,7 +1838,7 @@ export function App() {
   }
 
   function exploreProduct() {
-    if ((githubConfigured !== false && githubRolloutMode !== "controlled_canary" && !PREVIEW_MODE) || isSigningIn) return;
+    if (isSigningIn) return;
     setIsSigningIn(true);
     window.setTimeout(() => {
       window.localStorage.setItem(SESSION_KEY, JSON.stringify(PRESENTATION_USER));
@@ -1936,7 +1848,7 @@ export function App() {
       setRepositories(PREVIEW_REPOSITORIES);
       setSelectedRepository("");
       setRepositoryStatus("ready");
-      setSelectedId("payment");
+      setSelectedId("route");
       setWorkspaceOpen(true);
       setIsSigningIn(false);
     }, 520);
@@ -1976,8 +1888,10 @@ export function App() {
     setInstallResult(null);
     setRuntimeStatus("idle");
     setRuntimeError("");
-    setManagedRuntime(RESERVED_MANAGED);
     setByok(EMPTY_BYOK);
+    setActiveModel(DEFAULT_PROPOSAL_MODEL);
+    setModelConfigured(false);
+    setRuntimeUpdate(null);
     setWorkspaceOpen(false);
     setPreviewEvidenceOpen(false);
     setBackboneOpen(false);
@@ -2050,7 +1964,7 @@ export function App() {
         if (selectedRepositoryRef.current === repository) {
           setByok({ ...EMPTY_BYOK, configured: true, state: "connected", updatedAt: new Date().toISOString() });
           setRuntimeStatus("ready");
-          showToast("Enterprise BYOK connection verified");
+          showToast("OpenAI key verified");
         }
         setByokSaving(false);
       }, 520);
@@ -2070,7 +1984,7 @@ export function App() {
       if (selectedRepositoryRef.current === repository) {
         setByok(payload.byok);
         setRuntimeStatus("ready");
-        showToast("Enterprise BYOK saved to GitHub Actions");
+        showToast("OpenAI key saved to GitHub Actions");
       }
       return true;
     } catch (error) {
@@ -2084,6 +1998,35 @@ export function App() {
     }
   }
 
+  async function changeRuntimeModel(model) {
+    if (!selectedRepository || modelSaving || !SUPPORTED_PROPOSAL_MODELS.includes(model)) return;
+    const repository = selectedRepository;
+    setModelSaving(true);
+    setRuntimeError("");
+    try {
+      const payload = await responseJson(await fetch("/api/github?action=runtime", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-changeplane-csrf": session.csrf,
+        },
+        body: JSON.stringify({ repository, model }),
+      }));
+      if (selectedRepositoryRef.current === repository) {
+        setRuntimeUpdate(payload);
+        if (payload.state === "current") setActiveModel(model);
+        showToast(payload.state === "current" ? `${model} is already active` : `Runtime PR created for ${model}`);
+      }
+    } catch (error) {
+      if (selectedRepositoryRef.current === repository) {
+        setRuntimeError(error instanceof Error ? error.message : "The runtime pull request could not be created.");
+      }
+    } finally {
+      setModelSaving(false);
+    }
+  }
+
   async function disconnectByok() {
     if (!selectedRepository || byokSaving) return;
     const repository = selectedRepository;
@@ -2092,7 +2035,7 @@ export function App() {
     if (session?.isPreview) {
       if (selectedRepositoryRef.current === repository) {
         setByok(EMPTY_BYOK);
-        showToast("Enterprise BYOK disconnected");
+        showToast("OpenAI key removed from GitHub Actions");
       }
       setByokSaving(false);
       return;
@@ -2110,7 +2053,7 @@ export function App() {
       if (selectedRepositoryRef.current === repository) {
         setByok(payload.byok);
         setRuntimeStatus("ready");
-        showToast("Enterprise BYOK disconnected");
+        showToast("OpenAI key removed from GitHub Actions");
       }
     } catch (error) {
       if (selectedRepositoryRef.current === repository) {
@@ -2144,32 +2087,37 @@ export function App() {
     refreshPreflight();
   }
 
-  function setRunStatus(id, status) {
+  function setRunStep(id, status, head = undefined) {
     setRuns((current) => ({
       ...current,
       [id]: {
         ...current[id],
         status,
+        ...(head ? { head } : {}),
         updatedAt: new Date().toISOString(),
       },
     }));
   }
 
   function startRun(id) {
-    if (id !== "payment") return;
+    if (id !== "route") return;
     timersRef.current.forEach(window.clearTimeout);
     timersRef.current = [];
     setSelectedId(id);
     setFilter(FILTERS[0]);
-    setRunStatus(id, "evaluating");
+    setRunStep(id, "binding", CHANGES[0].initialHead);
     showToast("Binding exact commit 71b04c2");
     const sequence = [
-      [700, "testing", "Allowed files confirmed · running the project test"],
-      [1700, "publishing", "Duplicate-charge evidence failed · posting the neutral receipt"],
-      [2700, "reported", "Finding posted on 71b04c2 · GitHub merge rules unchanged"],
+      [550, "failing", "Synthetic service-window evidence reproduced"],
+      [1_150, "proposing", "GPT-5.6 Luna proposing one bounded patch"],
+      [1_850, "validating", "Clean harness validating paths and patch"],
+      [2_450, "applying", "Trusted controller applying accepted patch"],
+      [3_050, "rechecking", "New head 9fc82a1 · fresh evidence running", CHANGES[0].repairedHead],
+      [3_650, "publishing", "Exact-head evidence passed · publishing ChangePlane / guard", CHANGES[0].repairedHead],
+      [4_250, "passed", "Verified on 9fc82a1 · GitHub decides the merge", CHANGES[0].repairedHead],
     ];
-    timersRef.current = sequence.map(([delay, status, message]) => window.setTimeout(() => {
-      setRunStatus(id, status);
+    timersRef.current = sequence.map(([delay, status, message, head]) => window.setTimeout(() => {
+      setRunStep(id, status, head);
       showToast(message);
     }, delay));
   }
@@ -2240,11 +2188,15 @@ export function App() {
         installResult={installResult}
         runtimeStatus={runtimeStatus}
         runtimeError={runtimeError}
-        managedRuntime={managedRuntime}
         byok={byok}
+        activeModel={activeModel}
+        modelConfigured={modelConfigured}
+        modelSaving={modelSaving}
+        runtimeUpdate={runtimeUpdate}
         byokSaving={byokSaving}
         onSaveByok={saveByok}
         onDisconnectByok={disconnectByok}
+        onChangeModel={changeRuntimeModel}
         onInstall={installRepository}
         onRecheckInstall={recheckInstall}
         onResetInstall={resetInstall}
@@ -2284,8 +2236,8 @@ export function App() {
               )}
             </div>
             <span className="topbar-divider" aria-hidden="true" />
-            <span className="connection-label"><i /> {session.isPreview ? "Fictional workflow" : "GitHub connected"}</span>
-            <span className="date-label"><CalendarBlank size={18} /> Jul 18, 2026 · 10:24 UTC</span>
+            <span className="connection-label"><i /> {session.isPreview ? "Recorded canary replay" : "GitHub connected"}</span>
+            <span className="date-label"><CalendarBlank size={18} /> Jul 20, 2026 · recorded evidence</span>
             <span className="topbar-divider" aria-hidden="true" />
             <button className="icon-button" type="button" aria-label="Assurance workflow" onClick={() => setGuideOpen(true)}><Question size={19} /></button>
             <div className="topbar-menu-wrap">
@@ -2302,7 +2254,7 @@ export function App() {
         </header>
 
         {session.isPreview && (
-          <div className="preview-boundary-banner">Fictional exact-revision receipt · no GitHub access or code changes</div>
+          <div className="preview-boundary-banner">RouteThai production-informed shadow pilot · synthetic data · public replay · no repository access</div>
         )}
 
         <div className="app-grid" id="top">
@@ -2323,7 +2275,7 @@ export function App() {
       </div>
 
       <FileDialog file={inspectedFile} onClose={() => setInspectedFile(null)} />
-      {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} onStart={() => { setSelectedId("payment"); setGuideOpen(false); }} />}
+      {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} onStart={() => { setSelectedId("route"); setGuideOpen(false); }} />}
       {previewEvidenceOpen && <PreviewEvidenceDrawer change={change} onClose={() => setPreviewEvidenceOpen(false)} onCopy={copyHead} />}
       {backboneOpen && <BackboneDrawer change={change} onClose={() => setBackboneOpen(false)} />}
       <div className={`toast ${toast ? "is-visible" : ""}`} role="status" aria-live="polite"><CheckCircle size={18} weight="fill" />{toast}</div>

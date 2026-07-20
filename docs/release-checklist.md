@@ -5,7 +5,7 @@
 - Production source: `d758005d3790b679f842a87d9745c34985051319` from [PR #19](https://github.com/LeChiffreVol2/changeplane/pull/19); required [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29681989165/job/88179651533), Vercel, and Vercel Preview Comments checks all passed before merge.
 - Vercel Production: `dpl_2kBAs55hwUWRZCgeBAWSSTEB3acX`, aliased to `https://changeplane.vercel.app`; immediately previous known-good deployment `dpl_8daL5a7zcruWwuKB6xAMAhvJGCdD` remains available.
 - Readiness: request ID `6f948fb1913b7e6637398404`, HTTP `200`, `status: ready`, `authMode: github_app`, `rolloutMode: controlled_canary`, release `d758005d3790`. Every readiness check is true; Managed remains reserved and repair reports `enabled: false` and `configured: false`.
-- The fixed-endpoint DeepSeek provider boundary remains inactive behind the common patch harness. GitHub-hosted runner egress is not treated as sandbox-enforced; a strict network canary is required before repair activation.
+- The fixed-endpoint OpenAI Responses boundary remains inactive behind the common patch harness. GitHub-hosted runner egress is not treated as sandbox-enforced; a strict network canary is required before repair activation.
 - The public production root exposes an observe-only fictional exact-revision receipt and makes clear that it cannot access GitHub, change code, block merging, or repair. The terminal receipt keeps head `71b04c2` unchanged and names GitHub as merge authority.
 - Positive owner-flow evidence passed in the private disposable repository `LeChiffreVol2/changeplane-pristine-canary-20260719`: read-only preflight reported fresh/installable, setup [PR #1](https://github.com/LeChiffreVol2/changeplane-pristine-canary-20260719/pull/1) changed only the seven expected policy/managed observe files, and exact head `89aac3c8da1d7c3f29013b084542c01dd7e780a5` merged as `d0f784d377624f68f9734b1f4ac377293ee0f859`.
 - Normal [PR #2](https://github.com/LeChiffreVol2/changeplane-pristine-canary-20260719/pull/2) then published one `ChangePlane / guard` Check Run from `github-actions` with conclusion `neutral` and one idempotent receipt, both bound to exact head `602a367343688f9f4c36c0661aea85b398a674ca`. The receipt declared one actual file, no findings, scope-only evidence, no repair, and no merge blocking.
@@ -33,14 +33,14 @@
 
 ## Configuration and secrets
 
-- [ ] Inventory observe Vercel settings `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, controlled-rollout `CHANGEPLANE_CANARY_REPOSITORY`, optional `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
+- [ ] Inventory observe Vercel settings `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SELF_SERVE_ENABLED`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, optional `CHANGEPLANE_MANAGED_OPENAI_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
 - [ ] Inventory repair Vercel settings `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; keep the switch false and keep all secret values out of the release record.
-- [ ] Inventory disposable-repository Variables `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, and `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, plus Secrets `CHANGEPLANE_CONTROLLER_HMAC` and optional evidence-repair `DEEPSEEK_API_KEY`; keep the worker switch false during provisioning.
+- [ ] Inventory disposable-repository Variables `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, and `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, plus Secrets `CHANGEPLANE_CONTROLLER_HMAC` and optional evidence-repair `OPENAI_API_KEY`; keep the worker switch false during provisioning.
 - [x] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
-- [x] On the free canary, keep the GitHub App private and verify the public root offers only the fictional workspace. Verify the unlisted `?access=canary-owner` entry returns a non-owner cleanly and `/api/github?action=login` plus in-flight installation/callback state reject without redirecting to GitHub.
+- [ ] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers Connect GitHub and the RouteThai example; personal and organization installations list only their granted writable repositories; repair remains bound to the disposable canary.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
-- [ ] Keep `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY` server-side and absent unless the private canary is explicitly approved.
+- [ ] Keep `CHANGEPLANE_MANAGED_OPENAI_API_KEY` server-side and absent unless the private canary is explicitly approved.
 - [ ] Confirm plaintext provider keys never appear in localStorage, logs, responses, Vercel build output, screenshots, or release records.
 - [ ] Publish and verify the Vercel WAF fixed-window rate limit for `/api/github` before public onboarding; record its threshold and owner, confirm excess traffic receives `429`, and keep total allowed requests inside the included allowance.
   - Evidence captured 2026-07-19: active fixed-window rule, 60 requests per 60 seconds per IP; a controlled 65-request burst returned 60 `200` responses and 5 `429` responses. Release-owner naming remains open.
@@ -60,7 +60,7 @@
   - The historical canary began scope-only. [PR #3](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/3) later bound required check `test` to source `github-actions` with a 120-second wait, and [PR #4](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/4) added the legacy-status permission needed by that observe release. Enforce now accepts only expected-App Check Runs.
 - [x] Verify one exact-head receipt and neutral `ChangePlane / guard` Check Run in observe mode.
   - [PR #2](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/2) has one idempotently updated receipt on final head `bab424f625052aad5d0038de5bccb04e71b06053`; `test` and `ChangePlane observe` succeeded, `ChangePlane / guard` concluded neutral, and the receipt bound the successful `github-actions` evidence to that exact head.
-- [ ] If Enterprise BYOK will be offered in this rollout, verify create, rotate, disconnect, provider-key revocation, and fail-closed DeepSeek model discovery without retaining plaintext. Otherwise keep provider funding out of the onboarding path and leave the managed key unset.
+- [ ] Verify personal and organization BYOK create, rotate, disconnect, provider-key revocation, and fail-closed OpenAI model access without retaining plaintext. Keep the managed key unset.
 
 ## Release and rollback
 
@@ -98,14 +98,14 @@
 - [ ] Run the checkout-race canary end to end: expected-App evidence fails, the model proposes only an in-scope patch, the clean apply job creates a new head, the same evidence succeeds, and only then does `ChangePlane / guard` pass with zero human actions.
 - [ ] Exercise the generation-based kill switch before provider access and again before clean apply in the disposable repair canary.
 - [ ] Activate in order: set the repository worker switch true, deploy the reviewed protected-source commit with the Vercel switch true, and stop unless readiness reports repair enabled/configured with every nested check true for the expected release.
-- [ ] Run deterministic scope repair before adding or exercising `DEEPSEEK_API_KEY`; never reuse the stale observe pull request as repair evidence.
+- [ ] Run deterministic scope repair before adding or exercising `OPENAI_API_KEY`; never reuse the stale observe pull request as repair evidence.
 - [ ] Exercise rollback in order: repository switch false, cancel runs, Vercel switch false, generation advanced and mirrored, disabled deployment verified, repair endpoints `503`. Do not rely on Instant Rollback alone because an older deployment may carry enabled configuration.
 - [ ] Record that GitHub Free provides no branch protection for the private disposable canary. Require manual PR review and no direct pushes by procedure, and treat the run as lab evidence rather than production enforcement.
 - [ ] Exercise provider outage, GitHub outage, exhausted attempts, and rollback incidents.
 
 ## Required before ChangePlane Managed
 
-- [ ] Prove no repository workflow or browser can retrieve `CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY`.
+- [ ] Prove no repository workflow or browser can retrieve `CHANGEPLANE_MANAGED_OPENAI_API_KEY`.
 - [ ] Provide tenant-isolated credentials and data paths.
 - [ ] Provide usage metering, hard budgets, abuse controls, and cost alerts.
 - [ ] Provide subscription lifecycle, invoices, refunds, and support ownership.

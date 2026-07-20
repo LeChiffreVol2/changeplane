@@ -12,6 +12,7 @@ import sodium from "libsodium-wrappers";
 
 import {
   claimTrustedRepair,
+  createSecretsWriteInstallationAccessToken,
   deriveControllerSecret,
   issueTrustedRepairPushToken,
   publishTrustedRepair,
@@ -21,6 +22,13 @@ import {
   verifyClaimRequest,
   verifyControllerRequest,
 } from "../server/github-repair-controller.js";
+import {
+  BYOK_SECRET_NAME,
+  DEFAULT_PROPOSAL_MODEL,
+  PROPOSAL_REASONING_EFFORT,
+  RUNTIME_PROVIDER,
+  proposalModel,
+} from "../src/lib/runtime.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -29,14 +37,12 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_REPAIR_BODY_BYTES = 128 * 1024;
-const RUNTIME_PROVIDER = "deepseek";
-const RUNTIME_MODEL = "deepseek-v4-flash";
-const RUNTIME_EFFORT = "high";
-const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models";
-const BYOK_SECRET_NAME = "DEEPSEEK_API_KEY";
-const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY";
+const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
+const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_OPENAI_API_KEY";
 const BYOK_MIN_LENGTH = 20;
 const BYOK_MAX_LENGTH = 512;
+const MAX_APP_INSTALLATIONS = 20;
+const MAX_INSTALLATION_REPOSITORIES = 1_000;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const VERIFIED_VERCEL_SOURCE = Object.freeze({
   environment: "production",
@@ -83,6 +89,7 @@ const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
 });
 const OBSERVE_SETUP_BRANCH = "changeplane/observe-setup";
 const OBSERVE_UPGRADE_BRANCH = `changeplane/observe-upgrade-v${MANAGED_VERSION}`;
+const RUNTIME_CONFIG_BRANCH = "changeplane/runtime-model";
 const GUARD_CHECK_NAME = "ChangePlane / guard";
 const ROUTE_METHODS = new Map([
   ["session", ["GET"]],
@@ -93,8 +100,8 @@ const ROUTE_METHODS = new Map([
   ["callback", ["GET"]],
   ["repos", ["GET"]],
   ["preflight", ["GET"]],
-  ["runtime", ["GET"]],
-  ["byok", ["POST", "DELETE"]],
+  ["runtime", ["GET", "POST"]],
+  ["byok", ["GET", "POST", "DELETE"]],
   ["install", ["POST"]],
   ["repair", ["POST"]],
   ["repair-claim", ["POST"]],
@@ -180,15 +187,15 @@ function configuredCanaryRepository() {
 }
 
 function rolloutMode() {
+  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true") return "self_serve";
   return process.env.CHANGEPLANE_CANARY_REPOSITORY || process.env.VERCEL === "1"
     ? "controlled_canary"
     : "self_serve";
 }
 
 function hasValidCanaryRepository() {
-  return process.env.VERCEL === "1"
-    ? Boolean(configuredCanaryRepository())
-    : !process.env.CHANGEPLANE_CANARY_REPOSITORY || Boolean(configuredCanaryRepository());
+  if (rolloutMode() === "self_serve") return true;
+  return Boolean(configuredCanaryRepository());
 }
 
 function repairControllerConfiguration() {
@@ -346,11 +353,20 @@ export function validateByokKey(value) {
   return value;
 }
 
-export async function verifyDeepSeekKey(value, { fetchImpl = fetch } = {}) {
+export function validateRuntimeModel(value) {
+  try {
+    return proposalModel(value);
+  } catch {
+    throw new HttpError(400, "Choose GPT-5.6 Luna, Terra, or Sol.");
+  }
+}
+
+export async function verifyOpenAIKey(value, { model = DEFAULT_PROPOSAL_MODEL, fetchImpl = fetch } = {}) {
   const apiKey = validateByokKey(value);
+  const selectedModel = validateRuntimeModel(model);
   let response;
   try {
-    response = await fetchImpl(DEEPSEEK_MODELS_URL, {
+    response = await fetchImpl(`${OPENAI_MODELS_URL}/${encodeURIComponent(selectedModel)}`, {
       redirect: "error",
       headers: {
         accept: "application/json",
@@ -359,28 +375,29 @@ export async function verifyDeepSeekKey(value, { fetchImpl = fetch } = {}) {
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
-    throw new HttpError(502, "DeepSeek credential verification is temporarily unavailable. No secret was saved.");
+    throw new HttpError(502, "OpenAI credential verification is temporarily unavailable. No secret was saved.");
   }
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new HttpError(400, "DeepSeek rejected this API key. No secret was saved.");
+      throw new HttpError(400, "OpenAI rejected this API key. No secret was saved.");
     }
-    throw new HttpError(502, "DeepSeek credential verification is temporarily unavailable. No secret was saved.");
+    if (response.status === 404) {
+      throw new HttpError(409, `${selectedModel} is not available for this OpenAI project. No secret was saved.`);
+    }
+    throw new HttpError(502, "OpenAI credential verification is temporarily unavailable. No secret was saved.");
   }
 
   let payload;
   try {
     payload = await response.json();
   } catch {
-    throw new HttpError(502, "DeepSeek returned an invalid model response. No secret was saved.");
+    throw new HttpError(502, "OpenAI returned an invalid model response. No secret was saved.");
   }
-  const available = Array.isArray(payload?.data)
-    && payload.data.some((model) => model?.id === RUNTIME_MODEL);
-  if (!available) {
-    throw new HttpError(409, `${RUNTIME_MODEL} is not available for this DeepSeek account. No secret was saved.`);
+  if (payload?.id !== selectedModel) {
+    throw new HttpError(409, `${selectedModel} is not available for this OpenAI project. No secret was saved.`);
   }
-  return { provider: RUNTIME_PROVIDER, model: RUNTIME_MODEL, verified: true };
+  return { provider: RUNTIME_PROVIDER, model: selectedModel, verified: true };
 }
 
 function cookie(name, value, maxAge) {
@@ -503,7 +520,17 @@ function readSession(req) {
     const authMode = session.authMode === "github_app" ? "github_app" : "oauth";
     const configuredAuthMode = githubAppSlug() ? "github_app" : "oauth";
     if (authMode !== configuredAuthMode) return null;
-    if (authMode === "github_app" && !/^[1-9][0-9]{0,19}$/u.test(String(session.installationId ?? ""))) return null;
+    if (authMode === "github_app") {
+      const sourceIds = Array.isArray(session.installationIds)
+        ? session.installationIds
+        : [session.installationId];
+      const installationIds = [...new Set(sourceIds
+        .map((value) => String(value ?? ""))
+        .filter((value) => /^[1-9][0-9]{0,19}$/u.test(value)))]
+        .slice(0, MAX_APP_INSTALLATIONS);
+      if (installationIds.length === 0) return null;
+      return { ...session, authMode, installationId: installationIds[0], installationIds };
+    }
     return { ...session, authMode };
   } catch {
     return null;
@@ -567,20 +594,32 @@ async function githubPathExists(repository, filePath, ref, token) {
 }
 
 async function installationRepositories(session) {
-  const repos = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const payload = await github(`/user/installations/${encodeURIComponent(session.installationId)}/repositories?per_page=100&page=${page}`, session.token);
-    const batch = payload?.repositories;
-    if (!Array.isArray(batch)) throw new HttpError(502, "GitHub returned an invalid repository list.");
-    repos.push(...batch);
-    if (batch.length < 100) break;
+  const installationIds = session.installationIds ?? [session.installationId];
+  const repositories = new Map();
+  for (const installationId of installationIds.slice(0, MAX_APP_INSTALLATIONS)) {
+    for (let page = 1; page <= 10; page += 1) {
+      const payload = await github(`/user/installations/${encodeURIComponent(installationId)}/repositories?per_page=100&page=${page}`, session.token);
+      const batch = payload?.repositories;
+      if (!Array.isArray(batch)) throw new HttpError(502, "GitHub returned an invalid repository list.");
+      for (const repository of batch) {
+        if (typeof repository?.full_name !== "string") continue;
+        const key = repository.full_name.toLowerCase();
+        if (!repositories.has(key)) {
+          repositories.set(key, { ...repository, changeplaneInstallationId: installationId });
+        }
+        if (repositories.size >= MAX_INSTALLATION_REPOSITORIES) break;
+      }
+      if (batch.length < 100 || repositories.size >= MAX_INSTALLATION_REPOSITORIES) break;
+    }
+    if (repositories.size >= MAX_INSTALLATION_REPOSITORIES) break;
   }
-  return repos;
+  return [...repositories.values()];
 }
 
 async function requireWritableRepository(repository, session) {
-  const canaryRepository = configuredCanaryRepository();
-  if (process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
+  const controlledCanary = rolloutMode() === "controlled_canary";
+  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
+  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
     throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
   }
   if (canaryRepository && repository.toLowerCase() !== canaryRepository.toLowerCase()) {
@@ -596,7 +635,11 @@ async function requireWritableRepository(repository, session) {
   if (!repo.permissions?.push && !repo.permissions?.admin) {
     throw new HttpError(403, "Push or admin repository access is required.");
   }
-  return { encodedRepository, repo };
+  return {
+    encodedRepository,
+    repo,
+    installationId: session.authMode === "github_app" ? repo.changeplaneInstallationId : null,
+  };
 }
 
 async function inspectInstallTarget(repository, session) {
@@ -727,8 +770,8 @@ export function buildPilotFiles(requiredCheck = null) {
       funding: "byok",
       provider: RUNTIME_PROVIDER,
       secretName: BYOK_SECRET_NAME,
-      model: RUNTIME_MODEL,
-      effort: RUNTIME_EFFORT,
+      model: DEFAULT_PROPOSAL_MODEL,
+      reasoningEffort: PROPOSAL_REASONING_EFFORT,
       managedSubscription: "reserved",
     },
   };
@@ -740,6 +783,30 @@ export function buildPilotFiles(requiredCheck = null) {
     { path: POLICY_PATH, content: `${JSON.stringify(policy, null, 2)}\n` },
     workflow,
   ];
+}
+
+export function buildRuntimePolicy(value, model) {
+  const selectedModel = validateRuntimeModel(model);
+  let policy;
+  try {
+    policy = JSON.parse(value);
+  } catch {
+    throw new HttpError(409, `${POLICY_PATH} is not valid JSON. Nothing was changed.`);
+  }
+  if (!policy || typeof policy !== "object" || Array.isArray(policy) || policy.version !== 1) {
+    throw new HttpError(409, `${POLICY_PATH} is not a supported ChangePlane policy. Nothing was changed.`);
+  }
+  return `${JSON.stringify({
+    ...policy,
+    runtime: {
+      funding: "byok",
+      provider: RUNTIME_PROVIDER,
+      secretName: BYOK_SECRET_NAME,
+      model: selectedModel,
+      reasoningEffort: PROPOSAL_REASONING_EFFORT,
+      managedSubscription: "reserved",
+    },
+  }, null, 2)}\n`;
 }
 
 function parsedManagedManifest(value) {
@@ -1564,6 +1631,42 @@ async function userInstallations(token) {
   return installations;
 }
 
+function missingRequiredInstallationPermissions(installation) {
+  return Object.entries(REQUIRED_GITHUB_APP_PERMISSIONS)
+    .filter(([permission, level]) => {
+      const actual = installation?.permissions?.[permission];
+      return level === "write" ? actual !== "write" : !["read", "write"].includes(actual);
+    })
+    .map(([permission]) => permission);
+}
+
+async function installationCanWriteSecrets(session, installationId) {
+  if (session.authMode !== "github_app") return true;
+  if (typeof session.byokSecretWrite === "boolean") return session.byokSecretWrite;
+  if (!/^[1-9][0-9]{0,19}$/u.test(String(installationId ?? ""))) return false;
+  const installations = await userInstallations(session.token);
+  const installation = installations.find(({ id }) => String(id) === String(installationId));
+  return installation?.permissions?.secrets === "write";
+}
+
+async function repositoryByokToken(session, repo, installationId) {
+  if (session.authMode !== "github_app") return session.token;
+  if (!Number.isSafeInteger(repo?.id) || repo.id <= 0) {
+    throw new HttpError(502, "GitHub returned an invalid repository identifier.");
+  }
+  try {
+    return await createSecretsWriteInstallationAccessToken({
+      appId: process.env.GITHUB_APP_ID,
+      privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+      installationId: Number(installationId),
+      repositoryId: repo.id,
+      request: (pathname, token, options) => github(pathname, token, options),
+    });
+  } catch {
+    throw new HttpError(503, "GitHub App secret storage is not available. Reconnect the App or contact the repository owner.");
+  }
+}
+
 async function callback(req, res) {
   const state = queryValue(req, "state");
   if (typeof state !== "string" || !/^[A-Za-z0-9_-]{32,128}$/u.test(state)) throw new HttpError(400, "Invalid OAuth state.");
@@ -1623,43 +1726,44 @@ async function callback(req, res) {
   }
   const user = await github("/user", exchange.access_token);
   if (typeof user?.login !== "string" || !user.login) throw new HttpError(502, "GitHub returned an invalid user profile.");
-  let byokSecretWrite = configuration.authMode !== "github_app";
-  let installationId = saved.installationId;
+  let installationIds = [];
   if (configuration.authMode === "github_app") {
     const installations = await userInstallations(exchange.access_token);
-    if (saved.existingInstallation === true && typeof installationId !== "string") {
-      const matching = installations.filter(({ app_slug: appSlug }) => appSlug === configuration.appSlug);
-      if (matching.length === 0) {
+    const matching = installations.filter(({ id, app_slug: appSlug }) => (
+      appSlug === configuration.appSlug || String(id) === String(saved.installationId ?? "")
+    ));
+    if (matching.length === 0) {
+      if (saved.existingInstallation === true) {
         if (rolloutMode() === "controlled_canary") {
           redirectCanaryOwnerError(req, res, "owner_required");
           return;
         }
         throw new HttpError(404, "No existing ChangePlane installation is available to this GitHub user. Install the GitHub App first.");
       }
-      if (matching.length > 1) {
-        if (rolloutMode() === "controlled_canary") {
-          redirectCanaryOwnerError(req, res, "owner_ambiguous");
-          return;
-        }
-        throw new HttpError(409, "More than one ChangePlane installation is available. Re-open the installer and choose the GitHub account you want to connect.");
-      }
-      installationId = String(matching[0].id);
-    }
-    if (typeof installationId !== "string") throw new HttpError(400, "GitHub App installation is missing.");
-    const installation = installations.find(({ id }) => String(id) === installationId);
-    if (!installation) {
       throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
-    const missingPermissions = Object.entries(REQUIRED_GITHUB_APP_PERMISSIONS)
-      .filter(([permission, level]) => {
-        const actual = installation.permissions?.[permission];
-        return level === "write" ? actual !== "write" : !["read", "write"].includes(actual);
-      })
-      .map(([permission]) => permission);
-    if (missingPermissions.length > 0) {
-      throw new HttpError(403, `The GitHub App installation is missing required write permissions: ${missingPermissions.join(", ")}.`);
+    const selectedInstallation = saved.installationId == null
+      ? null
+      : matching.find(({ id }) => String(id) === String(saved.installationId));
+    if (saved.installationId != null && !selectedInstallation) {
+      throw new HttpError(403, "This GitHub App installation is not available to the signed-in user.");
     }
-    byokSecretWrite = installation.permissions?.secrets === "write";
+    const invalidSelectedPermissions = selectedInstallation
+      ? missingRequiredInstallationPermissions(selectedInstallation)
+      : [];
+    if (invalidSelectedPermissions.length > 0) {
+      throw new HttpError(403, `The selected GitHub App installation is missing required permissions: ${invalidSelectedPermissions.join(", ")}.`);
+    }
+    const validInstallations = matching.filter((installation) => (
+      missingRequiredInstallationPermissions(installation).length === 0
+    ));
+    if (validInstallations.length === 0) {
+      throw new HttpError(403, "No ChangePlane installation available to this user has the required repository permissions.");
+    }
+    installationIds = validInstallations
+      .map(({ id }) => String(id))
+      .filter((value) => /^[1-9][0-9]{0,19}$/u.test(value))
+      .slice(0, MAX_APP_INSTALLATIONS);
   }
 
   const providerTtlMs = Number.isFinite(exchange.expires_in) && exchange.expires_in > 0
@@ -1673,7 +1777,10 @@ async function callback(req, res) {
     login: user.login,
     csrf: randomBytes(32).toString("base64url"),
     authMode: configuration.authMode,
-    ...(configuration.authMode === "github_app" ? { installationId, byokSecretWrite } : {}),
+    ...(configuration.authMode === "github_app" ? {
+      installationId: installationIds[0],
+      installationIds,
+    } : {}),
   }, sessionSecret(), { ttlMs });
   redirect(res, `${configuredOrigin(req)}/?github=connected`, [
     clearCookie(OAUTH_COOKIE),
@@ -1683,8 +1790,9 @@ async function callback(req, res) {
 
 async function repositories(req, res) {
   const session = requireSession(req);
-  const canaryRepository = configuredCanaryRepository();
-  if (process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
+  const controlledCanary = rolloutMode() === "controlled_canary";
+  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
+  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
     throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
   }
   const repos = [];
@@ -1732,13 +1840,148 @@ async function readByokStatus(repository, token) {
   }
 }
 
+async function readRepositoryRuntime(encodedRepository, repo, token) {
+  if (typeof repo.default_branch !== "string" || !repo.default_branch) {
+    throw new HttpError(409, "Repository has no default branch.");
+  }
+  const ref = await github(`/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`, token);
+  const baseSha = ref?.object?.sha;
+  if (!/^[a-f0-9]{40}$/u.test(baseSha ?? "")) throw new Error("GitHub returned an invalid default-branch revision.");
+  const content = await readRepositoryFile(encodedRepository, POLICY_PATH, baseSha, token);
+  if (typeof content !== "string") {
+    return { baseSha, content: null, model: DEFAULT_PROPOSAL_MODEL, configured: false };
+  }
+  let policy;
+  try {
+    policy = JSON.parse(content);
+  } catch {
+    throw new HttpError(409, `${POLICY_PATH} is not valid JSON. Runtime configuration is unavailable.`);
+  }
+  let model = DEFAULT_PROPOSAL_MODEL;
+  let configured = false;
+  if (policy?.runtime?.provider === RUNTIME_PROVIDER) {
+    model = validateRuntimeModel(policy.runtime.model);
+    configured = policy.runtime.secretName === BYOK_SECRET_NAME
+      && policy.runtime.reasoningEffort === PROPOSAL_REASONING_EFFORT;
+  }
+  return { baseSha, content, model, configured };
+}
+
+async function validateRuntimePullRequest(encodedRepository, pullRequest, baseSha, headSha, treeSha, token) {
+  if (!Number.isSafeInteger(pullRequest?.number) || typeof pullRequest?.html_url !== "string"
+    || pullRequest?.head?.sha !== headSha || pullRequest?.base?.sha !== baseSha) {
+    throw new HttpError(409, "The runtime configuration pull request is not bound to the expected revisions.");
+  }
+  const branchHead = await readBranchHead(encodedRepository, RUNTIME_CONFIG_BRANCH, token);
+  if (branchHead !== headSha) throw new HttpError(409, "The runtime configuration branch changed unexpectedly.");
+  const commit = await github(`/repos/${encodedRepository}/git/commits/${headSha}`, token);
+  if (commit?.tree?.sha !== treeSha || commit?.parents?.length !== 1 || commit.parents[0]?.sha !== baseSha) {
+    throw new HttpError(409, "The runtime configuration commit is not based on the current default branch.");
+  }
+  const comparison = await github(`/repos/${encodedRepository}/compare/${baseSha}...${headSha}`, token);
+  if (comparison?.ahead_by !== 1 || comparison?.behind_by !== 0 || comparison?.total_commits !== 1
+    || !Array.isArray(comparison?.files) || comparison.files.length !== 1
+    || comparison.files[0]?.filename !== POLICY_PATH) {
+    throw new HttpError(409, `The runtime configuration pull request must change only ${POLICY_PATH}.`);
+  }
+}
+
+async function createRuntimePullRequest(repository, session, model) {
+  const selectedModel = validateRuntimeModel(model);
+  const { encodedRepository, repo } = await requireWritableRepository(repository, session);
+  const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
+  if (!runtime.content) throw new HttpError(409, "Merge the ChangePlane setup pull request before choosing a proposal model.");
+  const updatedPolicy = buildRuntimePolicy(runtime.content, selectedModel);
+  if (updatedPolicy === runtime.content) {
+    return { repository, operation: "current", model: selectedModel, state: "current" };
+  }
+
+  const baseCommit = await github(`/repos/${encodedRepository}/git/commits/${runtime.baseSha}`, session.token);
+  const baseTree = baseCommit?.tree?.sha;
+  if (!/^[a-f0-9]{40}$/u.test(baseTree ?? "")) throw new Error("GitHub returned an invalid default-branch tree.");
+  const blob = await github(`/repos/${encodedRepository}/git/blobs`, session.token, {
+    method: "POST",
+    body: { content: updatedPolicy, encoding: "utf-8" },
+  });
+  const tree = await github(`/repos/${encodedRepository}/git/trees`, session.token, {
+    method: "POST",
+    body: {
+      base_tree: baseTree,
+      tree: [{ path: POLICY_PATH, mode: "100644", type: "blob", sha: blob.sha }],
+    },
+  });
+  if (!/^[a-f0-9]{40}$/u.test(tree?.sha ?? "")) throw new Error("GitHub returned an invalid runtime configuration tree.");
+
+  let headSha = await readBranchHead(encodedRepository, RUNTIME_CONFIG_BRANCH, session.token);
+  if (!headSha) {
+    const commit = await github(`/repos/${encodedRepository}/git/commits`, session.token, {
+      method: "POST",
+      body: {
+        message: `chore: use ${selectedModel} for ChangePlane proposals`,
+        tree: tree.sha,
+        parents: [runtime.baseSha],
+      },
+    });
+    if (!/^[a-f0-9]{40}$/u.test(commit?.sha ?? "")) throw new Error("GitHub returned an invalid runtime configuration commit.");
+    try {
+      await github(`/repos/${encodedRepository}/git/refs`, session.token, {
+        method: "POST",
+        body: { ref: `refs/heads/${RUNTIME_CONFIG_BRANCH}`, sha: commit.sha },
+      });
+    } catch (error) {
+      if (!(error instanceof GitHubError) || error.status !== 422) throw error;
+    }
+    headSha = await readBranchHead(encodedRepository, RUNTIME_CONFIG_BRANCH, session.token);
+  }
+  if (!/^[a-f0-9]{40}$/u.test(headSha ?? "")) throw new Error("GitHub returned an invalid runtime configuration branch.");
+
+  let pullRequest;
+  try {
+    pullRequest = await github(`/repos/${encodedRepository}/pulls`, session.token, {
+      method: "POST",
+      body: {
+        title: `chore: use ${selectedModel} for ChangePlane proposals`,
+        head: RUNTIME_CONFIG_BRANCH,
+        base: repo.default_branch,
+        body: [
+          "## ChangePlane runtime policy",
+          "",
+          `This changes only \`${POLICY_PATH}\` and selects \`${selectedModel}\` for bounded patch proposals.`,
+          "",
+          "The model still receives no forge write, Check, approval, or merge authority. Closing this pull request keeps the current runtime unchanged.",
+        ].join("\n"),
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof GitHubError) || error.status !== 422) throw error;
+    const owner = repo.full_name.split("/")[0];
+    const pulls = await github(
+      `/repos/${encodedRepository}/pulls?state=open&base=${encodeURIComponent(repo.default_branch)}&head=${encodeURIComponent(`${owner}:${RUNTIME_CONFIG_BRANCH}`)}&per_page=10`,
+      session.token,
+    );
+    pullRequest = Array.isArray(pulls) && pulls.length === 1 ? pulls[0] : null;
+    if (!pullRequest) throw new HttpError(409, `Branch ${RUNTIME_CONFIG_BRANCH} already exists without one verifiable pull request.`);
+  }
+  await validateRuntimePullRequest(encodedRepository, pullRequest, runtime.baseSha, headSha, tree.sha, session.token);
+  return {
+    repository,
+    branch: RUNTIME_CONFIG_BRANCH,
+    operation: "runtime",
+    model: selectedModel,
+    state: "pending",
+    pullRequest: { number: pullRequest.number, url: pullRequest.html_url, state: pullRequest.state },
+  };
+}
+
 async function runtimeStatus(req, res) {
   const session = requireSession(req);
   const repository = validateRepository(queryValue(req, "repository"));
-  await requireWritableRepository(repository, session);
-  const byok = session.authMode === "github_app" && session.byokSecretWrite !== true
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
+  const canWriteSecrets = await installationCanWriteSecrets(session, installationId);
+  const byok = !canWriteSecrets
     ? { configured: false, state: "permission_required", secretName: BYOK_SECRET_NAME, updatedAt: null }
-    : await readByokStatus(repository, session.token);
+    : await readByokStatus(repository, await repositoryByokToken(session, repo, installationId));
   let managed = {
     state: "reserved",
     available: false,
@@ -1748,7 +1991,7 @@ async function runtimeStatus(req, res) {
   const managedKey = process.env[MANAGED_API_KEY_NAME];
   if (managedKey) {
     try {
-      await verifyDeepSeekKey(managedKey);
+      await verifyOpenAIKey(managedKey, { model: runtime.model });
       managed = {
         state: "provider_verified",
         available: false,
@@ -1767,11 +2010,24 @@ async function runtimeStatus(req, res) {
   sendJson(res, 200, {
     repository,
     provider: RUNTIME_PROVIDER,
-    model: RUNTIME_MODEL,
-    effort: RUNTIME_EFFORT,
+    model: runtime.model,
+    activeModel: runtime.model,
+    modelConfigured: runtime.configured,
+    effort: PROPOSAL_REASONING_EFFORT,
     managed,
     byok,
   });
+}
+
+async function configureRuntime(req, res) {
+  assertOrigin(req);
+  const session = requireSession(req);
+  assertCsrf(req, session);
+  assertJsonRequest(req);
+  const body = await readJson(req);
+  const repository = validateRepository(body.repository);
+  const result = await createRuntimePullRequest(repository, session, body.model);
+  sendJson(res, result.state === "current" ? 200 : 201, result);
 }
 
 async function configureByok(req, res) {
@@ -1782,12 +2038,14 @@ async function configureByok(req, res) {
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
   const apiKey = validateByokKey(body.apiKey);
-  const { encodedRepository } = await requireWritableRepository(repository, session);
-  if (session.authMode === "github_app" && session.byokSecretWrite !== true) {
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before BYOK can be configured. No provider request was made.");
   }
-  await verifyDeepSeekKey(apiKey);
-  const publicKey = await github(`/repos/${encodedRepository}/actions/secrets/public-key`, session.token);
+  const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
+  await verifyOpenAIKey(apiKey, { model: runtime.model });
+  const byokToken = await repositoryByokToken(session, repo, installationId);
+  const publicKey = await github(`/repos/${encodedRepository}/actions/secrets/public-key`, byokToken);
   if (typeof publicKey?.key_id !== "string" || !publicKey.key_id
     || typeof publicKey?.key !== "string" || !publicKey.key) {
     throw new HttpError(502, "GitHub returned an invalid repository encryption key.");
@@ -1805,7 +2063,7 @@ async function configureByok(req, res) {
     secretBytes = sodium.from_string(apiKey);
     encryptedBytes = sodium.crypto_box_seal(secretBytes, publicKeyBytes);
     const encryptedValue = sodium.to_base64(encryptedBytes, sodium.base64_variants.ORIGINAL);
-    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, session.token, {
+    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, byokToken, {
       method: "PUT",
       body: { encrypted_value: encryptedValue, key_id: publicKey.key_id },
       expectJson: false,
@@ -1816,12 +2074,13 @@ async function configureByok(req, res) {
     if (encryptedBytes) sodium.memzero(encryptedBytes);
   }
 
-  const byok = await readByokStatus(repository, session.token);
+  const byok = await readByokStatus(repository, byokToken);
   sendJson(res, 200, {
     repository,
     provider: RUNTIME_PROVIDER,
-    model: RUNTIME_MODEL,
-    effort: RUNTIME_EFFORT,
+    model: runtime.model,
+    activeModel: runtime.model,
+    effort: PROPOSAL_REASONING_EFFORT,
     byok,
   });
 }
@@ -1833,12 +2092,13 @@ async function disconnectByok(req, res) {
   assertJsonRequest(req);
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
-  const { encodedRepository } = await requireWritableRepository(repository, session);
-  if (session.authMode === "github_app" && session.byokSecretWrite !== true) {
+  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before BYOK can be disconnected.");
   }
+  const byokToken = await repositoryByokToken(session, repo, installationId);
   try {
-    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, session.token, { method: "DELETE" });
+    await github(`/repos/${encodedRepository}/actions/secrets/${BYOK_SECRET_NAME}`, byokToken, { method: "DELETE" });
   } catch (error) {
     if (!(error instanceof GitHubError) || error.status !== 404) throw error;
   }
@@ -2198,7 +2458,7 @@ export default async function handler(req, res) {
       res.setHeader("allow", allowedMethods.join(", "));
       throw new HttpError(405, "Method not allowed for this API action.");
     }
-    if ((action === "install" || action === "byok" || action === "repair" || action === "repair-claim"
+    if ((action === "install" || action === "runtime" || action === "byok" || action === "repair" || action === "repair-claim"
       || action === "repair-push-token" || action === "repair-validate") && (method === "POST" || method === "DELETE")) {
       assertMutationSourceProvenance();
     }
@@ -2246,6 +2506,8 @@ export default async function handler(req, res) {
     if (method === "GET" && action === "repos") return await repositories(req, res);
     if (method === "GET" && action === "preflight") return await preflight(req, res);
     if (method === "GET" && action === "runtime") return await runtimeStatus(req, res);
+    if (method === "POST" && action === "runtime") return await configureRuntime(req, res);
+    if (method === "GET" && action === "byok") return await runtimeStatus(req, res);
     if (method === "POST" && action === "byok") return await configureByok(req, res);
     if (method === "DELETE" && action === "byok") return await disconnectByok(req, res);
     if (method === "POST" && action === "install") return await install(req, res);

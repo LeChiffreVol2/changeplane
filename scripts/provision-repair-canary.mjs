@@ -132,9 +132,9 @@ async function main() {
   await upsertVariable("CHANGEPLANE_REPAIR_PUBLIC_KEYS", publicKeys, installation.token);
 
   await putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC", value: repositorySecret, token: installation.token });
-  const deepSeekPath = process.env.CHANGEPLANE_DEEPSEEK_KEY_PATH;
-  if (deepSeekPath) {
-    await putEncryptedSecret({ name: "DEEPSEEK_API_KEY", value: readSecretFile("CHANGEPLANE_DEEPSEEK_KEY_PATH"), token: installation.token });
+  const openAIPath = process.env.CHANGEPLANE_OPENAI_KEY_PATH;
+  if (openAIPath) {
+    await putEncryptedSecret({ name: "OPENAI_API_KEY", value: readSecretFile("CHANGEPLANE_OPENAI_KEY_PATH"), token: installation.token });
   }
 
   process.stdout.write(JSON.stringify({

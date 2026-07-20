@@ -3,7 +3,8 @@ import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { matchesPathRule, normalizeRepoPath } from "../src/lib/changeplane.js";
-import { requestDeepSeekProposal } from "./changeplane-provider-deepseek.js";
+import { DEFAULT_PROPOSAL_MODEL, proposalModel } from "../src/lib/runtime.js";
+import { requestOpenAIProposal } from "./changeplane-provider-openai.js";
 
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_CONTEXT_BYTES = 160 * 1024;
@@ -163,15 +164,27 @@ export async function requestPatchProposal({
   request,
   files,
   fetchImpl = fetch,
-  provider = requestDeepSeekProposal,
+  provider = requestOpenAIProposal,
+  onResponseMetadata,
 }) {
   const messages = buildProposalMessages({ request, files });
   if (typeof provider !== "function") throw new Error("The proposal provider adapter is invalid.");
-  const content = await provider({ apiKey, model, messages, fetchImpl });
+  const content = await provider({ apiKey, model, messages, fetchImpl, onResponseMetadata });
   if (typeof apiKey === "string" && apiKey.length > 0 && String(content ?? "").includes(apiKey)) {
     throw new Error("The proposal provider returned unsafe credential material.");
   }
   return validatePatchProposal(content, request.allowedPaths);
+}
+
+export function readTrustedRuntimeModel(policyPath) {
+  if (!policyPath) return DEFAULT_PROPOSAL_MODEL;
+  let policy;
+  try {
+    policy = JSON.parse(readFileSync(policyPath, "utf8"));
+  } catch {
+    throw new Error("The trusted runtime policy is missing or invalid.");
+  }
+  return proposalModel(policy?.runtime?.model);
 }
 
 async function runCli() {
@@ -191,8 +204,10 @@ async function runCli() {
     rules: request.allowedPaths,
   });
   const proposal = await requestPatchProposal({
-    apiKey: process.env.DEEPSEEK_API_KEY,
-    model: process.env.CHANGEPLANE_PROPOSAL_MODEL,
+    apiKey: process.env.OPENAI_API_KEY,
+    model: process.env.CHANGEPLANE_PROPOSAL_MODEL
+      ? proposalModel(process.env.CHANGEPLANE_PROPOSAL_MODEL)
+      : readTrustedRuntimeModel(process.env.CHANGEPLANE_TRUSTED_POLICY),
     request,
     files,
   });

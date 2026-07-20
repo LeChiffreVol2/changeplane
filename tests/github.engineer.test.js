@@ -11,6 +11,7 @@ const ENVIRONMENT_NAMES = [
   "CHANGEPLANE_SESSION_SECRET",
   "CHANGEPLANE_APP_ORIGIN",
   "CHANGEPLANE_CANARY_REPOSITORY",
+  "CHANGEPLANE_SELF_SERVE_ENABLED",
 ];
 
 function responseRecorder() {
@@ -35,6 +36,7 @@ async function withEnvironment(values, callback) {
   });
   if (values.GITHUB_APP_SLUG == null) delete process.env.GITHUB_APP_SLUG;
   if (values.CHANGEPLANE_CANARY_REPOSITORY == null) delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+  if (values.CHANGEPLANE_SELF_SERVE_ENABLED == null) delete process.env.CHANGEPLANE_SELF_SERVE_ENABLED;
   try {
     return await callback();
   } finally {
@@ -231,7 +233,7 @@ test("GitHub App BYOK fails before provider access when Actions Secrets write is
       }, response);
       assert.equal(response.statusCode, 403);
       assert.match(JSON.parse(response.body).error, /No provider request was made/u);
-      assert.equal(calls.some((url) => url.origin === "https://api.deepseek.com"), false);
+      assert.equal(calls.some((url) => url.origin === "https://api.openai.com"), false);
     } finally {
       globalThis.fetch = originalFetch;
     }

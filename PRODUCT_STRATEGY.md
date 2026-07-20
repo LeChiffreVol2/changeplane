@@ -1,0 +1,109 @@
+# ChangePlane product strategy
+
+## Market thesis
+
+The winning position is **autonomy with proof**.
+
+Coding agents are becoming capable of planning, editing, testing, reviewing, and opening pull requests. GitHub and emerging agentic forges are adding more of that work directly to the forge. ChangePlane should not compete by becoming another IDE, coding agent, or Git host. It should be the independent assurance layer that any of them can call before code ships.
+
+The durable promise is:
+
+> The authoring agent may propose a change. Trusted evidence and a separately credentialed controller decide what the exact revision has proved.
+
+That keeps the product compatible with Codex, Cursor, Trae, Copilot, OpenSWE, and future agents while preserving GitHub as the system of record.
+
+## Competitive map
+
+| Product | Primary job | What it does well | ChangePlane opportunity |
+| --- | --- | --- | --- |
+| GitHub + Copilot | Forge, collaboration, coding and review agents | Native repository context, pull requests, rulesets, required checks, suggested fixes, cloud coding agent | Publish independent, exact-commit assurance through GitHub's existing control surface; never claim GitHub lacks review |
+| Cursor + Bugbot / Origin | IDE, agentic review, emerging agent-native forge | Fast in-editor loop, review rules, learned guidance, author-to-fix flow | Remain forge-independent and prove results from Cursor-authored changes without asking teams to migrate |
+| Trae Solo | Autonomous planning, building, and deployment | One task can drive a long-running build-and-ship workflow while the user reviews results | Accept the resulting pull request automatically, run assurance without a handoff, and return only bounded failures or a verified receipt |
+| Deep Agents / OpenSWE | Open coding-agent infrastructure | Sandboxes, subagents, skills, async task execution, pull request creation | Integrate as proposal workers behind one contract; do not fork or own the agent runtime |
+| OpenSWE Review | Automated review worker | Diff-bound findings, severity, deduplication, restricted review tools | Add an independent review plane whose findings are valid only on the inspected diff and never become PASS by themselves |
+| OpenWiki | Repository knowledge and generated documentation | Maintained codebase context and repository-owned documentation updates | Use reviewed, repository-owned assurance memory for invariants and runbooks; generated knowledge is context, not proof |
+
+Reference material: [Cursor Origin](https://cursor.com/origin), [Cursor Bugbot](https://docs.cursor.com/bugbot), [GitHub code review](https://github.com/features/code-review), [Trae](https://www.trae.ai/), [Deep Agents Code](https://docs.langchain.com/oss/python/deepagents/code/overview), [OpenSWE](https://github.com/langchain-ai/open-swe), [OpenSWE reviewer](https://github.com/langchain-ai/open-swe/blob/main/agent/reviewer.py), and [OpenWiki](https://github.com/langchain-ai/openwiki).
+
+## Product surface to ship now
+
+These features establish a complete, credible wedge without expanding into a forge or agent platform:
+
+1. **Self-serve GitHub App onboarding**
+   - Personal accounts and GitHub organizations, including Enterprise Cloud organizations.
+   - A returning user may choose repositories across every eligible installation they can access.
+   - One repository, one observe-mode setup pull request, no direct default-branch write.
+   - GitHub Enterprise Server remains unsupported until a separate deployment and authentication model exists.
+
+2. **Bring your own OpenAI key**
+   - Available to personal and organization users.
+   - The browser submits the key once; ChangePlane verifies the selected model, encrypts with GitHub's repository public key, and stores only `OPENAI_API_KEY` in GitHub Actions.
+   - No key in localStorage, logs, responses, cookies, screenshots, or a ChangePlane database.
+   - Luna is the default; Terra and Sol remain reviewable configuration choices.
+
+3. **Exact-commit assurance receipt**
+   - Every result names the inspected head SHA, allowed paths, bound test publisher, and receipt source.
+   - Any new commit invalidates the previous decision and starts a fresh run.
+   - Observe mode reports without changing merge rules; GitHub remains merge authority.
+
+4. **Autonomous handback contract**
+   - When evidence fails, return a compact machine-readable finding to the original coding agent.
+   - Allow at most two bounded repair attempts inside the existing path and time budget.
+   - The agent never receives Check, push, approval, merge, or PASS authority.
+
+5. **Public proof path**
+   - A signed-out RouteThai synthetic replay tells the complete failed-head → Luna proposal → clean validation → new-head verification story.
+   - Live repair claims remain gated by the disposable GitHub canary.
+
+## Next evidence-gated features
+
+### Independent review plane
+
+Add a read-only review worker inspired by OpenSWE Review, but keep review separate from certification:
+
+- prepare the repository and compute changed lines before the first model call;
+- allow findings only on changed lines;
+- validate location and severity when each finding is created;
+- deduplicate repeated findings and publish one concise review;
+- expose no commit, push, PR-approval, Check-write, or merge tools;
+- reconcile re-reviews against the new exact head;
+- treat pull request comments and instructions as untrusted input.
+
+The deterministic test gate and exact-head receipt remain the decision layer. Model review is advisory evidence.
+
+### Assurance memory
+
+Use an OpenWiki-style repository-owned knowledge file to capture invariants such as “a stop must remain inside its service window” or “checkout retries must be idempotent.” Changes to that memory must arrive through a protected pull request with provenance. Generated documentation may guide test selection and review, but cannot independently certify behavior.
+
+### Agent handback integrations
+
+Support adapters that return the same bounded finding to Codex, Cursor, Trae Solo, Copilot coding agent, or OpenSWE. Start with GitHub comments, Checks metadata, and repository dispatch because they are inspectable and repository-native. Add vendor-specific APIs only after a real design partner needs them.
+
+### Preview-to-revision binding
+
+Bind an existing GitHub Deployment or Vercel preview URL to the exact head SHA in the receipt. Verify the deployment belongs to that revision before including it. ChangePlane should not build a preview-hosting product.
+
+### Policy packs and merge queue
+
+Offer reviewed repository templates for security-sensitive paths, migrations, API compatibility, payment idempotency, and deployment checks. Support GitHub Merge Queue only after `merge_group` is evaluated as its own exact revision and the dedicated App publishes the Check.
+
+## Features to defer
+
+- A new Git forge or Origin competitor.
+- An IDE, terminal coding agent, or Trae Solo competitor.
+- A general-purpose orchestration platform for agent tasks.
+- A hosted wiki product or automatic promotion of generated documentation into policy.
+- Managed model spend before budgets, metering, billing, and isolation are live.
+- A ChangePlane database, queue, or cross-repository dashboard before measured repository-native limits justify them.
+- Learned rules that silently change enforcement. Any promoted rule must be reviewable, versioned, and attributable.
+
+## Release gates
+
+Observe onboarding may be public while repair remains canary-bound. Each stronger claim is evidence-gated:
+
+- **Independent review:** diff-location validation, prompt-injection cases, and no-write-tool tests pass.
+- **Autonomous repair:** live App-signed ledger, bounded patch, trusted apply, synchronize event, fresh exact-head verification, and Check publication are captured.
+- **Enforcement:** dedicated App identity is required by branch rules and negative stale-head, path-expansion, provider-failure, and exhausted-budget cases fail closed.
+- **Managed execution:** isolation, budgets, metering, billing, and incident controls exist.
+
+This sequencing keeps ChangePlane small enough to ship and specific enough to defend: every agent can move fast, but no agent certifies its own work.

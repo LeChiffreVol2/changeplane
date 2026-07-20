@@ -343,6 +343,35 @@ export async function createInstallationAccessToken({
   return payload.token;
 }
 
+export async function createSecretsWriteInstallationAccessToken({
+  appId,
+  privateKey,
+  installationId,
+  repositoryId,
+  request,
+  now = Date.now(),
+}) {
+  if (typeof request !== "function") throw new TypeError("GitHub request function is required");
+  if (!validPositiveInteger(installationId) || !validPositiveInteger(repositoryId) || !Number.isFinite(now)) {
+    throw new Error("GitHub App BYOK scope is invalid");
+  }
+  const jwt = createGitHubAppJwt({ appId, privateKey, now });
+  const payload = await request(`/app/installations/${installationId}/access_tokens`, jwt, {
+    method: "POST",
+    body: {
+      repository_ids: [repositoryId],
+      permissions: { secrets: "write" },
+    },
+  });
+  const expiresAt = Date.parse(payload?.expires_at);
+  if (typeof payload?.token !== "string" || !payload.token || !Array.isArray(payload.repositories)
+    || payload.repositories.length !== 1 || payload.repositories[0]?.id !== repositoryId
+    || !Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + (65 * 60 * 1_000)) {
+    throw new Error("GitHub returned an invalid repository-scoped BYOK credential");
+  }
+  return payload.token;
+}
+
 async function createContentsWriteInstallationAccessToken({
   appId,
   privateKey,
