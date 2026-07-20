@@ -634,6 +634,18 @@ export function parseRemediationComments(comments, trustedLogin = "github-action
   });
 }
 
+export function remediationIdempotencyKey({ repository, pullRequestNumber, headSha, inputDigest, attempt }) {
+  return digest({ repository, pullRequestNumber, headSha, inputDigest, attempt });
+}
+
+export function findCurrentRemediationRequest(remediationComments, context) {
+  if (!Array.isArray(remediationComments)) throw new TypeError("remediationComments must be an array");
+  return remediationComments.find((item) => (
+    item.inputDigest === context.inputDigest
+    && item.idempotencyKey === remediationIdempotencyKey({ ...context, attempt: item.attempt })
+  ));
+}
+
 function renderRemediationComment({ inputDigest, idempotencyKey, payload, maxAttempts, authorization }) {
   const paths = payload.instructions.map(({ path, action }) => (
     action === "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE"
@@ -1119,8 +1131,15 @@ export async function run() {
   if (agentConfigured && result.decision === DECISION.REVIEW_REQUIRED) {
     remediationComments = parseRemediationComments(comments);
   }
-  const currentRequest = remediationComments.find((item) => item.inputDigest === inputDigest);
-  const priorAttempts = remediationComments.reduce((maximum, item) => Math.max(maximum, item.attempt), 0);
+  const matchingRemediationComments = remediationComments.filter((item) => item.inputDigest === inputDigest);
+  const remediationContext = {
+    repository,
+    pullRequestNumber: number,
+    headSha: pullRequest.head.sha,
+    inputDigest,
+  };
+  const currentRequest = findCurrentRemediationRequest(matchingRemediationComments, remediationContext);
+  const priorAttempts = matchingRemediationComments.reduce((maximum, item) => Math.max(maximum, item.attempt), 0);
   const autonomousPlan = planAutonomousDecision({
     result,
     agentConfigured,
@@ -1129,11 +1148,8 @@ export async function run() {
   });
 
   if (autonomousPlan.decision === AUTONOMOUS_DECISION.REMEDIATION_REQUIRED) {
-    const idempotencyKey = currentRequest?.idempotencyKey ?? digest({
-      repository,
-      pullRequestNumber: number,
-      headSha: pullRequest.head.sha,
-      inputDigest,
+    const idempotencyKey = currentRequest?.idempotencyKey ?? remediationIdempotencyKey({
+      ...remediationContext,
       attempt: autonomousPlan.nextAttempt,
     });
     const remediation = buildRemediationRequest({

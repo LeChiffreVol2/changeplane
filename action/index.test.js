@@ -13,11 +13,13 @@ import {
   headCheckPayload,
   inferPlan,
   githubRetryDelayMs,
+  findCurrentRemediationRequest,
   parseBoundReceipt,
   parseAgentDispatch,
   parseMode,
   parsePlan,
   parseRemediationComments,
+  remediationIdempotencyKey,
   renderReceiptComment,
   resolvePullRequestNumber,
   sanitizePreviewUrl,
@@ -473,6 +475,26 @@ test("extracts durable remediation attempts and ignores unrelated comments", () 
     { user: { login: "octocat" }, body: `<!-- changeplane-remediation:v1 input=${input} attempt=5 id=${id} -->` },
     { user: { login: "github-actions[bot]" }, body: `<!-- changeplane-remediation:v1 input=${input} attempt=2 id=${id} -->\nRequested` },
   ]), [{ inputDigest: input, attempt: 2, idempotencyKey: id }]);
+});
+
+test("binds remediation idempotency to the exact pull request head", () => {
+  const context = {
+    repository: "acme/payments",
+    pullRequestNumber: 42,
+    headSha: "a".repeat(40),
+    inputDigest: "b".repeat(64),
+  };
+  const request = {
+    inputDigest: context.inputDigest,
+    attempt: 1,
+    idempotencyKey: remediationIdempotencyKey({ ...context, attempt: 1 }),
+  };
+
+  assert.deepEqual(findCurrentRemediationRequest([request], context), request);
+  assert.equal(findCurrentRemediationRequest([request], {
+    ...context,
+    headSha: "c".repeat(40),
+  }), undefined);
 });
 
 test("renders an exact revision-bound observe receipt with one next actor", () => {

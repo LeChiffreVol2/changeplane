@@ -247,7 +247,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 4);
+  assert.equal(manifest.managedVersion, 5);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -358,21 +358,76 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 4,
-    targetVersion: 4,
+    currentVersion: 5,
+    targetVersion: 5,
     conflicts: [],
   });
 
   const currentManifest = JSON.parse(currentFiles["changeplane/manifest.json"]);
-  const v3Files = {
+  const v4Action = currentFiles["changeplane/action/index.js"]
+    .replace(`export function remediationIdempotencyKey({ repository, pullRequestNumber, headSha, inputDigest, attempt }) {
+  return digest({ repository, pullRequestNumber, headSha, inputDigest, attempt });
+}
+
+export function findCurrentRemediationRequest(remediationComments, context) {
+  if (!Array.isArray(remediationComments)) throw new TypeError("remediationComments must be an array");
+  return remediationComments.find((item) => (
+    item.inputDigest === context.inputDigest
+    && item.idempotencyKey === remediationIdempotencyKey({ ...context, attempt: item.attempt })
+  ));
+}
+
+`, "")
+    .replace(`  const matchingRemediationComments = remediationComments.filter((item) => item.inputDigest === inputDigest);
+  const remediationContext = {
+    repository,
+    pullRequestNumber: number,
+    headSha: pullRequest.head.sha,
+    inputDigest,
+  };
+  const currentRequest = findCurrentRemediationRequest(matchingRemediationComments, remediationContext);
+  const priorAttempts = matchingRemediationComments.reduce((maximum, item) => Math.max(maximum, item.attempt), 0);`, `  const currentRequest = remediationComments.find((item) => item.inputDigest === inputDigest);
+  const priorAttempts = remediationComments.reduce((maximum, item) => Math.max(maximum, item.attempt), 0);`)
+    .replace(`    const idempotencyKey = currentRequest?.idempotencyKey ?? remediationIdempotencyKey({
+      ...remediationContext,
+      attempt: autonomousPlan.nextAttempt,
+    });`, `    const idempotencyKey = currentRequest?.idempotencyKey ?? digest({
+      repository,
+      pullRequestNumber: number,
+      headSha: pullRequest.head.sha,
+      inputDigest,
+      attempt: autonomousPlan.nextAttempt,
+    });`);
+  assert.equal(v4Action === currentFiles["changeplane/action/index.js"], false, "the v4 action fixture must restore the prior remediation identity");
+  const v4Files = {
     ...currentFiles,
-    "changeplane/examples/changeplane-proposal.js": currentFiles["changeplane/examples/changeplane-proposal.js"]
+    "changeplane/action/index.js": v4Action,
+  };
+  const v4Hashes = Object.fromEntries(Object.keys(currentManifest.managedFiles).map((filePath) => [
+    filePath,
+    createHash("sha256").update(v4Files[filePath]).digest("hex"),
+  ]));
+  v4Files["changeplane/manifest.json"] = `${JSON.stringify({
+    schemaVersion: 1,
+    managedVersion: 4,
+    managedFiles: v4Hashes,
+  }, null, 2)}\n`;
+  assert.deepEqual(classifyManagedInstallation({ files: v4Files, reservedEntries }), {
+    state: "outdated",
+    currentVersion: 4,
+    targetVersion: 5,
+    conflicts: [],
+  });
+
+  const v3Files = {
+    ...v4Files,
+    "changeplane/examples/changeplane-proposal.js": v4Files["changeplane/examples/changeplane-proposal.js"]
       .replace(
         'if (!patch.startsWith("diff --git ") || /^\\*\\*\\* (?:Begin|End) Patch$/mu.test(patch)) {',
         'if (!patch.startsWith("diff --git ")) {',
       )
       .replace('        "The patch field must be raw `git diff --no-ext-diff --no-renames` output. End on the final hunk line; `*** End Patch` is invalid.\",\n', ""),
-    "changeplane/examples/changeplane-provider-openai.js": currentFiles["changeplane/examples/changeplane-provider-openai.js"]
+    "changeplane/examples/changeplane-provider-openai.js": v4Files["changeplane/examples/changeplane-provider-openai.js"]
       .replace(/      patch: \{\n        type: "string",\n        description: "Raw git diff output only\. Start with diff --git and end on a hunk line; never use Markdown or apply_patch markers\.",\n        minLength: 1,\n        maxLength: 256 \* 1024,\n      \},/u, '      patch: { type: "string", minLength: 1, maxLength: 256 * 1024 },'),
   };
   const v3Hashes = Object.fromEntries(Object.keys(currentManifest.managedFiles).map((filePath) => [
@@ -387,7 +442,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: v3Files, reservedEntries }), {
     state: "outdated",
     currentVersion: 3,
-    targetVersion: 4,
+    targetVersion: 5,
     conflicts: [],
   });
 
@@ -417,7 +472,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: v2Files, reservedEntries }), {
     state: "outdated",
     currentVersion: 2,
-    targetVersion: 4,
+    targetVersion: 5,
     conflicts: [],
   });
 
@@ -425,7 +480,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 4,
+    targetVersion: 5,
     conflicts: [],
   });
 
@@ -442,7 +497,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v4 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v5 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -512,7 +567,7 @@ test("pristine manifestless install creates one manifest-only v4 upgrade PR from
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v4") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v5") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1806,7 +1861,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 4,
+        targetVersion: 5,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);

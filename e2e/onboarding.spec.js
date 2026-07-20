@@ -103,7 +103,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 4, targetVersion: 4, conflicts: [] },
+          installation: { state: "current", currentVersion: 5, targetVersion: 5, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -124,7 +124,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         installation: {
           state: "fresh",
           currentVersion: null,
-          targetVersion: 4,
+          targetVersion: 5,
           conflicts: [],
         },
         installable: true,
@@ -278,7 +278,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 4, targetVersion: 4, conflicts: [] },
+          installation: { state: "current", currentVersion: 5, targetVersion: 5, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -299,7 +299,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         installation: {
           state: "outdated",
           currentVersion: 0,
-          targetVersion: 4,
+          targetVersion: 5,
           conflicts: [],
         },
         installable: true,
@@ -331,7 +331,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
       installPayload = route.request().postDataJSON();
       return json(route, {
         repository: "acme/payments-api",
-        branch: "changeplane/observe-upgrade-v4",
+        branch: "changeplane/observe-upgrade-v5",
         operation: "upgrade",
         pullRequest: {
           number: 43,
@@ -348,7 +348,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
   await expect(page.getByText("Upgrade ready")).toBeVisible();
-  await expect(page.getByText("Update managed files to version 4 without changing your policy.")).toBeVisible();
+  await expect(page.getByText("Update managed files to version 5 without changing your policy.")).toBeVisible();
   await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
   await expect(page.getByRole("group", { name: "Choose what the first receipt proves" })).toHaveCount(0);
   await expect(page.getByText("Setup complete")).toHaveCount(0);
@@ -425,7 +425,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         pendingPreflightRequests += 1;
         return json(route, {
           repositoryState: "active",
-          installation: { state: "outdated", currentVersion: 0, targetVersion: 4, conflicts: [] },
+          installation: { state: "outdated", currentVersion: 0, targetVersion: 5, conflicts: [] },
           installable: true,
           conflicts: [],
           setupFiles: 1,
@@ -441,7 +441,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
       if (repository === "acme/current-api") {
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 4, targetVersion: 4, conflicts: [] },
+          installation: { state: "current", currentVersion: 5, targetVersion: 5, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -457,7 +457,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         }
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 4, targetVersion: 4, conflicts: [] },
+          installation: { state: "current", currentVersion: 5, targetVersion: 5, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -472,7 +472,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
           installation: {
             state: "conflict",
             currentVersion: null,
-            targetVersion: 4,
+            targetVersion: 5,
             conflicts: ["changeplane/action/index.js"],
           },
           installable: false,
