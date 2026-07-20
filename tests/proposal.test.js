@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertWorkspaceHead,
   buildProposalMessages,
+  proposalProviderMetadata,
   readTrustedRuntimeModel,
   requestPatchProposal,
   validatePatchProposal,
@@ -73,10 +74,12 @@ test("binds provider context to the exact workspace head and controller path gra
 
 test("requests GPT-5.6 Luna through Responses API without returning the credential", async () => {
   const apiKey = `provider-${"k".repeat(32)}`;
+  let responseMetadata;
   const result = await requestPatchProposal({
     apiKey,
     request,
     files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
+    onResponseMetadata: (value) => { responseMetadata = proposalProviderMetadata(value); },
     fetchImpl: async (url, options) => {
       assert.equal(String(url), "https://api.openai.com/v1/responses");
       assert.equal(options.headers.authorization, `Bearer ${apiKey}`);
@@ -113,6 +116,7 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
       return {
         ok: true,
         status: 200,
+        headers: new Headers({ "x-request-id": "req_live_test_123" }),
         async text() {
           return JSON.stringify({
             status: "completed",
@@ -123,7 +127,31 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
     },
   });
   assert.deepEqual(result.paths, ["src/payments/retry.js"]);
+  assert.deepEqual(responseMetadata, {
+    event: "changeplane.proposal_provider.response",
+    model: "gpt-5.6-luna",
+    requestId: "req_live_test_123",
+    status: "completed",
+  });
   assert.equal(JSON.stringify(result).includes(apiKey), false);
+});
+
+test("redacts unsafe provider request IDs before structured logging", () => {
+  assert.deepEqual(proposalProviderMetadata({
+    model: "gpt-5.6-luna",
+    requestId: "req_safe-123",
+    status: "completed",
+  }), {
+    event: "changeplane.proposal_provider.response",
+    model: "gpt-5.6-luna",
+    requestId: "req_safe-123",
+    status: "completed",
+  });
+  assert.equal(proposalProviderMetadata({
+    model: "gpt-5.6-luna",
+    requestId: "req_safe\nreflected-body",
+    status: "completed",
+  }).requestId, null);
 });
 
 test("describes the raw Git diff contract and rejects apply_patch markers locally", async () => {

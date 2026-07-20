@@ -9,6 +9,7 @@ import { requestOpenAIProposal } from "./changeplane-provider-openai.js";
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_CONTEXT_BYTES = 160 * 1024;
 const MAX_CONTEXT_FILES = 40;
+const SAFE_PROVIDER_REQUEST_ID = /^[A-Za-z0-9._:-]{1,200}$/u;
 
 function allowedRules(value) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 50) {
@@ -177,6 +178,18 @@ export async function requestPatchProposal({
   return validatePatchProposal(content, request.allowedPaths);
 }
 
+export function proposalProviderMetadata(value) {
+  const requestId = typeof value?.requestId === "string" && SAFE_PROVIDER_REQUEST_ID.test(value.requestId)
+    ? value.requestId
+    : null;
+  return {
+    event: "changeplane.proposal_provider.response",
+    model: proposalModel(value?.model),
+    requestId,
+    status: value?.status === "completed" ? "completed" : "incomplete",
+  };
+}
+
 export function readTrustedRuntimeModel(policyPath) {
   if (!policyPath) return DEFAULT_PROPOSAL_MODEL;
   let policy;
@@ -211,6 +224,9 @@ async function runCli() {
       : readTrustedRuntimeModel(process.env.CHANGEPLANE_TRUSTED_POLICY),
     request,
     files,
+    onResponseMetadata: (metadata) => {
+      console.log(JSON.stringify(proposalProviderMetadata(metadata)));
+    },
   });
   writeFileSync(patchPath, proposal.patch, { encoding: "utf8", mode: 0o600 });
 }
