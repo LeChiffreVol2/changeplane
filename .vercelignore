@@ -9,6 +9,8 @@ examples/*
 !examples/changeplane-grant.js
 !examples/changeplane-proposal.js
 !examples/changeplane-provider-openai.js
+!examples/changeplane-review-openai.js
+!examples/changeplane-review-run.js
 !examples/changeplane-repair.yml
 output/
 tests/
