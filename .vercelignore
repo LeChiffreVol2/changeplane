@@ -4,7 +4,12 @@
 .playwright-cli/
 audit-blueprint/
 docs/
-examples/
+examples/*
+!examples/changeplane-claim.js
+!examples/changeplane-grant.js
+!examples/changeplane-proposal.js
+!examples/changeplane-provider-openai.js
+!examples/changeplane-repair.yml
 output/
 tests/
 *.docx
