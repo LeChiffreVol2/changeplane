@@ -1,0 +1,72 @@
+{
+  "evidenceType": "live_github_autonomous_canary",
+  "recordedAt": "2026-07-20T20:18:00.000Z",
+  "dataClassification": "synthetic",
+  "repository": "LeChiffreVol2/changeplane-disposable-canary-20260719",
+  "pullRequest": 21,
+  "pullRequestUrl": "https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/21",
+  "productionReleaseAtRun": "4832d8c2a65359ce314355134d0d120d68a558b2",
+  "currentProductionRelease": "0e8e093262a175d8ffa8284106c0c62ed2f68f65",
+  "currentManagedVersion": 6,
+  "model": "gpt-5.6-luna",
+  "reasoningEffort": "high",
+  "initialHeadSha": "a9d20581ca669f310db09d20e04ba654cb107c32",
+  "initialEvidence": {
+    "status": "failed",
+    "workflowRunId": 29774715405,
+    "diagnostic": "SYN-RTH-EARLY is scheduled at minute 505, after its synthetic service window ends at 500"
+  },
+  "allowedPaths": [
+    "routethai/route-planning.js"
+  ],
+  "repair": {
+    "controllerRequestId": "e612fefcf8ed62913e2ef4d8",
+    "controllerStatus": 202,
+    "grantCheckRunId": 88461293530,
+    "ledgerReference": "refs/changeplane/repair/v3/g5/pr-4094211497",
+    "ledgerTipSha": "e7e206baf824d44831c5aea255b43cd74fe87584",
+    "claimRequestId": "db19fbe8184071fc1618ee91",
+    "validationRequestIds": [
+      "73ff52ce7a11da3609700edc",
+      "df1afd9e2159db081ff23822",
+      "6252a4c7cae80852ba0fc224"
+    ],
+    "pushTokenRequestId": "e52486896e8f5d2c2f647649",
+    "workflowRunId": 29774745620,
+    "workflowConclusion": "success",
+    "modelForgeAuthority": false,
+    "cleanValidation": true,
+    "appAuthoredPush": true
+  },
+  "repairedHeadSha": "9f9efd65535b2b2009867a794db9423ca1e3b593",
+  "finalEvidence": {
+    "status": "passed",
+    "testWorkflowRunId": 29774866520,
+    "guardWorkflowRunId": 29774865424,
+    "guardCheckRunId": 88461760023,
+    "guardPublisher": "github-actions",
+    "exactHeadBound": true,
+    "humanRepairCommits": 0
+  },
+  "postCanaryHardening": {
+    "pullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/29",
+    "reason": "A PR-description edit created a redundant same-head run. The signed reservation prevented redelivery; managed v6 now ignores description-only edits.",
+    "productionRelease": "0e8e093262a175d8ffa8284106c0c62ed2f68f65",
+    "canaryManagedUpgrade": "https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/22"
+  },
+  "assertions": [
+    "GPT-5.6 Luna received only bounded failure evidence and allowed-path source context.",
+    "The proposal job had no GitHub push, merge, approval, or Check authority.",
+    "A clean job independently applied and tested the candidate patch.",
+    "Only the trusted controller minted the one-time exact-repository push credential.",
+    "The App-authored push created a new head and fresh GitHub Actions evidence.",
+    "ChangePlane / guard passed only on the repaired exact head."
+  ],
+  "omitted": [
+    "OpenAI key",
+    "GitHub tokens",
+    "controller secrets",
+    "patch contents",
+    "provider response body"
+  ]
+}

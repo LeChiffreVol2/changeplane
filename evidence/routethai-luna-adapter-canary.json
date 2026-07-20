@@ -17,6 +17,6 @@
   "modelForgeAuthority": false,
   "limitations": [
     "This proves the live OpenAI adapter, bounded-path patch parsing, clean git apply, and deterministic re-validation.",
-    "It does not prove an App-authored GitHub push, signed attempt ledger publication, or exact-head Check dispatch in the disposable repository."
+    "The separate live GitHub authority path is recorded in evidence/routethai-luna-github-canary.json."
   ]
 }

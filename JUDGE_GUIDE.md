@@ -23,8 +23,8 @@ The replay lasts about five seconds and makes no live OpenAI or GitHub request.
 | GPT-5.6 Luna API adapter | Live verified | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) |
 | Structured patch boundary | Live verified | Official Responses API schema; one extracted patch field; one allowed file; patch hash recorded |
 | Clean apply and deterministic re-validation | Live verified | Original fixture failed; patched temporary worktree passed |
-| App-signed attempt ledger and one-time push primitives | Automated tests | `tests/repair-ledger.test.js`, `tests/github-repair-controller.test.js` |
-| App-authored GitHub push and exact-head Check dispatch | Disposable release canary | Redacted commit, check, and workflow metadata are captured only after the release commit completes the live canary |
+| App-signed attempt ledger and one-time push credential | Live verified | [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json) plus controller tests |
+| App-authored GitHub push and exact-head PASS | Live verified | Initial head `a9d2058` → controller repair `9f9efd6` → Check Run `88461760023` |
 
 This distinction is deliberate. The model adapter result alone is never represented as proof of GitHub write or Check authority.
 
@@ -64,6 +64,7 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - GitHub/BYOK/runtime API: [`api/github.js`](api/github.js)
 - Synthetic RouteThai fixture: [`examples/routethai-synthetic`](examples/routethai-synthetic)
 - Redacted Luna evidence: [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json)
+- Redacted autonomous GitHub evidence: [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json)
 
 ## Known limitations
 
@@ -71,7 +72,7 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - BYOK is available per connected repository and stored only as a GitHub Actions Secret.
 - Scope-only observe mode cannot block merge or deploy.
 - Managed model execution, billing, GitHub Enterprise Server, and merge-queue support are not enabled. GitHub remains merge authority.
-- The tracked adapter canary proves only the provider/patch/test boundary; GitHub authority evidence comes from the disposable release canary.
+- The disposable canary is owner-controlled lab evidence on GitHub Free, not a claim of customer production enforcement or branch protection.
 - RouteThai is a production-informed shadow pilot, not a customer claim or production-connected integration.
 
 ## Submission identity
