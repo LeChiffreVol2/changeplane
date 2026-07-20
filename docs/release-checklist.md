@@ -101,7 +101,7 @@
 - [ ] Prove tampered signature, unknown key, future/expired grant, deadline reset, wrong repository/head/path, third attempt, fork, sequential replay, and concurrent replay all fail closed before provider access.
 - [ ] Record the active Vercel Production deployment's full 40-character source SHA and confirm its first 12 characters equal readiness `release`.
   - Observe-release evidence captured 2026-07-19: Production source `38d4c4d261ba43df7e6d580b56e797100519526e`, readiness release `38d4c4d261ba`. This is not authorization to reuse that SHA for a later repair install; pin the full active reviewed repair-capable release at activation time.
-- [ ] Install the v2 managed guard, repair workflow, and reviewed helper payload together through one manually reviewed setup PR; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.
+- [ ] Install the v3 managed guard, repair workflow, and reviewed helper payload together through one manually reviewed setup PR; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.
 - [ ] Pin every third-party Action in the installed repair workflows to a reviewed full commit SHA.
 - [ ] With both switches false, deploy the complete configuration; confirm readiness remains observe-ready, repair is disabled/unconfigured with only the enabled check false, and `repair`, `repair-claim`, `repair-validate`, and `repair-push-token` each fail closed with `503` before GitHub access.
 - [ ] Pass stale-head, expiry, path-boundary, replay, idempotency, fork, and sandbox escape tests in a disposable repository.
