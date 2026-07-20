@@ -28,8 +28,9 @@ jobs:
           node-version: 22.18.0
 
       - name: Refuse repair while the repository kill switch is off
-        if: secrets.CHANGEPLANE_REPAIR_ENABLED != 'true'
-        run: exit 1
+        env:
+          CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
+        run: test "$CHANGEPLANE_REPAIR_ENABLED" = "true"
 
       - name: Check out the trusted default-branch harness
         # actions/checkout v4.2.2
@@ -243,8 +244,9 @@ jobs:
           node-version: 22.18.0
 
       - name: Refuse apply while the repository kill switch is off
-        if: secrets.CHANGEPLANE_REPAIR_ENABLED != 'true'
-        run: exit 1
+        env:
+          CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
+        run: test "$CHANGEPLANE_REPAIR_ENABLED" = "true"
 
       - name: Check out the trusted default-branch harness
         # actions/checkout v4.2.2

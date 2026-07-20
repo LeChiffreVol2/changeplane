@@ -247,7 +247,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 2);
+  assert.equal(manifest.managedVersion, 3);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -358,8 +358,39 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
+    currentVersion: 3,
+    targetVersion: 3,
+    conflicts: [],
+  });
+
+  const currentManifest = JSON.parse(currentFiles["changeplane/manifest.json"]);
+  const currentRepairWorkflow = currentFiles[".github/workflows/changeplane-repair.yml"];
+  const v2RepairWorkflow = currentRepairWorkflow.replaceAll(
+    /        env:\n          CHANGEPLANE_REPAIR_ENABLED: \$\{\{ secrets\.CHANGEPLANE_REPAIR_ENABLED \}\}\n        run: test "\$CHANGEPLANE_REPAIR_ENABLED" = "true"/gu,
+    "        if: secrets.CHANGEPLANE_REPAIR_ENABLED != 'true'\n        run: exit 1",
+  );
+  const v2Files = {
+    ...currentFiles,
+    "changeplane/action/index.js": currentFiles["changeplane/action/index.js"].replace(
+      "AbortSignal.timeout(30_000)",
+      "AbortSignal.timeout(10_000)",
+    ),
+    ".github/workflows/changeplane-repair.yml": v2RepairWorkflow,
+  };
+  assert.equal(v2RepairWorkflow === currentRepairWorkflow, false, "the v2 workflow fixture must restore both legacy kill-switch checks");
+  const v2Hashes = Object.fromEntries(Object.keys(currentManifest.managedFiles).map((filePath) => [
+    filePath,
+    createHash("sha256").update(v2Files[filePath]).digest("hex"),
+  ]));
+  v2Files["changeplane/manifest.json"] = `${JSON.stringify({
+    schemaVersion: 1,
+    managedVersion: 2,
+    managedFiles: v2Hashes,
+  }, null, 2)}\n`;
+  assert.deepEqual(classifyManagedInstallation({ files: v2Files, reservedEntries }), {
+    state: "outdated",
     currentVersion: 2,
-    targetVersion: 2,
+    targetVersion: 3,
     conflicts: [],
   });
 
@@ -367,7 +398,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 2,
+    targetVersion: 3,
     conflicts: [],
   });
 
@@ -384,7 +415,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v2 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v3 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -454,7 +485,7 @@ test("pristine manifestless install creates one manifest-only v2 upgrade PR from
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v2") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v3") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -800,12 +831,15 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   const claimClient = readFileSync(new URL("../examples/changeplane-claim.js", import.meta.url), "utf8");
   const provisioner = readFileSync(new URL("../scripts/provision-repair-canary.mjs", import.meta.url), "utf8");
   const installerApi = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
+  const guardAction = readFileSync(new URL("../action/index.js", import.meta.url), "utf8");
   const vercelConfig = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   const vercelIgnore = readFileSync(new URL("../.vercelignore", import.meta.url), "utf8");
   const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
   assert.match(workflow, /Managed autonomous harness/u);
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_ENABLED/u);
+  assert.doesNotMatch(workflow, /^\s+if:\s+secrets\./mu);
+  assert.equal((workflow.match(/run: test "\$CHANGEPLANE_REPAIR_ENABLED" = "true"/gu) ?? []).length, 2);
   assert.match(workflow, /CHANGEPLANE_REPAIR_GENERATION/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_PUBLIC_KEYS/u);
   assert.match(workflow, /CHANGEPLANE_CONTROLLER_SHA: \$\{\{ github\.sha \}\}/u);
@@ -862,6 +896,7 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /OPENAI_API_KEY/u);
   assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/controller\/changeplane\/examples\/changeplane-proposal\.js validate/u);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|main|master)$/mu);
+  assert.match(guardAction, /async function dispatchAgentWebhook[\s\S]*?AbortSignal\.timeout\(30_000\)/u);
   assert.match(workflow, /git apply --check --index/u);
   const finalVerifyIndex = workflow.lastIndexOf("changeplane-grant.js verify");
   const applyValidateIndex = workflow.indexOf("Revalidate server authority immediately before clean apply");
@@ -1744,7 +1779,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 2,
+        targetVersion: 3,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);

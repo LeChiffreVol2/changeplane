@@ -674,7 +674,7 @@ async function dispatchAgentWebhook(url, token, payload) {
       "x-changeplane-signature": signature,
     },
     body,
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) {
     throw new Error(`Agent webhook rejected the request (${response.status}).`);
