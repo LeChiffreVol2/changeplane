@@ -801,6 +801,7 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   const provisioner = readFileSync(new URL("../scripts/provision-repair-canary.mjs", import.meta.url), "utf8");
   const installerApi = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const vercelConfig = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const vercelIgnore = readFileSync(new URL("../.vercelignore", import.meta.url), "utf8");
   const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
   assert.match(workflow, /Managed autonomous harness/u);
   assert.match(workflow, /cancel-in-progress: false/u);
@@ -919,6 +920,19 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
     "{action.yml,action/**,src/lib/**,server/**,examples/changeplane-*.{js,yml}}",
     "the Vercel installer must bundle every managed harness source",
   );
+  for (const managedExample of [
+    "changeplane-claim.js",
+    "changeplane-grant.js",
+    "changeplane-proposal.js",
+    "changeplane-provider-openai.js",
+    "changeplane-repair.yml",
+  ]) {
+    assert.equal(
+      vercelIgnore.split(/\r?\n/u).includes(`!examples/${managedExample}`),
+      true,
+      `${managedExample} must remain available to the Vercel function bundler`,
+    );
+  }
 });
 
 test("session reports whether the real GitHub connector is configured", async () => {
