@@ -58,11 +58,30 @@ These features establish a complete, credible wedge without expanding into a for
    - A signed-out RouteThai synthetic replay tells the complete failed-head → Luna proposal → clean validation → new-head verification story.
    - The disposable GitHub repository remains the release canary; RouteThai production code is never connected.
 
-## Next evidence-gated features
+6. **Independent Review Plane**
+   - `ChangePlane / review` inspects only the exact changed diff and publishes at most five validated, deduplicated findings on changed lines.
+   - The worker is read-only, treats pull-request instructions as untrusted input, and has no approval, repair, Check-PASS, push, or merge authority.
+   - Review runs only with repository BYOK and remains advisory evidence separate from `ChangePlane / guard`.
+
+7. **Repository-owned assurance memory and policy packs**
+   - `.changeplane/assurance.md` keeps reviewed invariants and operating constraints beside the code.
+   - Security, migrations, API compatibility, payment idempotency, deployment, and domain-specific packs are source-controlled templates, not remotely learned enforcement.
+   - The trusted default-branch version may guide review and handback. It never certifies behavior.
+
+8. **Vendor-neutral handback and preview proof**
+   - The Action output and exact-head receipt comment carry one machine-readable bounded finding format to Codex, Cursor, Trae Solo, Copilot, OpenSWE, or another agent.
+   - Existing GitHub Deployments and Vercel previews appear in the receipt only when their SHA matches the evaluated head.
+   - ChangePlane owns neither the coding workspace nor preview hosting.
+
+9. **GitHub Merge Queue exact revision guard**
+   - Every `merge_group` is a new exact revision and receives an independent guard decision.
+   - Queue evaluation performs no repair or model dispatch. GitHub owns queue order and merge.
+
+## Shipped assurance extensions
 
 ### Independent review plane
 
-Add a read-only review worker inspired by OpenSWE Review, but keep review separate from certification:
+The read-only review worker follows the useful OpenSWE Review constraints while keeping review separate from certification:
 
 - prepare the repository and compute changed lines before the first model call;
 - allow findings only on changed lines;
@@ -76,19 +95,19 @@ The deterministic test gate and exact-head receipt remain the decision layer. Mo
 
 ### Assurance memory
 
-Use an OpenWiki-style repository-owned knowledge file to capture invariants such as “a stop must remain inside its service window” or “checkout retries must be idempotent.” Changes to that memory must arrive through a protected pull request with provenance. Generated documentation may guide test selection and review, but cannot independently certify behavior.
+The OpenWiki-style repository-owned `.changeplane/assurance.md` captures invariants such as “a stop must remain inside its service window” or “checkout retries must be idempotent.” Changes arrive through a protected pull request with provenance. Generated documentation may guide review, but cannot independently certify behavior.
 
 ### Agent handback integrations
 
-Support adapters that return the same bounded finding to Codex, Cursor, Trae Solo, Copilot coding agent, or OpenSWE. Start with GitHub comments, Checks metadata, and repository dispatch because they are inspectable and repository-native. Add vendor-specific APIs only after a real design partner needs them.
+The handback contract returns the same bounded finding to Codex, Cursor, Trae Solo, Copilot coding agent, OpenSWE, or another agent through the Action output and exact-head receipt comment. Vendor-specific APIs remain deferred until a design partner needs them.
 
 ### Preview-to-revision binding
 
-Bind an existing GitHub Deployment or Vercel preview URL to the exact head SHA in the receipt. Verify the deployment belongs to that revision before including it. ChangePlane should not build a preview-hosting product.
+An existing GitHub Deployment or Vercel preview URL is bound to the exact head SHA in the receipt. The receipt omits a preview unless the deployment belongs to that revision. ChangePlane does not build a preview-hosting product.
 
 ### Policy packs and merge queue
 
-Offer reviewed repository templates for security-sensitive paths, migrations, API compatibility, payment idempotency, and deployment checks. Support GitHub Merge Queue only after `merge_group` is evaluated as its own exact revision and the dedicated App publishes the Check.
+Reviewed [repository policy-pack templates](examples/assurance-policy-packs) cover service windows, API compatibility, payment idempotency, and deployment checks. GitHub Merge Queue evaluates `merge_group` as its own exact revision and publishes the guard Check; queue evaluation never dispatches repair or model review.
 
 ## Features to defer
 

@@ -25,6 +25,9 @@ The replay lasts about five seconds and makes no live OpenAI or GitHub request.
 | Clean apply and deterministic re-validation | Live verified | Original fixture failed; patched temporary worktree passed |
 | App-signed attempt ledger and one-time push credential | Live verified | [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json) plus controller tests |
 | App-authored GitHub push and exact-head PASS | Live verified | Initial head `a9d2058` → controller repair `9f9efd6` → Check Run `88461760023` |
+| `ChangePlane / review` | Available in managed setup | BYOK-gated, exact-diff advisory findings; never PASS or approval |
+| Assurance memory and agent handback | Available in managed setup | Trusted `.changeplane/assurance.md` plus vendor-neutral Action output and receipt payload |
+| Preview and Merge Queue binding | Available in managed setup | Exact-head preview receipt; exact-`merge_group` guard-only evaluation |
 
 This distinction is deliberate. The model adapter result alone is never represented as proof of GitHub write or Check authority.
 
@@ -38,7 +41,7 @@ npm test
 npm run build
 ```
 
-The suite covers the runtime and harness allowlists, Luna default, Terra/Sol acceptance, pre-network model rejection, Responses API structured success/refusal/malformed/empty/oversized cases, BYOK encryption and deletion, repository isolation, stale heads, path grants, immutable two-attempt/15-minute ledgers, trusted controller separation, one-time exact-repository push tokens, and production build.
+The suite covers the runtime and harness allowlists, Luna default, Terra/Sol acceptance, pre-network model rejection, Responses API structured success/refusal/malformed/empty/oversized cases, BYOK encryption and deletion, exact-diff advisory review validation, repository isolation, stale heads, path grants, handback, exact-head preview binding, `merge_group` guard evaluation, immutable two-attempt/15-minute ledgers, trusted controller separation, one-time exact-repository push tokens, and production build.
 
 To see the deterministic RouteThai failure before repair:
 
@@ -62,6 +65,8 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - Patch-only harness: [`examples/changeplane-proposal.js`](examples/changeplane-proposal.js)
 - Trusted workflow boundary: [`examples/changeplane-repair.yml`](examples/changeplane-repair.yml)
 - GitHub/BYOK/runtime API: [`api/github.js`](api/github.js)
+- Independent review validator: [`src/lib/review.js`](src/lib/review.js)
+- GPT-5.6 review adapter: [`examples/changeplane-review-openai.js`](examples/changeplane-review-openai.js)
 - Synthetic RouteThai fixture: [`examples/routethai-synthetic`](examples/routethai-synthetic)
 - Redacted Luna evidence: [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json)
 - Redacted autonomous GitHub evidence: [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json)
@@ -71,7 +76,9 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - The public experience is a replay, not live browser execution.
 - BYOK is available per connected repository and stored only as a GitHub Actions Secret.
 - Scope-only observe mode cannot block merge or deploy.
-- Managed model execution, billing, GitHub Enterprise Server, and merge-queue support are not enabled. GitHub remains merge authority.
+- Managed model execution, billing, and GitHub Enterprise Server are not enabled. GitHub remains merge authority.
+- `ChangePlane / review` requires repository BYOK, is advisory, and never certifies or contributes PASS.
+- Merge Queue support is guard-only on the exact `merge_group`; it never dispatches repair or model review.
 - The disposable canary is owner-controlled lab evidence on GitHub Free, not a claim of customer production enforcement or branch protection.
 - RouteThai is a production-informed shadow pilot, not a customer claim or production-connected integration.
 

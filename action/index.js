@@ -261,6 +261,74 @@ export async function resolvePullRequestNumber(event, repository, token) {
   return { number: candidates[0].number, headSha };
 }
 
+function exactSha(value) {
+  return typeof value === "string" && /^[a-f0-9]{40}$/iu.test(value);
+}
+
+function encodedRef(ref) {
+  return ref.split("/").map(encodeURIComponent).join("/");
+}
+
+async function defaultBranchSha(repository, defaultBranch, token) {
+  const ref = await api(`/repos/${repository}/git/ref/${encodedRef(`heads/${defaultBranch}`)}`, token);
+  if (!exactSha(ref?.object?.sha)) throw new Error("GitHub returned an invalid default-branch revision.");
+  return ref.object.sha;
+}
+
+export async function resolveMergeGroup(event, repository, token) {
+  if (!event.merge_group) return null;
+  const group = event.merge_group;
+  if (event.action !== "checks_requested" || !exactSha(group.head_sha) || !exactSha(group.base_sha)) {
+    throw new Error("The merge-group event is missing an exact base or head revision.");
+  }
+  const repositoryState = await api(`/repos/${repository}`, token);
+  const defaultBranch = repositoryState?.default_branch;
+  if (typeof defaultBranch !== "string" || !defaultBranch
+    || repositoryState?.full_name?.toLowerCase() !== repository.toLowerCase()) {
+    throw new Error("GitHub returned an invalid repository default branch.");
+  }
+  if (group.base_ref !== `refs/heads/${defaultBranch}`
+    || typeof group.head_ref !== "string"
+    || !group.head_ref.startsWith(`refs/heads/gh-readonly-queue/${defaultBranch}/`)) {
+    throw new Error("The merge group is not bound to the repository default branch.");
+  }
+  if (await defaultBranchSha(repository, defaultBranch, token) !== group.base_sha) {
+    throw new Error("The merge-group base is stale relative to the trusted default branch.");
+  }
+
+  const comparison = await api(
+    `/repos/${repository}/compare/${encodeURIComponent(group.base_sha)}...${encodeURIComponent(group.head_sha)}`,
+    token,
+  );
+  if (comparison?.merge_base_commit?.sha !== group.base_sha
+    || comparison?.base_commit?.sha !== group.base_sha
+    || comparison?.head_commit?.sha !== group.head_sha
+    || comparison?.status !== "ahead"
+    || !Array.isArray(comparison.files)
+    || comparison.files.length === 0) {
+    throw new Error("GitHub returned an invalid merge-group comparison.");
+  }
+  if (comparison.files.length >= 300) {
+    throw new Error("Merge groups with 300 or more changed files exceed GitHub comparison metadata and fail closed.");
+  }
+  if (comparison.files.some((file) => typeof file?.filename !== "string" || !file.filename)) {
+    throw new Error("GitHub returned invalid merge-group file metadata.");
+  }
+  const actualFiles = comparison.files.map((file) => ({
+    path: file?.filename,
+    ...(file?.previous_filename ? { previousPath: file.previous_filename } : {}),
+  }));
+  return {
+    targetType: "merge_group",
+    defaultBranch,
+    baseRef: group.base_ref,
+    headRef: group.head_ref,
+    baseSha: group.base_sha,
+    headSha: group.head_sha,
+    actualFiles,
+  };
+}
+
 const OPEN_PULL_REQUESTS_QUERY = `query ChangePlaneOpenPullRequests($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     pullRequests(first: 20, states: OPEN, orderBy: { field: UPDATED_AT, direction: DESC }) {
@@ -458,6 +526,7 @@ export async function discoverPreview(repository, headSha, token) {
       const environmentOverride = previewLabel(latest.environment, "");
       return {
         status: "READY",
+        headSha,
         url,
         environment: environmentOverride || previewLabel(deployment.environment),
         deploymentId: deployment.id,
@@ -475,6 +544,11 @@ export async function discoverPreview(repository, headSha, token) {
     return preview;
   }
   return { status: statusReadFailed ? "UNAVAILABLE" : "MISSING" };
+}
+
+export function bindPreview(preview, headSha) {
+  if (preview?.status !== "READY") return preview;
+  return preview.headSha === headSha ? preview : { status: "REVISION_MISMATCH" };
 }
 
 async function waitForEvidence(repository, headSha, policy, token, { includeCommitStatuses = true } = {}) {
@@ -506,7 +580,7 @@ export function headCheckPayload(receipt, markdown) {
     head_sha: receipt.headSha,
     status: "completed",
     conclusion,
-    external_id: `${receipt.repository}#${receipt.pullRequestNumber}:${receipt.headSha}:${receipt.inputDigest}`.slice(0, 255),
+    external_id: `${receipt.repository}#${receipt.targetType === "merge_group" ? "merge-group" : receipt.pullRequestNumber}:${receipt.headSha}:${receipt.inputDigest}`.slice(0, 255),
     output: {
       title: `${receiptOutcome(receipt).replace(/\.$/u, "")} · ${receipt.mode}`.slice(0, 255),
       summary: markdown.slice(0, 65_535),
@@ -758,10 +832,84 @@ function nextAction(receipt) {
       action: "Inspect the exhausted repair attempts, then rescope the change or approve the exact revision.",
     };
   }
+  if (receipt.agentHandback) {
+    return {
+      owner: "PR author or coding agent",
+      action: "Use the proposal-only agent handback below, then push a new commit for exact-head re-evaluation.",
+    };
+  }
   return {
     owner: "Platform owner",
     action: "Connect the agent adapter or route this exception to the repository owner.",
   };
+}
+
+const FIXABLE_FINDING_CODES = new Set(["OUTSIDE_PLANNED_SCOPE", "EVIDENCE_FAILED"]);
+
+export function buildAgentHandback({
+  repository,
+  pullRequest,
+  plan,
+  policyDigest,
+  contractDigest,
+  inputDigest,
+  autonomousPlan,
+  maxAttempts,
+}) {
+  const findings = (autonomousPlan?.findings ?? [])
+    .filter(({ code, resolved }) => FIXABLE_FINDING_CODES.has(code) && !resolved)
+    .slice(0, 20)
+    .map(({ code, path, pathKind, diagnostic }) => ({
+      code,
+      path,
+      pathKind,
+      action: code === "EVIDENCE_FAILED"
+        ? "PROPOSE_SMALLEST_PATCH_WITHIN_CONTRACT"
+        : "PROPOSE_REVERT_OR_MOVE_INTO_CONTRACT",
+      ...(diagnostic ? { diagnostic: evidenceText(diagnostic, 1_000) } : {}),
+    }));
+  if (findings.length === 0) return null;
+  const kinds = new Set(findings.map(({ code }) => code));
+  const allowedPaths = [...new Set(findings.flatMap(({ code, path }) => (
+    code === "EVIDENCE_FAILED" ? plan.scope : [path]
+  )))].sort();
+  const payload = {
+    schemaVersion: 1,
+    type: "changeplane.agent-handback",
+    target: {
+      repository,
+      pullRequestNumber: pullRequest.number,
+      baseSha: pullRequest.base.sha,
+      headSha: pullRequest.head.sha,
+    },
+    binding: {
+      inputDigest,
+      contractDigest,
+      policyDigest,
+      evaluatorVersion: EVALUATOR_VERSION,
+    },
+    contract: { scope: plan.scope, goal: plan.goal ?? null },
+    proposal: {
+      kind: kinds.size === 1 ? (kinds.has("EVIDENCE_FAILED") ? "evidence" : "scope") : "mixed",
+      allowedPaths,
+      findings,
+      requestedAttempt: autonomousPlan.decision === AUTONOMOUS_DECISION.REMEDIATION_REQUIRED
+        ? autonomousPlan.nextAttempt
+        : null,
+      maxAttempts,
+    },
+    authority: {
+      proposalOnly: true,
+      gitWrite: false,
+      checkWrite: false,
+      merge: false,
+    },
+  };
+  return { ...payload, digest: digest(payload) };
+}
+
+function encodedAgentHandback(handback) {
+  return Buffer.from(canonicalJson(handback)).toString("base64url");
 }
 
 export function buildReceipt({
@@ -784,6 +932,7 @@ export function buildReceipt({
   actualFiles,
   advisories = [],
   maxAttempts,
+  agentHandback = null,
 }) {
   return {
     schemaVersion: 1,
@@ -807,7 +956,8 @@ export function buildReceipt({
     findings: result.reasons,
     advisories,
     evidence,
-    preview,
+    preview: bindPreview(preview, pullRequest.head.sha),
+    agentHandback,
     approval: approval
       ? { status: "CURRENT", actor: approval.actorLogin }
       : { status: result.approval.status },
@@ -819,8 +969,9 @@ export function buildReceipt({
 
 function renderPreview(preview) {
   if (preview?.status === "READY") {
-    return `<${preview.url}> · ${safeMarkdown(preview.environment)} · exact head`;
+    return `<${preview.url}> · ${safeMarkdown(preview.environment)} · bound to \`${preview.headSha.slice(0, 12)}\``;
   }
+  if (preview?.status === "REVISION_MISMATCH") return "Excluded because deployment metadata did not match this revision";
   if (preview?.status === "UNAVAILABLE") return "GitHub deployment metadata unavailable (advisory)";
   return "Not published for this revision (advisory)";
 }
@@ -828,6 +979,7 @@ function renderPreview(preview) {
 function renderPreviewProvenance(preview) {
   if (preview?.status !== "READY") return null;
   return [
+    `revision \`${preview.headSha.slice(0, 12)}\``,
     `deployment \`${preview.deploymentId ?? "unknown"}\``,
     `status \`${preview.statusId ?? "unknown"}\``,
     `creator @${safeMarkdown(preview.statusCreator ?? "unknown")}`,
@@ -857,6 +1009,7 @@ export function renderReceiptComment(receipt) {
   const lines = [
     `${RECEIPT_MARKER} contract=${receipt.boundContractDigest} input=${receipt.inputDigest} head=${receipt.headSha} -->`,
     `<!-- changeplane-contract:v1 source=${receipt.contractSource} plan=${encodedContract(boundPlan)} -->`,
+    ...(receipt.agentHandback ? [`<!-- changeplane-agent-handback:v1 digest=${receipt.agentHandback.digest} payload=${encodedAgentHandback(receipt.agentHandback)} -->`] : []),
     `## ChangePlane · ${outcome.replace(/\.$/u, "")}`,
     "",
     `**What happened:** ${outcome}`,
@@ -913,6 +1066,19 @@ export function renderReceiptComment(receipt) {
       lines.push(`| ${safeMarkdown(finding.code)} | \`${safeMarkdown(finding.path)}\` | ${finding.rule ? `\`${safeMarkdown(finding.rule)}\`` : "Declared scope"} |`);
     }
     if (receipt.findings.length > 20) lines.push(`| … | +${receipt.findings.length - 20} more findings | Open the job summary |`);
+  }
+
+  if (receipt.agentHandback) {
+    lines.push(
+      "",
+      "### Agent handback",
+      "",
+      `Proposal only · exact head \`${receipt.agentHandback.target.headSha.slice(0, 12)}\` · ${receipt.agentHandback.proposal.findings.length} fixable finding${receipt.agentHandback.proposal.findings.length === 1 ? "" : "s"}`,
+      "",
+      `Allowed proposal paths: ${compactPaths(receipt.agentHandback.proposal.allowedPaths)}`,
+      "",
+      "The receiving agent may propose a patch. It cannot push, merge, publish a Check, or issue PASS.",
+    );
   }
 
   if (receipt.advisories.length > 0) {
@@ -1029,6 +1195,166 @@ function workflowCommandValue(value) {
   return String(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 }
 
+export function buildMergeGroupReceipt({
+  repository,
+  target,
+  plan,
+  policyPath,
+  policyDigest,
+  inputDigest,
+  contractDigest,
+  result,
+  evidence,
+  autonomousPlan,
+  mode,
+}) {
+  return {
+    schemaVersion: 1,
+    targetType: "merge_group",
+    repository,
+    pullRequestNumber: null,
+    mode,
+    decision: autonomousPlan.decision,
+    reason: autonomousPlan.reason,
+    baseRef: target.baseRef,
+    headRef: target.headRef,
+    baseSha: target.baseSha,
+    headSha: target.headSha,
+    inputDigest,
+    contractDigest,
+    approvalDigest: digest({
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+      policyDigest,
+      inputDigest,
+      contractDigest,
+      evaluatorVersion: EVALUATOR_VERSION,
+    }),
+    evaluatorVersion: EVALUATOR_VERSION,
+    policy: { path: policyPath, digest: policyDigest, sourceRevision: target.baseSha },
+    contractSource: "merge-group-exact-files",
+    goal: null,
+    plannedScope: plan.scope,
+    actualFiles: target.actualFiles.map(({ path }) => path),
+    findings: result.reasons,
+    advisories: [],
+    evidence,
+    preview: { status: "MISSING" },
+    approval: { status: result.approval.status },
+    humanRequired: autonomousPlan.humanRequired,
+    nextAttempt: null,
+    maxAttempts: 0,
+    agentHandback: null,
+  };
+}
+
+export function renderMergeGroupReceipt(receipt) {
+  const outcome = receiptOutcome(receipt);
+  const lines = [
+    `# ChangePlane · ${outcome.replace(/\.$/u, "")}`,
+    "",
+    `**Merge queue revision:** \`${receipt.headSha.slice(0, 12)}\``,
+    `**Trusted default-branch base:** \`${receipt.baseSha.slice(0, 12)}\``,
+    `**Mode:** ${safeMarkdown(receipt.mode)}`,
+    `**Policy:** \`${safeMarkdown(receipt.policy.path)}\` at \`${receipt.policy.sourceRevision.slice(0, 12)}\` · \`${receipt.policy.digest.slice(0, 12)}\``,
+    `**Changed files:** ${receipt.actualFiles.length}`,
+    "",
+    receipt.mode === "observe"
+      ? "Observe mode records this exact merge-group revision without blocking it."
+      : receipt.decision === AUTONOMOUS_DECISION.PASS
+        ? "This exact merge-group revision passed. GitHub still owns queue and merge decisions."
+        : "This exact merge-group revision did not pass. No repair or model was dispatched from the merge queue.",
+  ];
+  if (receipt.evidence.length > 0) {
+    lines.push(
+      "",
+      "| Required evidence | Expected source | Actual source | Status | Conclusion |",
+      "| --- | --- | --- | --- | --- |",
+      ...receipt.evidence.map((item) => `| ${safeMarkdown(item.name)} | ${safeMarkdown(item.expectedSource ?? "Any")} | ${safeMarkdown(item.source ?? "—")} | ${safeMarkdown(item.status)} | ${safeMarkdown(item.conclusion ?? "—")} |`),
+    );
+  }
+  if (receipt.findings.length > 0) {
+    lines.push(
+      "",
+      "| Decision input | Path | Rule |",
+      "| --- | --- | --- |",
+      ...receipt.findings.slice(0, 20).map((finding) => `| ${safeMarkdown(finding.code)} | \`${safeMarkdown(finding.path)}\` | ${finding.rule ? `\`${safeMarkdown(finding.rule)}\`` : "Exact merge-group revision"} |`),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+async function runMergeGroup({ event, repository, token, mode }) {
+  const target = await resolveMergeGroup(event, repository, token);
+  const policyPath = process.env.INPUT_POLICY_PATH || ".changeplane.json";
+  const policy = await readPolicy(repository, target.baseSha, policyPath, token);
+  if (mode === "enforce" && (policy.evidence?.requiredChecks ?? []).some((requirement) => typeof requirement === "string")) {
+    throw new Error("Enforce mode requires every evidence.requiredChecks entry to declare its expected GitHub App with { name, appSlug }.");
+  }
+  const plan = {
+    scope: [...new Set(target.actualFiles.flatMap(({ path, previousPath }) => [path, previousPath]).filter(Boolean))].sort(),
+  };
+  const policyDigest = digest(policy);
+  const contractDigest = digest(plan);
+  const inputDigest = digest({
+    targetType: target.targetType,
+    baseSha: target.baseSha,
+    headSha: target.headSha,
+    files: target.actualFiles,
+  });
+  const revision = {
+    baseSha: target.baseSha,
+    headSha: target.headSha,
+    policyDigest,
+    inputDigest,
+    contractDigest,
+    evaluatorVersion: EVALUATOR_VERSION,
+  };
+  const pathResult = evaluateChange({
+    plannedPaths: plan.scope,
+    actualFiles: target.actualFiles,
+    protectedPaths: policy.protectedPaths,
+    approval: undefined,
+    ...revision,
+  });
+  const evidenceResult = await waitForEvidence(repository, target.headSha, policy, token, {
+    includeCommitStatuses: mode !== "enforce",
+  });
+  const result = mergeEvaluation(pathResult, evidenceResult);
+  const autonomousPlan = planAutonomousDecision({ result, agentConfigured: false });
+  const receipt = buildMergeGroupReceipt({
+    repository,
+    target,
+    plan,
+    policyPath,
+    policyDigest,
+    inputDigest,
+    contractDigest,
+    result,
+    evidence: evidenceResult.evidence,
+    autonomousPlan,
+    mode,
+  });
+  const markdown = renderMergeGroupReceipt(receipt);
+  if (await defaultBranchSha(repository, target.defaultBranch, token) !== target.baseSha) {
+    throw new Error("The trusted default branch changed during merge-group evaluation.");
+  }
+  try {
+    await publishHeadCheck(repository, token, receipt, markdown);
+  } catch (error) {
+    throw new PublicationError(`Exact merge-group Check could not be published: ${error instanceof Error ? error.message : error}`);
+  }
+  writeSummary(markdown);
+  writeOutput("mode", mode);
+  writeOutput("decision", autonomousPlan.decision);
+  writeOutput("receipt", canonicalJson(receipt));
+  writeOutput("actual_files", target.actualFiles.length);
+  writeOutput("finding_count", result.reasons.length);
+  console.log(`ChangePlane ${autonomousPlan.decision} (${mode}) for ${repository} merge group ${target.headSha.slice(0, 7)}`);
+  if (mode === "enforce" && autonomousPlan.decision !== AUTONOMOUS_DECISION.PASS) process.exitCode = 1;
+  return { ...result, autonomous: autonomousPlan, mode, targetType: "merge_group" };
+}
+
 export async function run() {
   const mode = parseMode(process.env.INPUT_MODE);
   if (mode === "enforce" && (
@@ -1044,6 +1370,7 @@ export async function run() {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) throw new Error("GITHUB_REPOSITORY is required.");
+  if (event.merge_group) return runMergeGroup({ event, repository, token, mode });
   const resolution = await resolvePullRequestNumber(event, repository, token);
   if (!resolution.number) return skipRun(mode, resolution.headSha, resolution.reason);
   const number = resolution.number;
@@ -1146,6 +1473,17 @@ export async function run() {
     attempt: currentRequest ? Math.max(0, currentRequest.attempt - 1) : priorAttempts,
     maxAttempts,
   });
+  const agentHandback = buildAgentHandback({
+    repository,
+    pullRequest,
+    plan,
+    policyDigest,
+    contractDigest,
+    inputDigest,
+    autonomousPlan,
+    maxAttempts,
+  });
+  if (agentHandback) writeOutput("agent_handback", canonicalJson(agentHandback));
 
   if (autonomousPlan.decision === AUTONOMOUS_DECISION.REMEDIATION_REQUIRED) {
     const idempotencyKey = currentRequest?.idempotencyKey ?? remediationIdempotencyKey({
@@ -1218,6 +1556,7 @@ export async function run() {
     actualFiles,
     advisories,
     maxAttempts,
+    agentHandback,
   });
   const receiptComment = renderReceiptComment(receipt);
   let receiptWarning = "";
@@ -1275,13 +1614,17 @@ export async function reportFailure(error) {
     const repository = process.env.GITHUB_REPOSITORY;
     const token = process.env.INPUT_TOKEN;
     if (!repository || !token) throw new Error("The fallback Check target is unavailable.");
-    const target = await resolvePullRequestNumber(event, repository, token);
-    if (!target.number || !/^[a-f0-9]{40}$/u.test(target.headSha ?? "")) {
-      throw new Error("The fallback Check could not be bound to one exact pull-request revision.");
+    const mergeGroupHead = event.action === "checks_requested" ? event.merge_group?.head_sha : null;
+    const target = exactSha(mergeGroupHead)
+      ? { number: null, headSha: mergeGroupHead, targetType: "merge_group" }
+      : await resolvePullRequestNumber(event, repository, token);
+    if ((!target.number && target.targetType !== "merge_group") || !exactSha(target.headSha)) {
+      throw new Error("The fallback Check could not be bound to one exact revision.");
     }
     const receipt = {
       repository,
       pullRequestNumber: target.number,
+      targetType: target.targetType ?? "pull_request",
       mode,
       decision: "INDETERMINATE",
       headSha: target.headSha,

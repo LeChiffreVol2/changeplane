@@ -58,6 +58,14 @@ test("controlled-canary public root replays RouteThai assurance from failed head
   await expect(page.locator(".decision-pill")).toHaveText("Check passed");
   await expect(page.getByRole("button", { name: "Replay autonomous run" })).toBeVisible();
   await expect(page.getByText("Verified on 9fc82a1")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Independent review" })).toBeVisible();
+  await expect(page.locator(".review-boundary")).toContainText("ChangePlane / review");
+  await expect(page.locator(".review-boundary")).toContainText("ChangePlane / guard");
+  const headPreview = page.getByRole("button", { name: /Preview bound to exact head/u });
+  await expect(headPreview).toBeVisible();
+  await headPreview.click();
+  await expect(page.getByRole("dialog", { name: /Canary evidence bound to 9fc82a1/u })).toBeVisible();
+  await expect(page.locator(".preview-evidence-facts")).toContainText("Exact-head match");
   await expect(page.getByText("Exact new head passed")).toBeVisible();
   await expect(page.locator("time").filter({ hasText: "ChangePlane / guard · 9fc82a1" })).toBeVisible();
   expect(externalRequests).toEqual([]);
@@ -103,12 +111,19 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 6, targetVersion: 6, conflicts: [] },
+          installation: { state: "current", currentVersion: 7, targetVersion: 7, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
           setup: { state: "current", managedVersion: 2 },
           evidenceOptions: [],
+          capabilities: {
+            independentReview: true,
+            agentHandback: true,
+            assuranceMemory: true,
+            exactHeadPreview: true,
+            mergeQueue: true,
+          },
           boundary: {
             defaultBranchWrite: false,
             pullRequestOnly: true,
@@ -124,7 +139,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         installation: {
           state: "fresh",
           currentVersion: null,
-          targetVersion: 6,
+          targetVersion: 7,
           conflicts: [],
         },
         installable: true,
@@ -133,6 +148,13 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         setup: { state: "none" },
         evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
         harness: { autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
+        capabilities: {
+          independentReview: true,
+          agentHandback: true,
+          assuranceMemory: true,
+          exactHeadPreview: true,
+          mergeQueue: true,
+        },
         boundary: {
           defaultBranchWrite: false,
           pullRequestOnly: true,
@@ -203,6 +225,12 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   await expect(page.getByText("Ready to install")).toBeVisible();
   await expect(page.getByLabel("OpenAI API key")).toBeVisible();
   await expect(page.getByText("Bring your own OpenAI key")).toBeVisible();
+  const capabilities = page.locator(".repository-capabilities");
+  await expect(capabilities).toContainText("5 of 5 available");
+  await capabilities.locator("summary").click();
+  await expect(capabilities).toContainText("Review can never publish PASS");
+  await expect(capabilities).toContainText("any coding agent");
+  await expect(capabilities).toContainText("exact merge_group revision");
   const evidenceSelect = page.getByLabel("Use a test from GitHub");
   await expect(evidenceSelect).toBeVisible();
   await expect(evidenceSelect).toHaveValue("test\0github-actions");
@@ -278,7 +306,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 6, targetVersion: 6, conflicts: [] },
+          installation: { state: "current", currentVersion: 7, targetVersion: 7, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -299,7 +327,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         installation: {
           state: "outdated",
           currentVersion: 0,
-          targetVersion: 6,
+          targetVersion: 7,
           conflicts: [],
         },
         installable: true,
@@ -331,7 +359,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
       installPayload = route.request().postDataJSON();
       return json(route, {
         repository: "acme/payments-api",
-        branch: "changeplane/observe-upgrade-v6",
+        branch: "changeplane/observe-upgrade-v7",
         operation: "upgrade",
         pullRequest: {
           number: 43,
@@ -348,8 +376,12 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
   await expect(page.getByText("Upgrade ready")).toBeVisible();
-  await expect(page.getByText("Update managed files to version 6 without changing your policy.")).toBeVisible();
+  await expect(page.getByText("Update managed files to version 7 without changing your policy.")).toBeVisible();
   await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
+  const capabilities = page.locator(".repository-capabilities");
+  await expect(capabilities).toContainText("0 of 5 available");
+  await capabilities.locator("summary").click();
+  await expect(capabilities).toContainText("Do not require the guard on a merge queue yet.");
   await expect(page.getByRole("group", { name: "Choose what the first receipt proves" })).toHaveCount(0);
   await expect(page.getByText("Setup complete")).toHaveCount(0);
 
@@ -425,7 +457,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         pendingPreflightRequests += 1;
         return json(route, {
           repositoryState: "active",
-          installation: { state: "outdated", currentVersion: 0, targetVersion: 6, conflicts: [] },
+          installation: { state: "outdated", currentVersion: 0, targetVersion: 7, conflicts: [] },
           installable: true,
           conflicts: [],
           setupFiles: 1,
@@ -441,7 +473,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
       if (repository === "acme/current-api") {
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 6, targetVersion: 6, conflicts: [] },
+          installation: { state: "current", currentVersion: 7, targetVersion: 7, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -457,7 +489,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         }
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 6, targetVersion: 6, conflicts: [] },
+          installation: { state: "current", currentVersion: 7, targetVersion: 7, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -472,7 +504,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
           installation: {
             state: "conflict",
             currentVersion: null,
-            targetVersion: 6,
+            targetVersion: 7,
             conflicts: ["changeplane/action/index.js"],
           },
           installable: false,

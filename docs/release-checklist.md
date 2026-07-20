@@ -25,10 +25,14 @@
 
 - [x] Name the release owner, rollback owner, GitHub connector owner, and customer repository owner.
 - [x] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
-- [x] Keep this release on the fixed free Vercel phase and bind every repository route to the one disposable `CHANGEPLANE_CANARY_REPOSITORY`; hosting-plan work and broader onboarding are out of scope.
+- [ ] Keep the release on the fixed free Vercel phase. Verify public repository discovery is limited to each signed-in user's eligible App installations while controlled repair-canary routes remain bound to the exact disposable `CHANGEPLANE_CANARY_REPOSITORY`.
 - [x] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
 - [x] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and optional inactive repair templates. No database, queue, merge service, or paid observability is required.
-- [ ] Confirm GitHub Merge Queue is not enabled for a repository that requires `ChangePlane / guard`.
+- [ ] Confirm GitHub Merge Queue publishes `ChangePlane / guard` on the exact `merge_group` SHA and does not dispatch review, proposal, repair, apply, or handback work.
+- [ ] Confirm `ChangePlane / review` runs only with repository BYOK, validates changed-line locations, caps and deduplicates findings, and never contributes PASS or approval.
+- [ ] Confirm `.changeplane/assurance.md` is repository-owned, read from the trusted default branch, and changed only through a protected pull request.
+- [ ] Confirm the agent-handback Action output and receipt payload carry no credential or authority and stale-head consumers stop safely.
+- [ ] Confirm a receipt includes a preview only when the deployment SHA equals the evaluated head.
 
 ## Source and CI gate
 
@@ -93,7 +97,7 @@
 - [ ] Confirm the repository PS256 public-key map contains the App private key's expected key ID and no unreviewed key, and that the private key remains Vercel-only.
 - [x] Reject same-name evidence unless it originates from the policy's expected GitHub App slug.
 - [ ] Verify expected-App evidence against live GitHub Check Runs in a disposable repository.
-- [ ] Evaluate `merge_group` as its own exact revision and publish the required Check for GitHub Merge Queue.
+- [ ] Exercise a live `merge_group` and record the exact revision, Check publisher, and `ChangePlane / guard`; confirm no repair or model request occurs.
 - [x] Implement the PS256-signed monotonic ledger primitive intended for the App publisher, campaign-bound two-attempt/15-minute invariant, pinned-key verifier, and inactive workflow kill switch.
 - [x] Bind inactive grants to the exact controller SHA, default base ref, policy digest/evaluator version, contract, protected-path denylist, and live pull-request revision; recheck the signed deadline immediately before push.
 - [x] Reserve push credentials once in the App-signed ledger, mint only an exact-repository Contents-write token after claim revalidation, keep it in runner temp, and push with force-with-lease so `pull_request synchronize` starts fresh CI.

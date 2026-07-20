@@ -61,7 +61,7 @@ test("observe fails closed when the exact-head audit surface cannot be published
   assert.equal(shouldFailAction(new Error("evaluation failed"), "observe", false), true);
 });
 
-test("observe fallback publication failures are fatal for trusted rechecks and deployment heads", async () => {
+test("observe fallback publication failures are fatal for trusted rechecks, deployments, and merge groups", async () => {
   const original = {
     eventPath: process.env.GITHUB_EVENT_PATH,
     mode: process.env.INPUT_MODE,
@@ -85,6 +85,9 @@ test("observe fallback publication failures are fatal for trusted rechecks and d
     }, {
       deployment: { sha: headSha },
       deployment_status: { id: 7 },
+    }, {
+      action: "checks_requested",
+      merge_group: { head_sha: headSha },
     }]) {
       writeFileSync(eventPath, JSON.stringify(event));
       process.exitCode = undefined;

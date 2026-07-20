@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   canonicalJson,
+  bindPreview,
+  buildAgentHandback,
+  buildMergeGroupReceipt,
   buildReceipt,
   checkDiagnostic,
   discoverPreview,
@@ -21,6 +25,8 @@ import {
   parseRemediationComments,
   remediationIdempotencyKey,
   renderReceiptComment,
+  renderMergeGroupReceipt,
+  resolveMergeGroup,
   resolvePullRequestNumber,
   sanitizePreviewUrl,
   validateAgentWebhookUrl,
@@ -41,6 +47,16 @@ test("GitHub Actions test imports do not execute the Action entrypoint", () => {
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "");
+});
+
+test("pinned guard workflows request merge-group checks on exact queue revisions", () => {
+  for (const path of ["../examples/changeplane-observe.yml", "../examples/changeplane-repair-guard.yml"]) {
+    const workflow = readFileSync(new URL(path, import.meta.url), "utf8");
+    assert.match(workflow, /merge_group:\n\s+types: \[checks_requested\]/u);
+    assert.match(workflow, /github\.event\.merge_group\.head_sha/u);
+  }
+  const observe = readFileSync(new URL("../examples/changeplane-observe.yml", import.meta.url), "utf8");
+  assert.match(observe, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \|\| github\.event\.repository\.default_branch \}\}/u);
 });
 
 test("builds bounded exact-check diagnostics from output and annotations", () => {
@@ -311,6 +327,97 @@ test("standard pull-request events keep their direct number without lookup", asy
   }
 });
 
+test("resolves a merge group as an exact default-branch revision", async () => {
+  const baseSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const originalFetch = globalThis.fetch;
+  const paths = [];
+  let changedFiles = [
+    { filename: "src/payments/retry.js" },
+    { filename: "src/payments/idempotency.js", previous_filename: "src/payments/legacy.js" },
+  ];
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    paths.push(url.pathname);
+    let value;
+    if (url.pathname === "/repos/acme/payments") {
+      value = { full_name: "acme/payments", default_branch: "main" };
+    } else if (url.pathname === "/repos/acme/payments/git/ref/heads/main") {
+      value = { object: { sha: baseSha } };
+    } else if (url.pathname.startsWith("/repos/acme/payments/compare/")) {
+      value = {
+        status: "ahead",
+        base_commit: { sha: baseSha },
+        merge_base_commit: { sha: baseSha },
+        head_commit: { sha: headSha },
+        files: changedFiles,
+      };
+    } else {
+      throw new Error(`Unexpected request ${url}`);
+    }
+    return { ok: true, status: 200, async json() { return value; } };
+  };
+  try {
+    assert.deepEqual(await resolveMergeGroup({
+      action: "checks_requested",
+      merge_group: {
+        base_sha: baseSha,
+        head_sha: headSha,
+        base_ref: "refs/heads/main",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42",
+      },
+    }, "acme/payments", "token"), {
+      targetType: "merge_group",
+      defaultBranch: "main",
+      baseRef: "refs/heads/main",
+      headRef: "refs/heads/gh-readonly-queue/main/pr-42",
+      baseSha,
+      headSha,
+      actualFiles: [
+        { path: "src/payments/retry.js" },
+        { path: "src/payments/idempotency.js", previousPath: "src/payments/legacy.js" },
+      ],
+    });
+    assert.equal(paths.some((path) => path.includes(`/compare/${baseSha}...${headSha}`)), true);
+    changedFiles = Array.from({ length: 300 }, (_, index) => ({ filename: `src/${index}.js` }));
+    await assert.rejects(resolveMergeGroup({
+      action: "checks_requested",
+      merge_group: {
+        base_sha: baseSha,
+        head_sha: headSha,
+        base_ref: "refs/heads/main",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42",
+      },
+    }, "acme/payments", "token"), /300 or more changed files/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("merge groups fail closed when the trusted default branch moved", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    const value = url.pathname === "/repos/acme/payments"
+      ? { full_name: "acme/payments", default_branch: "main" }
+      : { object: { sha: "f".repeat(40) } };
+    return { ok: true, status: 200, async json() { return value; } };
+  };
+  try {
+    await assert.rejects(resolveMergeGroup({
+      action: "checks_requested",
+      merge_group: {
+        base_sha: "a".repeat(40),
+        head_sha: "b".repeat(40),
+        base_ref: "refs/heads/main",
+        head_ref: "refs/heads/gh-readonly-queue/main/pr-42",
+      },
+    }, "acme/payments", "token"), /base is stale/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("trusted recheck dispatch binds a pull request to its exact new head", async () => {
   const headSha = "c".repeat(40);
   const originalFetch = globalThis.fetch;
@@ -366,6 +473,7 @@ test("discovers a successful preview only from the exact PR head", async () => {
   try {
     assert.deepEqual(await discoverPreview("acme/payments", headSha, "token"), {
       status: "READY",
+      headSha,
       url: "https://preview.example/pr/42",
       environment: "Pull request 42",
       deploymentId: 11,
@@ -377,6 +485,14 @@ test("discovers a successful preview only from the exact PR head", async () => {
     });
     assert.equal(calls[0].searchParams.get("sha"), headSha);
     assert.equal(calls.some(({ pathname }) => pathname.endsWith("/deployments/13/statuses")), false);
+    assert.deepEqual(bindPreview({ status: "READY", headSha, url: "https://preview.example/pr/42" }, headSha), {
+      status: "READY",
+      headSha,
+      url: "https://preview.example/pr/42",
+    });
+    assert.deepEqual(bindPreview({ status: "READY", headSha: "a".repeat(40), url: "https://stale.example" }, headSha), {
+      status: "REVISION_MISMATCH",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -497,13 +613,65 @@ test("binds remediation idempotency to the exact pull request head", () => {
   }), undefined);
 });
 
-test("renders an exact revision-bound observe receipt with one next actor", () => {
-  const receipt = buildReceipt({
+test("builds a vendor-neutral proposal-only handback for fixable findings", () => {
+  const handback = buildAgentHandback({
     repository: "acme/payments",
     pullRequest: {
       number: 42,
       base: { sha: "a".repeat(40) },
       head: { sha: "b".repeat(40) },
+    },
+    plan: { goal: "Make retries idempotent", scope: ["src/payments/**"] },
+    policyDigest: "c".repeat(64),
+    contractDigest: "d".repeat(64),
+    inputDigest: "e".repeat(64),
+    autonomousPlan: {
+      decision: "REMEDIATION_REQUIRED",
+      nextAttempt: 1,
+      findings: [{
+        code: "EVIDENCE_FAILED",
+        path: "check:test",
+        pathKind: "evidence",
+        diagnostic: "Expected one charge, observed two",
+      }],
+    },
+    maxAttempts: 2,
+  });
+  assert.equal(handback.type, "changeplane.agent-handback");
+  assert.equal(handback.target.headSha, "b".repeat(40));
+  assert.deepEqual(handback.proposal.allowedPaths, ["src/payments/**"]);
+  assert.equal(handback.proposal.findings[0].action, "PROPOSE_SMALLEST_PATCH_WITHIN_CONTRACT");
+  assert.deepEqual(handback.authority, {
+    proposalOnly: true,
+    gitWrite: false,
+    checkWrite: false,
+    merge: false,
+  });
+  assert.match(handback.digest, /^[a-f0-9]{64}$/u);
+});
+
+test("renders an exact revision-bound observe receipt with one next actor", () => {
+  const headSha = "b".repeat(40);
+  const agentHandback = buildAgentHandback({
+    repository: "acme/payments",
+    pullRequest: { number: 42, base: { sha: "a".repeat(40) }, head: { sha: headSha } },
+    plan: { goal: "Make retries idempotent", scope: ["src/payments/**"] },
+    policyDigest: "c".repeat(64),
+    contractDigest: "e".repeat(64),
+    inputDigest: "d".repeat(64),
+    autonomousPlan: {
+      decision: "REMEDIATION_REQUIRED",
+      nextAttempt: 1,
+      findings: [{ code: "OUTSIDE_PLANNED_SCOPE", path: "docs/retries.md", pathKind: "current" }],
+    },
+    maxAttempts: 2,
+  });
+  const receipt = buildReceipt({
+    repository: "acme/payments",
+    pullRequest: {
+      number: 42,
+      base: { sha: "a".repeat(40) },
+      head: { sha: headSha },
     },
     plan: { goal: "Make retries idempotent", scope: ["src/payments/**"] },
     contractSource: "first-head",
@@ -520,6 +688,7 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
     evidence: [{ name: "validate", status: "COMPLETED", conclusion: "SUCCESS" }],
     preview: {
       status: "READY",
+      headSha,
       url: "https://preview.example/pr/42",
       environment: "Preview",
       deploymentId: 11,
@@ -544,6 +713,7 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
       pullRequest: { number: 43, title: "Retry worker", url: "https://github.com/acme/payments/pull/43" },
     }],
     maxAttempts: 2,
+    agentHandback,
   });
   const markdown = renderReceiptComment(receipt);
   assert.match(markdown, /changeplane-receipt:v2/);
@@ -558,8 +728,9 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   assert.match(markdown, /no request was dispatched/);
   assert.match(markdown, /ChangePlane false positive/);
   assert.match(markdown, /validate.*COMPLETED.*SUCCESS/s);
-  assert.match(markdown, /https:\/\/preview\.example\/pr\/42.*Preview.*exact head/);
-  assert.match(markdown, /Preview provenance.*deployment.*11.*status.*101.*deploy-bot.*deploy:preview.*environment override.*Pull request 42.*informational only/s);
+  assert.match(markdown, /https:\/\/preview\.example\/pr\/42.*Preview.*bound to.*bbbbbbbbbbbb/);
+  assert.match(markdown, /Preview provenance.*revision.*bbbbbbbbbbbb.*deployment.*11.*status.*101.*deploy-bot.*deploy:preview.*environment override.*Pull request 42.*informational only/s);
+  assert.match(markdown, /changeplane-agent-handback:v1.*Agent handback.*Proposal only.*docs\/retries\.md.*cannot push, merge, publish a Check, or issue PASS/su);
   assert.match(markdown, /Concurrent change risk.*#43.*Retry worker.*src\/payments\/retry\.js.*Advisory only/s);
   assert.equal(receipt.preview.deploymentId, 11);
 
@@ -618,6 +789,38 @@ test("labels an empty-evidence PASS as scope-only assurance", () => {
   assert.match(markdown, /No automated test was required.*not evidence that the code works/su);
   assert.doesNotMatch(markdown, /All configured guarantees passed/u);
   assert.equal(headCheckPayload(receipt, markdown).output.title, "Revision and scope recorded · observe");
+});
+
+test("publishes merge-queue assurance on the merge-group SHA", () => {
+  const baseSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const receipt = buildMergeGroupReceipt({
+    repository: "acme/payments",
+    target: {
+      baseRef: "refs/heads/main",
+      headRef: "refs/heads/gh-readonly-queue/main/pr-42",
+      baseSha,
+      headSha,
+      actualFiles: [{ path: "src/payments/retry.js" }],
+    },
+    plan: { scope: ["src/payments/retry.js"] },
+    policyPath: ".changeplane.json",
+    policyDigest: "c".repeat(64),
+    inputDigest: "d".repeat(64),
+    contractDigest: "e".repeat(64),
+    result: { approval: { status: "MISSING" }, reasons: [] },
+    evidence: [{ name: "test", expectedSource: "github-actions", source: "github-actions", status: "COMPLETED", conclusion: "SUCCESS" }],
+    autonomousPlan: { decision: "PASS", reason: "ALL_GUARANTEES_SATISFIED", humanRequired: false },
+    mode: "enforce",
+  });
+  const markdown = renderMergeGroupReceipt(receipt);
+  const check = headCheckPayload(receipt, markdown);
+  assert.equal(receipt.policy.sourceRevision, baseSha);
+  assert.equal(check.head_sha, headSha);
+  assert.equal(check.name, "ChangePlane / guard");
+  assert.equal(check.conclusion, "success");
+  assert.match(check.external_id, /merge-group/u);
+  assert.match(markdown, /Merge queue revision.*bbbbbbbbbbbb.*Trusted default-branch base.*aaaaaaaaaaaa.*No repair|GitHub still owns queue and merge decisions/su);
 });
 
 test("round-trips an automatic contract only from the trusted receipt author", () => {

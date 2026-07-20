@@ -6,6 +6,8 @@ This release supports one-repository GitHub.com rollouts in `observe` or bounded
 
 Autonomous mode requires the repository-scoped GitHub App, one exact behavioral check and publisher, verified BYOK, and one reviewed setup PR. It allows only two attempts inside an immutable 15-minute campaign; protected, ambiguous, stale, provider-failed, or exhausted work stops for a human. `ChangePlane Managed` is a disabled reservation; a successful OpenAI adapter canary is not managed execution or billing.
 
+The managed setup also provides `ChangePlane / review`, repository-owned assurance memory, vendor-neutral agent handback, exact-head preview receipts, and exact-`merge_group` guard evaluation. Model-backed findings run only when repository BYOK exists; without it, the review Check remains neutral and makes no model call. Merge Queue evaluation never dispatches repair or a model.
+
 The current Vercel deployment is a fixed free-phase constraint. `CHANGEPLANE_SELF_SERVE_ENABLED=true` opens GitHub App onboarding to eligible personal and organization installations. Keep the disposable repository as the controlled release canary; never connect a RouteThai production repository. Hosting-plan work remains outside this release. See [Vercel limits](https://vercel.com/docs/limits).
 
 The ChangePlane source repository must keep its protected-`main` CI release gate. The private disposable canary on GitHub Free cannot enable branch protection; GitHub returns an upgrade-or-public requirement. That repository is limited to owner-controlled lab evidence with a manually reviewed setup pull request and no direct pushes by procedure. It cannot prove production enforcement, become a customer merge gate, or waive the protected-source release gate. Do not change its visibility or hosting phase to work around this limit. See [GitHub protected branch availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
@@ -42,7 +44,7 @@ CI intentionally does not call a Vercel deployment. Before merge, use a trusted 
 | `CHANGEPLANE_REPAIR_GENERATION` | Connected repository Actions Secret | Yes | Repair owner; must equal the active Vercel generation. |
 | `CHANGEPLANE_REPAIR_PUBLIC_KEYS` | Connected repository Actions Secret | Yes | GitHub App owner; JSON map from the pinned PS256 key ID to its SPKI public key. |
 | `CHANGEPLANE_CONTROLLER_HMAC` | Disposable repository Actions Secret | Yes | Repair owner; repository-bound derived secret, never the Vercel master secret. Rotate with the controller master or repository/App identity. |
-| `OPENAI_API_KEY` | Connected repository Actions Secret | Yes | Repository owner; verified BYOK for bounded repair only. Omit for observe-only assurance. |
+| `OPENAI_API_KEY` | Connected repository Actions Secret | Yes | Repository owner; verified BYOK for bounded repair proposals and advisory review. Omit for observe-only assurance. |
 | `GITHUB_TOKEN` | GitHub Actions job, issued automatically | Yes | GitHub; ephemeral and read-only in the apply job. Never use it for a repair push because GitHub suppresses fresh workflow triggers. |
 | One-time repair push token | Trusted apply job runner temp only | Yes | GitHub App installation token; exact repository and Contents write only. Mint after signed claim validation, use only for force-with-lease push, then delete on every exit. |
 
@@ -91,6 +93,14 @@ The repair controller remains fail-closed unless every setting and live identity
 7. Run one deterministic scope-repair canary first. Require that live run to create and anchor the App-signed generation-bound ledger and prove replay denial, stale-head denial, path boundaries, and the attempt/deadline budget. Treat GitHub Actions receipt comments as audit output only; they never authorize controller repair or contract continuation. Add the verified provider secret and run evidence repair only after the scope path and kill switch have passed. Never reuse the stale observe pull request as repair evidence.
 
 The private GitHub Free canary has no enforceable branch protection. A human owner must review and merge the workflow setup PR, keep all direct pushes prohibited by procedure, and treat every result as controlled lab evidence only. Do not describe this path as customer-ready production repair.
+
+## Review, handback, preview, and Merge Queue operations
+
+- Keep `.changeplane/assurance.md` in the protected setup/configuration pull-request path. Review its invariants and policy-pack guidance like code; never accept a generated memory change directly on the default branch.
+- Run `ChangePlane / review` only when `OPENAI_API_KEY` is configured. Confirm findings point to changed lines, remain within the configured cap, and carry the evaluated head. A missing key skips advisory review and must not weaken or fail the guard.
+- Treat every agent handback Action output or receipt payload as a finding envelope, not an authorization token. Consumers must re-read the current head before acting; stale findings are discarded.
+- Include an existing preview in the receipt only after its GitHub Deployment SHA equals the evaluated head. Omit stale, missing, or unverifiable preview URLs.
+- On `merge_group`, publish `ChangePlane / guard` for the exact queue revision. Do not run review, proposal, repair, apply, or handback jobs for the queue event. A new merge-group SHA requires a new decision.
 
 ### Repair kill switch and rollback
 

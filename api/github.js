@@ -71,13 +71,15 @@ const VERIFIED_VERCEL_SOURCE = Object.freeze({
 });
 const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
+const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 6;
+const MANAGED_VERSION = 7;
 const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
   "changeplane/src/lib/changeplane.js",
   "changeplane/src/lib/harness.js",
+  "changeplane/src/lib/review.js",
   "changeplane/src/lib/runtime.js",
   "changeplane/server/github-repair-controller.js",
   "changeplane/server/repair-ledger.js",
@@ -85,6 +87,8 @@ const MANAGED_PATHS = [
   "changeplane/examples/changeplane-grant.js",
   "changeplane/examples/changeplane-proposal.js",
   "changeplane/examples/changeplane-provider-openai.js",
+  "changeplane/examples/changeplane-review-openai.js",
+  "changeplane/examples/changeplane-review-run.js",
   "changeplane/package.json",
   ".github/workflows/changeplane.yml",
   ".github/workflows/changeplane-repair.yml",
@@ -92,6 +96,7 @@ const MANAGED_PATHS = [
 const PILOT_RESERVED_PATHS = [
   "changeplane",
   POLICY_PATH,
+  ASSURANCE_MEMORY_PATH,
   ".github/workflows/changeplane.yml",
   ".github/workflows/changeplane-repair.yml",
 ];
@@ -173,6 +178,22 @@ const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
     ".github/workflows/changeplane.yml": "573a24fc6b18124f706ff7a557dc3a155e7642db7da76ef653cd34e1bd0a487f",
     ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
   }),
+  6: Object.freeze({
+    "changeplane/action.yml": "5efe0e2140283081e3e0390506c681fc881dbe47334a16038c0da9198dcba868",
+    "changeplane/action/index.js": "ea330794dfc3c9cd2cf1753a67f72cd0fdd71cb6946e80fbb7fe5a97dca71bf2",
+    "changeplane/src/lib/changeplane.js": "4578704217c2c5d3eac50ade6a40ee588ab75d1de736aeb0041fbfe8ce5536e6",
+    "changeplane/src/lib/harness.js": "0eb54fec0d65c7668d3b81be6174e8474ebcca670b834e5186e17b4efd6a1ac8",
+    "changeplane/src/lib/runtime.js": "26cff8ddc82756d16577c938fb567c0a13cdd0ee3cf3a94f4f1a4bdd93293b3d",
+    "changeplane/server/github-repair-controller.js": "fb0bd189e96193a73ea17692f99999ee0dd033f1b8d060b4c1c442fb0b141070",
+    "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+    "changeplane/examples/changeplane-claim.js": "e74f6ba36c273f775380035fd74a91f59ebc43878f4700d01a834af1adf6322d",
+    "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
+    "changeplane/examples/changeplane-proposal.js": "aa9876c78c1ae62904c9fa76ad3c0f018c3d0435569e4d79b8805fe2bfa05c14",
+    "changeplane/examples/changeplane-provider-openai.js": "28c2264457b438d4e0830d1c378121c1892b0883888068e4fa95a4b2708373bb",
+    "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+    ".github/workflows/changeplane.yml": "f8a241d54c5a84c24ce2b333c25ca688f6f0f81dceb1ae65337057d4881c41f2",
+    ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
+  }),
 });
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
 const GITHUB_MAX_GET_ATTEMPTS = 3;
@@ -187,6 +208,26 @@ const OBSERVE_SETUP_BRANCH = "changeplane/observe-setup";
 const OBSERVE_UPGRADE_BRANCH = `changeplane/observe-upgrade-v${MANAGED_VERSION}`;
 const RUNTIME_CONFIG_BRANCH = "changeplane/runtime-model";
 const GUARD_CHECK_NAME = "ChangePlane / guard";
+const ASSURANCE_MEMORY_TEMPLATE = `# ChangePlane assurance memory
+
+This file is repository-owned context for independent review. It guides findings but never issues PASS; only exact-revision evidence evaluated by the trusted harness can do that.
+
+## Repository invariants
+
+- Add concrete behavior that must remain true, with the test or runbook that proves it when one exists.
+
+## Security boundaries
+
+- Add trust boundaries, protected data flows, and paths that require human review.
+
+## Compatibility commitments
+
+- Add public API, schema, migration, or client behavior that changes must preserve.
+
+## Operational checks
+
+- Add deployment, rollback, and incident constraints reviewers should verify on changed lines.
+`;
 const ROUTE_METHODS = new Map([
   ["session", ["GET"]],
   ["readiness", ["GET"]],
@@ -810,6 +851,8 @@ on:
     types: [opened, synchronize, reopened]
   pull_request_review:
     types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
   deployment_status:
   repository_dispatch:
     types: [changeplane_recheck]
@@ -822,7 +865,7 @@ permissions:
   statuses: read
 
 concurrency:
-  group: changeplane-pr-\${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.deployment.sha || github.run_id }}
+  group: changeplane-pr-\${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.merge_group.head_sha || github.event.deployment.sha || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -840,7 +883,7 @@ jobs:
         # actions/checkout v4.2.2; keep the trusted checkout immutable.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: \${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.repository.default_branch }}
           persist-credentials: false
       - name: Read the trusted harness policy
         id: harness
@@ -864,12 +907,72 @@ jobs:
           agent_webhook_token: \${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
           controller_installation_id: \${{ secrets.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
           max_remediation_attempts: \${{ steps.harness.outputs.max_attempts }}
+
+  review_propose:
+    name: Independent review proposal
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      review_job: \${{ steps.propose.outputs.review_job }}
+    steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
+      - name: Check out the trusted review controller
+        # actions/checkout v4.2.2; never execute pull-request code here.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: \${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Propose changed-line findings
+        id: propose
+        env:
+          CHANGEPLANE_TRUSTED_POLICY: .changeplane.json
+          GITHUB_TOKEN: \${{ github.token }}
+          OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
+        run: node changeplane/examples/changeplane-review-run.js propose
+
+  review_publish:
+    name: Independent review receipt
+    needs: review_propose
+    if: always() && github.event_name == 'pull_request_target' && needs.review_propose.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
+      - name: Check out the trusted review publisher
+        # actions/checkout v4.2.2; this job receives no model credential.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: \${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Revalidate and publish the advisory Check
+        id: publish
+        env:
+          CHANGEPLANE_REVIEW_JOB: \${{ needs.review_propose.outputs.review_job }}
+          GITHUB_TOKEN: \${{ github.token }}
+        run: node changeplane/examples/changeplane-review-run.js publish
 `;
   return [
     { path: "changeplane/action.yml", content: readFileSync(path.join(ROOT, "action.yml"), "utf8") },
     { path: "changeplane/action/index.js", content: readFileSync(path.join(ROOT, "action/index.js"), "utf8") },
     { path: "changeplane/src/lib/changeplane.js", content: readFileSync(path.join(ROOT, "src/lib/changeplane.js"), "utf8") },
     { path: "changeplane/src/lib/harness.js", content: readFileSync(path.join(ROOT, "src/lib/harness.js"), "utf8") },
+    { path: "changeplane/src/lib/review.js", content: readFileSync(path.join(ROOT, "src/lib/review.js"), "utf8") },
     { path: "changeplane/src/lib/runtime.js", content: readFileSync(path.join(ROOT, "src/lib/runtime.js"), "utf8") },
     { path: "changeplane/server/github-repair-controller.js", content: readFileSync(path.join(ROOT, "server/github-repair-controller.js"), "utf8") },
     { path: "changeplane/server/repair-ledger.js", content: readFileSync(path.join(ROOT, "server/repair-ledger.js"), "utf8") },
@@ -877,6 +980,8 @@ jobs:
     { path: "changeplane/examples/changeplane-grant.js", content: readFileSync(path.join(ROOT, "examples/changeplane-grant.js"), "utf8") },
     { path: "changeplane/examples/changeplane-proposal.js", content: readFileSync(path.join(ROOT, "examples/changeplane-proposal.js"), "utf8") },
     { path: "changeplane/examples/changeplane-provider-openai.js", content: readFileSync(path.join(ROOT, "examples/changeplane-provider-openai.js"), "utf8") },
+    { path: "changeplane/examples/changeplane-review-openai.js", content: readFileSync(path.join(ROOT, "examples/changeplane-review-openai.js"), "utf8") },
+    { path: "changeplane/examples/changeplane-review-run.js", content: readFileSync(path.join(ROOT, "examples/changeplane-review-run.js"), "utf8") },
     // The vendored ESM action must work even when the host repository is CommonJS.
     { path: "changeplane/package.json", content: `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n` },
     { path: ".github/workflows/changeplane.yml", content: workflow },
@@ -900,6 +1005,11 @@ export function buildPilotFiles(requiredCheck = null, harnessMode = HARNESS_MODE
       requiredChecks: requiredCheck ? [validateRequiredCheck(requiredCheck)] : [],
       timeoutSeconds: requiredCheck ? 120 : 0,
     },
+    review: {
+      mode: "advisory",
+      maxFindings: 5,
+      memoryPath: ASSURANCE_MEMORY_PATH,
+    },
     harness,
     runtime: {
       funding: "byok",
@@ -916,6 +1026,7 @@ export function buildPilotFiles(requiredCheck = null, harnessMode = HARNESS_MODE
     ...managedFiles.filter(({ path: filePath }) => filePath !== ".github/workflows/changeplane.yml"),
     { path: MANAGED_MANIFEST_PATH, content: managedManifestContent(managedFiles) },
     { path: POLICY_PATH, content: `${JSON.stringify(policy, null, 2)}\n` },
+    { path: ASSURANCE_MEMORY_PATH, content: ASSURANCE_MEMORY_TEMPLATE },
     workflow,
   ];
 }
@@ -2485,6 +2596,13 @@ async function preflight(req, res) {
       autonomousAvailable: repairControllerConfiguration().configured,
       maxAttempts: HARNESS_MAX_ATTEMPTS,
       budgetMinutes: HARNESS_BUDGET_MINUTES,
+    },
+    capabilities: {
+      independentReview: true,
+      agentHandback: true,
+      assuranceMemory: true,
+      exactHeadPreview: true,
+      mergeQueue: true,
     },
     boundary: {
       defaultBranchWrite: false,
