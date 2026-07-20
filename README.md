@@ -41,7 +41,8 @@ There were no repository commits before the Build Week eligibility window. The r
 | First repository provenance | July 19, 2026 | `b0191ea2ff832e60461f1f27c66e01a80c62eed9` | Initial launch provenance |
 | Last baseline before this Build Week package | July 19, 2026 | `44edc14ec0f32aaf6db89e08a9ec3c2a23d1739e` | Observe canary and prior provider boundary |
 | GPT-5.6 RouteThai adapter canary | July 20, 2026 | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) | Live Luna request, bounded patch, clean apply, deterministic re-validation |
-| Submission release | July 20, 2026 | Use the release commit shown by `GET /api/github?action=readiness` | Public RouteThai replay, OpenAI runtime, competition package |
+| Autonomous GitHub canary | July 20, 2026 | [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json) | Live Luna proposal, signed ledger, clean apply, App-authored push, fresh exact-head PASS |
+| Submission release | July 20, 2026 | `0e8e093262a175d8ffa8284106c0c62ed2f68f65` | Public RouteThai replay, self-serve GitHub/BYOK, autonomous harness, competition package |
 
 Add the Codex Session ID from `/feedback` to the Devpost submission before final submission. The application cannot infer or fabricate that identifier.
 
@@ -59,7 +60,7 @@ The replay follows one event from beginning to end:
 6. A separately credentialed trusted controller applies the accepted patch.
 7. Fresh evidence passes on new exact head `9fc82a1`, and only then may `ChangePlane / guard` publish PASS.
 
-The reusable synthetic fixture is in [`examples/routethai-synthetic`](examples/routethai-synthetic). The recorded live adapter result is in [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json).
+The reusable synthetic fixture is in [`examples/routethai-synthetic`](examples/routethai-synthetic). The recorded adapter result is in [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json), and the full disposable-repository run is in [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json).
 
 ## Architecture and authority boundary
 
@@ -181,7 +182,7 @@ Never use a RouteThai repository as the canary target. The RouteThai fixture is 
 
 The self-serve setup PR vendors the small Action, harness policy reader, repair helpers, and two workflows into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
 
-The current tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. App-signed ledger, one-time exact-repository push-token, stale-head, replay, path, and budget behavior are covered by the automated controller tests; the disposable repository remains the only release canary used for live end-to-end evidence.
+The tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. The disposable GitHub canary additionally proves the App-signed attempt ledger, one-time exact-repository push credential, App-authored repair commit, fresh `pull_request` synchronization, and PASS on only the repaired exact head. Stale-head, replay, path expansion, provider failure, and budget exhaustion remain fail-closed and are covered by the controller test suite.
 
 ## Current limits
 

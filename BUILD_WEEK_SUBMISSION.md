@@ -27,21 +27,21 @@ The public product tells this story through a RouteThai production-informed shad
 **How we used OpenAI**
 
 - Codex collaborated on architecture, implementation, tests, security review, product copy, and competition packaging.
-- GPT-5.6 Luna is the real default in the shared runtime contract and live adapter canary.
+- GPT-5.6 Luna is the real default in the shared runtime contract, live adapter canary, and autonomous disposable-repository canary.
 - The native Responses API request uses high reasoning effort and disables storage.
 - Terra and Sol are available through the same trusted config-PR path.
 - The model never receives GitHub credentials or result authority.
 
 **Four judging pillars**
 
-- **Technical:** a real GPT-5.6 Responses adapter behind a patch-only boundary, exact-head grants, clean validation, signed attempt-ledger primitives, and separate apply authority.
+- **Technical:** a real GPT-5.6 Responses adapter behind a patch-only boundary, exact-head grants, clean validation, a live signed attempt ledger, one-time App push authority, and fresh exact-head PASS.
 - **Design:** a signed-out public walkthrough with one event and one primary action, preserving a quiet operational interface rather than exposing a technical dashboard.
 - **Impact:** production-informed RouteThai constraints make the failure concrete while synthetic data keeps the pilot safe and reproducible.
 - **Novelty:** model proposes; deterministic harness decides; trusted controller applies. The same agent or model can never create its own PASS.
 
 **Honest limitations**
 
-The public product is a recorded replay. Connected live BYOK is invite-only and single-repository. Observe mode cannot block merge or deploy. Managed execution, billing, self-serve installation, production enforcement, and GitHub merge-queue support are not enabled. The live adapter canary does not yet prove the App-authored GitHub push and Check-dispatch boundary.
+The public RouteThai workspace is a recorded replay. Connected BYOK onboarding is self-serve for one GitHub.com repository per setup; GitHub Enterprise Server is not supported. Observe mode cannot block merge or deploy. Autonomous mode can create only bounded repair commits after one exact behavioral check fails; GitHub remains the merge and ruleset authority. Managed execution, billing, and GitHub merge-queue support are not enabled. The disposable canary proves the App-authored push and fresh exact-head PASS, but it is owner-controlled lab evidence rather than customer production enforcement.
 
 **Links**
 
