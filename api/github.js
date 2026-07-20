@@ -73,7 +73,7 @@ const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 8;
+const MANAGED_VERSION = 9;
 const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
@@ -207,6 +207,25 @@ const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
     "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
     "changeplane/examples/changeplane-proposal.js": "aa9876c78c1ae62904c9fa76ad3c0f018c3d0435569e4d79b8805fe2bfa05c14",
     "changeplane/examples/changeplane-provider-openai.js": "28c2264457b438d4e0830d1c378121c1892b0883888068e4fa95a4b2708373bb",
+    "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
+    "changeplane/examples/changeplane-review-run.js": "15416ebc602a1981f171c75471d3a28cc18c1da69473a7ed36ed35991bebf9f5",
+    "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+    ".github/workflows/changeplane.yml": "cc4d3bb7fc810227b46e9bd4a5b69bd44d7466c6f9160a941ff41bb637a45a66",
+    ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
+  }),
+  8: Object.freeze({
+    "changeplane/action.yml": "5a0cde8e0977c921ddbc89dd02a2aa1ce910da1c29a85fc8700a06787c249ef5",
+    "changeplane/action/index.js": "b04c92e3f54820bd2d43a495f90e5e9c41b4730c0c8abebfe6b610e70d147b1f",
+    "changeplane/src/lib/changeplane.js": "4578704217c2c5d3eac50ade6a40ee588ab75d1de736aeb0041fbfe8ce5536e6",
+    "changeplane/src/lib/harness.js": "0eb54fec0d65c7668d3b81be6174e8474ebcca670b834e5186e17b4efd6a1ac8",
+    "changeplane/src/lib/review.js": "77b6e85321827a18a305bf4a952d6493d831374e8208eeca0e0987d1fd95023d",
+    "changeplane/src/lib/runtime.js": "26cff8ddc82756d16577c938fb567c0a13cdd0ee3cf3a94f4f1a4bdd93293b3d",
+    "changeplane/server/github-repair-controller.js": "fb0bd189e96193a73ea17692f99999ee0dd033f1b8d060b4c1c442fb0b141070",
+    "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+    "changeplane/examples/changeplane-claim.js": "e74f6ba36c273f775380035fd74a91f59ebc43878f4700d01a834af1adf6322d",
+    "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
+    "changeplane/examples/changeplane-proposal.js": "aa9876c78c1ae62904c9fa76ad3c0f018c3d0435569e4d79b8805fe2bfa05c14",
+    "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
     "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
     "changeplane/examples/changeplane-review-run.js": "15416ebc602a1981f171c75471d3a28cc18c1da69473a7ed36ed35991bebf9f5",
     "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
