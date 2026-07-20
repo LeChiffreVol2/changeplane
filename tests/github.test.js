@@ -225,27 +225,45 @@ test("runtime API rejects an unsupported model before GitHub access", async () =
   });
 });
 
-test("pilot payload vendors the action and installs a trusted observe workflow", () => {
+test("pilot payload vendors the autonomous harness behind trusted policy", () => {
   const files = new Map(buildPilotFiles().map((file) => [file.path, file.content]));
   for (const expected of [
     "changeplane/action.yml",
     "changeplane/action/index.js",
     "changeplane/src/lib/changeplane.js",
+    "changeplane/src/lib/harness.js",
+    "changeplane/src/lib/runtime.js",
+    "changeplane/server/github-repair-controller.js",
+    "changeplane/server/repair-ledger.js",
+    "changeplane/examples/changeplane-claim.js",
+    "changeplane/examples/changeplane-grant.js",
+    "changeplane/examples/changeplane-proposal.js",
+    "changeplane/examples/changeplane-provider-openai.js",
     "changeplane/manifest.json",
     ".changeplane.json",
+    ".github/workflows/changeplane-repair.yml",
     ".github/workflows/changeplane.yml",
   ]) assert.equal(files.has(expected), true, `missing ${expected}`);
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 1);
+  assert.equal(manifest.managedVersion, 2);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
+    ".github/workflows/changeplane-repair.yml",
     ".github/workflows/changeplane.yml",
     "changeplane/action.yml",
     "changeplane/action/index.js",
+    "changeplane/examples/changeplane-claim.js",
+    "changeplane/examples/changeplane-grant.js",
+    "changeplane/examples/changeplane-proposal.js",
+    "changeplane/examples/changeplane-provider-openai.js",
     "changeplane/package.json",
+    "changeplane/server/github-repair-controller.js",
+    "changeplane/server/repair-ledger.js",
     "changeplane/src/lib/changeplane.js",
+    "changeplane/src/lib/harness.js",
+    "changeplane/src/lib/runtime.js",
   ]);
 
   const workflow = files.get(".github/workflows/changeplane.yml");
@@ -253,7 +271,11 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.match(workflow, /deployment_status:/u);
   assert.match(workflow, /repository_dispatch:\n    types: \[changeplane_recheck\]/u);
   assert.match(workflow, /uses: \.\/changeplane/u);
-  assert.doesNotMatch(workflow, /mode:|agent_dispatch:|max_remediation_attempts:/u);
+  assert.match(workflow, /Read the trusted harness policy/u);
+  assert.match(workflow, /if: steps\.harness\.outputs\.mode == 'observe'/u);
+  assert.match(workflow, /if: steps\.harness\.outputs\.mode == 'enforce'/u);
+  assert.match(workflow, /agent_dispatch: \$\{\{ steps\.harness\.outputs\.dispatch \}\}/u);
+  assert.match(workflow, /max_remediation_attempts: \$\{\{ steps\.harness\.outputs\.max_attempts \}\}/u);
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/u);
   assert.match(workflow, /checks: write/u);
   assert.match(workflow, /pull-requests: write/u);
@@ -265,9 +287,12 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.repository\.default_branch \}\}/u);
   const actionMetadata = files.get("changeplane/action.yml");
   const actionInputs = actionMetadata.match(/inputs:\n([\s\S]*?)outputs:/u)?.[1] ?? "";
-  assert.match(actionMetadata, /name: ChangePlane Guard — observe pilot/u);
-  assert.match(actionMetadata, /Observe only; no enforcement or repair\./u);
-  assert.doesNotMatch(actionInputs, /^  (mode|agent_dispatch|agent_webhook_url|agent_webhook_token|max_remediation_attempts):/mu);
+  assert.match(actionMetadata, /name: ChangePlane Guard/u);
+  assert.match(actionMetadata, /revision-bound assurance harness in observe or autonomous mode/u);
+  assert.match(actionInputs, /^  mode:/mu);
+  assert.match(actionInputs, /^  agent_dispatch:/mu);
+  assert.match(actionInputs, /^  controller_installation_id:/mu);
+  assert.match(actionInputs, /^  max_remediation_attempts:/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.match(appSource, /Assurance for agent-written code/u);
@@ -283,6 +308,7 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   const policy = JSON.parse(files.get(".changeplane.json"));
   assert.equal(policy.version, 1);
   assert.deepEqual(policy.evidence, { requiredChecks: [], timeoutSeconds: 0 });
+  assert.deepEqual(policy.harness, { mode: "observe", maxAttempts: 2, budgetMinutes: 15 });
   assert.deepEqual(policy.runtime, {
     funding: "byok",
     provider: "openai",
@@ -300,6 +326,16 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
     requiredChecks: [{ name: "CI / test", appSlug: "github-actions" }],
     timeoutSeconds: 120,
   });
+  const autonomousFiles = new Map(buildPilotFiles({
+    name: "CI / test",
+    appSlug: "github-actions",
+  }, "autonomous").map((file) => [file.path, file.content]));
+  assert.deepEqual(JSON.parse(autonomousFiles.get(".changeplane.json")).harness, {
+    mode: "autonomous",
+    maxAttempts: 2,
+    budgetMinutes: 15,
+  });
+  assert.throws(() => buildPilotFiles(null, "autonomous"), /exact behavioral check/u);
   for (const appSlug of ["not a valid slug", "bad.slug", "bad_slug", "bad-"]) {
     assert.throws(
       () => buildPilotFiles({ name: "test", appSlug }),
@@ -322,8 +358,8 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 1,
-    targetVersion: 1,
+    currentVersion: 2,
+    targetVersion: 2,
     conflicts: [],
   });
 
@@ -331,7 +367,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 1,
+    targetVersion: 2,
     conflicts: [],
   });
 
@@ -348,7 +384,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine legacy install creates one manifest-only upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v2 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -418,7 +454,7 @@ test("pristine legacy install creates one manifest-only upgrade PR from the base
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v1") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v2") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -530,8 +566,9 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
     const blobSha = (content) => createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
     const scope = files.map(({ path }) => path === "changeplane/package.json" ? "changeplane/**" : path);
     let plan = {
-      goal: "Install the ChangePlane observe-mode pilot",
+      goal: "Install the ChangePlane observe harness",
       scope: [...new Set(scope)],
+      harnessMode: "observe",
       requiredCheck: configuredCheck,
     };
     const calls = [];
@@ -568,7 +605,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
               number: 17,
               html_url: "https://github.com/alice/service/pull/17",
               state: "open",
-              title: "chore: install ChangePlane observe pilot",
+              title: "chore: install ChangePlane harness",
               body: `<!-- changeplane ${JSON.stringify(plan)} -->`,
               head: { ref: "changeplane/observe-setup", sha: headSha, repo: { full_name: "alice/service" } },
               base: { ref: "main", sha: baseSha },
@@ -639,7 +676,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
         body: { repository: "alice/service", requiredCheck: null },
       }, conflictingScopeResponse);
       assert.equal(conflictingScopeResponse.statusCode, 409);
-      assert.match(JSON.parse(conflictingScopeResponse.body).error, /different evidence choice/u);
+      assert.match(JSON.parse(conflictingScopeResponse.body).error, /different evidence or harness choice/u);
       assert.equal(calls.every(({ method }) => method === "GET"), true);
 
       const response = responseRecorder();
@@ -671,6 +708,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
         state: "pending",
         pullRequest: { number: 17, url: "https://github.com/alice/service/pull/17" },
         requiredCheck: configuredCheck,
+        harnessMode: "observe",
       });
 
       fileContents.set(files[0].path, "tampered setup payload\n");
@@ -720,7 +758,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       setupBranchHead = headSha;
       files = buildPilotFiles();
       fileContents = new Map(files.map(({ path, content }) => [path, content]));
-      plan = { goal: "Install the ChangePlane observe-mode pilot", scope: [...new Set(scope)] };
+      plan = { goal: "Install the ChangePlane observe harness", scope: [...new Set(scope)], harnessMode: "observe" };
       const conflictingBehaviorResponse = responseRecorder();
       await handler({
         method: "POST",
@@ -734,7 +772,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
         body: { repository: "alice/service", requiredCheck: configuredCheck },
       }, conflictingBehaviorResponse);
       assert.equal(conflictingBehaviorResponse.statusCode, 409);
-      assert.match(JSON.parse(conflictingBehaviorResponse.body).error, /different evidence choice/u);
+      assert.match(JSON.parse(conflictingBehaviorResponse.body).error, /different evidence or harness choice/u);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -755,23 +793,24 @@ test("GitHub retries honor server rate-limit headers and fail fast on a distant 
   assert.equal(githubRetryDelayMs(503, headers({}), 2, 1_000), 500);
 });
 
-test("controlled repair canary keeps OpenAI proposal access separate from forge write", () => {
+test("managed autonomous harness keeps OpenAI proposal access separate from forge write", () => {
   const workflow = readFileSync(new URL("../examples/changeplane-repair.yml", import.meta.url), "utf8");
   const guardWorkflow = readFileSync(new URL("../examples/changeplane-repair-guard.yml", import.meta.url), "utf8");
   const grantVerifier = readFileSync(new URL("../examples/changeplane-grant.js", import.meta.url), "utf8");
   const claimClient = readFileSync(new URL("../examples/changeplane-claim.js", import.meta.url), "utf8");
   const provisioner = readFileSync(new URL("../scripts/provision-repair-canary.mjs", import.meta.url), "utf8");
+  const installerApi = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const repairLedger = readFileSync(new URL("../server/repair-ledger.js", import.meta.url), "utf8");
-  assert.match(workflow, /Inactive controlled-canary template/u);
+  assert.match(workflow, /Managed autonomous harness/u);
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_ENABLED/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_GENERATION/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_PUBLIC_KEYS/u);
   assert.match(workflow, /CHANGEPLANE_CONTROLLER_SHA: \$\{\{ github\.sha \}\}/u);
   assert.match(workflow, /CHANGEPLANE_BASE_REF: \$\{\{ github\.event\.repository\.default_branch \}\}/u);
-  assert.equal((workflow.match(/ref: __CHANGEPLANE_RELEASE_SHA__/gu) ?? []).length, 2);
-  assert.equal((workflow.match(/repository: LeChiffreVol2\/changeplane/gu) ?? []).length, 2);
-  assert.match(workflow, /CHANGEPLANE_PUBLISHER_RELEASE_SHA: __CHANGEPLANE_RELEASE_SHA__/u);
+  assert.equal((workflow.match(/ref: \$\{\{ github\.sha \}\}/gu) ?? []).length, 2);
+  assert.equal((workflow.match(/repository: LeChiffreVol2\/changeplane/gu) ?? []).length, 0);
+  assert.match(workflow, /CHANGEPLANE_PUBLISHER_RELEASE_SHA: \$\{\{ github\.event\.client_payload\.entry\.publisherReleaseSha \}\}/u);
   assert.equal((workflow.match(/changeplane-grant\.js verify/gu) ?? []).length, 3);
   assert.equal((workflow.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu) ?? []).length, 2);
   assert.equal((workflow.match(/node-version: 22\.18\.0/gu) ?? []).length, 2);
@@ -812,14 +851,14 @@ test("controlled repair canary keeps OpenAI proposal access separate from forge 
   assert.doesNotMatch(providerStep, /CHANGEPLANE_CONTROLLER_HMAC|CHANGEPLANE_PUSH_TOKEN/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.base-sha \}\}[\s\S]*?path: trusted/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.head-sha \}\}[\s\S]*?path: workspace/u);
-  assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/controller\/examples\/changeplane-proposal\.js propose/u);
+  assert.match(workflow, /working-directory: workspace[\s\S]*?\.\.\/controller\/changeplane\/examples\/changeplane-proposal\.js propose/u);
   assert.doesNotMatch(workflow, /run: \/usr\/bin\/node examples\/changeplane-proposal\.js/u);
   assert.match(workflow, /jobs:\n  repair:[\s\S]*?permissions:\n      actions: read\n      contents: read/u);
   assert.match(workflow, /\n  apply:[\s\S]*?permissions:\n      actions: read\n      contents: read\n      pull-requests: read/u);
   assert.doesNotMatch(workflow.match(/jobs:\n  repair:[\s\S]*?\n  apply:/u)?.[0] ?? "", /contents: write/u);
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /contents: write/u);
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /OPENAI_API_KEY/u);
-  assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/controller\/examples\/changeplane-proposal\.js validate/u);
+  assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/controller\/changeplane\/examples\/changeplane-proposal\.js validate/u);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|main|master)$/mu);
   assert.match(workflow, /git apply --check --index/u);
   const finalVerifyIndex = workflow.lastIndexOf("changeplane-grant.js verify");
@@ -849,11 +888,29 @@ test("controlled repair canary keeps OpenAI proposal access separate from forge 
   assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
   assert.match(guardWorkflow, /ref: __CHANGEPLANE_RELEASE_SHA__/u);
   assert.doesNotMatch(guardWorkflow, /statuses: read/u);
-  assert.match(provisioner, /repository_ids: \[REPOSITORY_ID\][\s\S]*?secrets: "write"[\s\S]*?variables: "write"/u);
+  assert.match(provisioner, /repository_ids: \[REPOSITORY_ID\][\s\S]*?secrets: "write"/u);
+  assert.doesNotMatch(provisioner, /variables: "write"|upsertVariable/u);
   assert.ok(
-    provisioner.indexOf('upsertVariable("CHANGEPLANE_REPAIR_ENABLED", "false"')
+    provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: "false"')
       < provisioner.indexOf('putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC"'),
     "a partial provisioning run must be disabled before any secret is written",
+  );
+  assert.ok(
+    provisioner.indexOf('putEncryptedSecret({ name: "OPENAI_API_KEY"')
+      < provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: "true"'),
+    "repair may be enabled only after the provider secret is stored",
+  );
+  const autonomousStart = installerApi.indexOf("async function prepareAutonomousHarness");
+  const autonomousEnd = installerApi.indexOf("\nasync function install", autonomousStart);
+  const autonomousProvisioning = autonomousStart >= 0 && autonomousEnd > autonomousStart
+    ? installerApi.slice(autonomousStart, autonomousEnd)
+    : "";
+  const disableIndex = autonomousProvisioning.indexOf('HARNESS_SECRETS.enabled,\n    "false"');
+  const controllerIndex = autonomousProvisioning.indexOf("[HARNESS_SECRETS.controller, controllerSecret]");
+  const enableIndex = autonomousProvisioning.indexOf('HARNESS_SECRETS.enabled,\n    "true"');
+  assert.ok(
+    disableIndex > 0 && controllerIndex > disableIndex && enableIndex > controllerIndex,
+    "self-serve harness provisioning must disable repair before rotation and enable it last",
   );
 });
 
@@ -941,8 +998,8 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         configured: false,
         checks: {
           enabled: false,
-          repository: false,
-          canaryBound: false,
+          repositoryScope: false,
+          installationBound: false,
           appId: false,
           appPrivateKey: false,
           controllerSecret: false,
@@ -991,8 +1048,8 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         configured: false,
         checks: {
           enabled: false,
-          repository: false,
-          canaryBound: false,
+          repositoryScope: false,
+          installationBound: false,
           appId: false,
           appPrivateKey: false,
           controllerSecret: false,
@@ -1129,7 +1186,7 @@ test("repair stays disabled when its repository differs from the disposable cana
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
     const readinessBody = JSON.parse(readinessResponse.body);
     assert.equal(readinessBody.repairController.configured, false);
-    assert.equal(readinessBody.repairController.checks.canaryBound, false);
+    assert.equal(readinessBody.repairController.checks.installationBound, false);
 
     let externalCalls = 0;
     const originalFetch = globalThis.fetch;
@@ -1180,8 +1237,8 @@ test("repair kill switch stays closed even when every other controller setting i
     assert.equal(repairState.configured, false);
     assert.deepEqual(repairState.checks, {
       enabled: false,
-      repository: true,
-      canaryBound: true,
+      repositoryScope: true,
+      installationBound: true,
       appId: true,
       appPrivateKey: true,
       controllerSecret: true,
@@ -1662,11 +1719,11 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       const payload = JSON.parse(response.body);
       assert.equal(payload.installable, true);
       assert.equal(payload.defaultBranch, "main");
-      assert.equal(payload.setupFiles, 7);
+      assert.equal(payload.setupFiles, 16);
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 1,
+        targetVersion: 2,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
@@ -1679,11 +1736,15 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.boundary, {
         defaultBranchWrite: false,
         pullRequestOnly: true,
-        observeOnly: true,
         mergeBlocking: false,
-        agentRepair: false,
+        agentRepairDuringSetup: false,
         untrustedCodeExecution: false,
         providerSecretAccess: false,
+      });
+      assert.deepEqual(payload.harness, {
+        autonomousAvailable: false,
+        maxAttempts: 2,
+        budgetMinutes: 15,
       });
       assert.equal(calls.every(({ method }) => method === "GET"), true);
 

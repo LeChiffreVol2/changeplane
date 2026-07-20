@@ -45,7 +45,7 @@ jobs:
           INPUT_AGENT_DISPATCH: webhook
           INPUT_AGENT_WEBHOOK_TOKEN: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
           INPUT_AGENT_WEBHOOK_URL: "https://changeplane.vercel.app/api/github?action=repair"
-          INPUT_CONTROLLER_INSTALLATION_ID: ${{ vars.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
+          INPUT_CONTROLLER_INSTALLATION_ID: ${{ secrets.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
           INPUT_MODE: enforce
           INPUT_POLICY_PATH: .changeplane.json
           INPUT_TOKEN: ${{ github.token }}

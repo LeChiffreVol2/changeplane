@@ -1,5 +1,15 @@
 # Production release checklist
 
+## Autonomous harness release record — 2026-07-21
+
+- [ ] Record the protected release commit, CI run, Preview deployment, Production deployment, readiness request ID, and rollback target.
+- [x] Self-serve GitHub App onboarding supports eligible personal and organization installations and limits repository selection to the verified installation.
+- [x] Autonomous setup requires one exact behavioral check plus verified repository BYOK and creates one protected setup PR; scope-only remains observe mode.
+- [x] The managed payload vendors the trusted harness, repair helpers, and workflows without a queue, database, proprietary workspace, or model-held GitHub credential.
+- [x] Luna Responses transport uses a strict one-field patch schema; unified-diff, allowed-path, clean-apply, stale-head, two-attempt/15-minute, and deterministic re-validation gates remain independent.
+- [x] Live synthetic Luna adapter evidence passed with redacted request ID and patch hash in `evidence/routethai-luna-adapter-canary.json`.
+- [ ] Capture the disposable repository's App-signed grant, clean apply, synchronize event, new exact head, and `ChangePlane / guard` result from this release commit.
+
 ## Controlled-canary release record — 2026-07-19
 
 - Production source: `d758005d3790b679f842a87d9745c34985051319` from [PR #19](https://github.com/LeChiffreVol2/changeplane/pull/19); required [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29681989165/job/88179651533), Vercel, and Vercel Preview Comments checks all passed before merge.
@@ -35,9 +45,9 @@
 
 - [ ] Inventory observe Vercel settings `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SELF_SERVE_ENABLED`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, optional `CHANGEPLANE_MANAGED_OPENAI_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
 - [ ] Inventory repair Vercel settings `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; keep the switch false and keep all secret values out of the release record.
-- [ ] Inventory disposable-repository Variables `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, and `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, plus Secrets `CHANGEPLANE_CONTROLLER_HMAC` and optional evidence-repair `OPENAI_API_KEY`; keep the worker switch false during provisioning.
+- [ ] Inventory repository Actions Secrets `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, `CHANGEPLANE_CONTROLLER_HMAC`, and `OPENAI_API_KEY`; write the worker switch false first and true only after complete provisioning.
 - [x] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
-- [ ] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers Connect GitHub and the RouteThai example; personal and organization installations list only their granted writable repositories; repair remains bound to the disposable canary.
+- [ ] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers Connect GitHub and the RouteThai example; personal and organization installations list only repositories in their verified App installations; autonomous setup remains gated by exact test + BYOK + protected setup PR.
 - [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_OPENAI_API_KEY` server-side and absent unless the private canary is explicitly approved.
@@ -75,7 +85,7 @@
 ## Required before enforcement or agent repair
 
 - [ ] Replace broad OAuth repository access with a least-privilege GitHub App and short-lived installation tokens.
-- [ ] Confirm `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` belong to the same dedicated App. Provisioning requests Secrets (write) and Variables (write); the live controller separately requests only Actions (read), Checks (write), Contents (write), and Pull requests (read). Workflow write, if used, is installer-only.
+- [ ] Confirm `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` belong to the same dedicated App. Provisioning requests repository Secrets write; the live controller separately requests only Actions read, Checks write, Contents write, and Pull requests read. Workflow write is installer-only.
 - [ ] Mint each short-lived token with its phase-specific permissions and constrain it by `repository_ids`; confirm GitHub returns exactly the disposable repository ID, active and unarchived, before provisioning or dispatch.
 - [ ] Provision `CHANGEPLANE_REPAIR_ENABLED=false` before any secret so interruption or permission failure leaves an inert, safely rerunnable repository configuration.
 - [ ] Confirm Vercel `CHANGEPLANE_REPAIR_REPOSITORY` exactly equals `CHANGEPLANE_CANARY_REPOSITORY`, both generations are the same positive integer, and both repair switches remain false.
@@ -91,7 +101,7 @@
 - [ ] Prove tampered signature, unknown key, future/expired grant, deadline reset, wrong repository/head/path, third attempt, fork, sequential replay, and concurrent replay all fail closed before provider access.
 - [ ] Record the active Vercel Production deployment's full 40-character source SHA and confirm its first 12 characters equal readiness `release`.
   - Observe-release evidence captured 2026-07-19: Production source `38d4c4d261ba43df7e6d580b56e797100519526e`, readiness release `38d4c4d261ba`. This is not authorization to reuse that SHA for a later repair install; pin the full active reviewed repair-capable release at activation time.
-- [ ] Install `examples/changeplane-repair-guard.yml` and `examples/changeplane-repair.yml` together through one manually reviewed setup PR; replace all six `__CHANGEPLANE_RELEASE_SHA__` occurrences with that same reviewed Production source SHA and confirm no placeholder, branch, tag, shortened SHA, or mixed SHA remains.
+- [ ] Install the v2 managed guard, repair workflow, and reviewed helper payload together through one manually reviewed setup PR; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.
 - [ ] Pin every third-party Action in the installed repair workflows to a reviewed full commit SHA.
 - [ ] With both switches false, deploy the complete configuration; confirm readiness remains observe-ready, repair is disabled/unconfigured with only the enabled check false, and `repair`, `repair-claim`, `repair-validate`, and `repair-push-token` each fail closed with `503` before GitHub access.
 - [ ] Pass stale-head, expiry, path-boundary, replay, idempotency, fork, and sandbox escape tests in a disposable repository.

@@ -6,7 +6,7 @@ Independent, exact-revision assurance for code written and repaired by AI agents
 
 ChangePlane is an OpenAI Build Week project in the **Developer Tools** track. Its operating principle is simple: **agents can propose and repair code; they should never certify themselves.** A proposal model may return a bounded unified diff. A deterministic harness validates the exact head, allowed paths, evidence, stale-head state, and attempt budget. Only a separately credentialed trusted controller may apply the accepted patch and publish `ChangePlane / guard` on the new exact head.
 
-The public product is available at [changeplane.vercel.app](https://changeplane.vercel.app/). Install the repository-scoped GitHub App on a personal account or organization, choose one repository, and merge one observe-mode setup pull request. A signed-out RouteThai assurance replay remains available without repository access.
+The public product is available at [changeplane.vercel.app](https://changeplane.vercel.app/). Install the repository-scoped GitHub App on a personal account or organization, choose one repository, bind one meaningful GitHub test, save your own OpenAI key directly to GitHub Actions, and merge one autonomous-harness setup pull request. A signed-out RouteThai assurance replay remains available without repository access.
 
 ## Build Week submission summary
 
@@ -18,10 +18,10 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 - **Connected alternatives:** `gpt-5.6-terra`, `gpt-5.6-sol`
 - **OpenAI API:** Responses API through native `fetch`, `reasoning.effort: "high"`, `store: false`
 - **Primary use case:** RouteThai production-informed shadow pilot using only synthetic data
-- **Public boundary:** self-serve observe onboarding plus a signed-out recorded replay
-- **BYOK boundary:** optional per-repository OpenAI key stored only as a GitHub Actions Secret
-- **Repair boundary:** live repair and trusted apply remain bound to one disposable canary repository
-- **Production boundary:** observe-only; no managed spend, production repair enforcement, or merge authority
+- **Public boundary:** self-serve autonomous onboarding plus a signed-out recorded replay
+- **BYOK boundary:** required for autonomous proposals and stored only as a per-repository GitHub Actions Secret
+- **Repair boundary:** two attempts within one immutable 15-minute campaign; protected, ambiguous, stale, provider-failed, or exhausted cases stop for a human
+- **Production boundary:** no managed spend, direct default-branch write, model-held forge credential, or merge authority
 
 Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path. Product and competitive priorities are in [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md).
 
@@ -75,7 +75,7 @@ flowchart LR
 
 The model job receives no GitHub token, App private key, controller secret, push credential, merge permission, or Check authority. Provider output is treated as untrusted data and must pass the same patch-only validator as every compatibility adapter. A model cannot return PASS.
 
-The public replay is intentionally not a technical dashboard. It is a complete, clickable explanation of this boundary. Connected onboarding is GitHub App-first: connect GitHub, choose one repository from any eligible personal or organization installation, and merge one setup PR. BYOK is optional and never blocks observe onboarding.
+The public replay is intentionally not a technical dashboard. It is a complete, automatically running explanation of this boundary. Connected onboarding is GitHub App-first: connect GitHub, choose one repository from any eligible personal or organization installation, bind one exact behavioral check, save BYOK directly to GitHub, and merge one setup PR. Scope-only users remain in observe mode; autonomous mode never activates without both the check and provider key.
 
 ## Shared runtime contract
 
@@ -91,10 +91,15 @@ SUPPORTED_PROPOSAL_MODELS = [
 ]
 ```
 
-The repository-owned trusted policy is:
+The repository-owned trusted policy includes the bounded harness and runtime:
 
 ```json
 {
+  "harness": {
+    "mode": "autonomous",
+    "maxAttempts": 2,
+    "budgetMinutes": 15
+  },
   "runtime": {
     "funding": "byok",
     "provider": "openai",
@@ -106,7 +111,7 @@ The repository-owned trusted policy is:
 }
 ```
 
-Runtime policy is read from the trusted default-branch checkout. Pull-request code cannot select the model for its own run. Unsupported model IDs are rejected before OpenAI or GitHub access. A connected model change creates a protected pull request that changes only `.changeplane.json`; it never writes directly to the default branch.
+Runtime and harness policy are read from the trusted default-branch checkout. Pull-request code cannot select the model or expand authority for its own run. Unsupported model IDs and expanded budgets are rejected before OpenAI or GitHub access. A connected model or harness change creates a protected pull request that changes only `.changeplane.json`; it never writes directly to the default branch.
 
 ## OpenAI adapter
 
@@ -117,9 +122,9 @@ Runtime policy is read from the trusted default-branch checkout. Pull-request co
 - `store: false`;
 - exact failure evidence;
 - source context only from allowed paths; and
-- an instruction to return a unified diff only.
+- an official Responses API `text.format` JSON schema with one required `patch` field.
 
-It fails closed on invalid credentials, unsupported models, provider refusal, timeout, oversized output, malformed JSON, incomplete output, empty patches, new files, deleted files, protected paths, or paths outside the grant. Provider errors never include upstream response bodies.
+The adapter extracts only that field and passes it to the unchanged unified-diff and allowed-path validator. It fails closed on invalid credentials, unsupported models, provider refusal, timeout, oversized output, malformed JSON or schema, incomplete output, empty patches, new files, deleted files, protected paths, paths outside the grant, clean-apply failure, or failed deterministic re-validation. Provider errors never include upstream response bodies. See OpenAI's [Responses API structured-output definition](https://developers.openai.com/api/docs/guides/migrate-to-responses#6-update-structured-outputs-definitions).
 
 ## GitHub and BYOK API
 
@@ -128,7 +133,7 @@ The GitHub App supports GitHub.com personal accounts and organizations, includin
 - `GET /api/github?action=byok&repository=owner/repo` returns only configuration state, provider, and active model.
 - `POST /api/github?action=byok` verifies the selected OpenAI model, encrypts the key with GitHub's repository public key, and stores it only as `OPENAI_API_KEY`.
 - `DELETE /api/github?action=byok` deletes only that Actions Secret. Runtime policy stays unchanged and repair fails closed.
-- `POST /api/github?action=runtime` validates the model allowlist and creates an exact-base config PR limited to `.changeplane.json`.
+- `POST /api/github?action=runtime` validates the model and harness allowlists, then creates an exact-base config PR limited to `.changeplane.json`.
 
 Plaintext provider keys must never enter localStorage, logs, API responses, screenshots, or a ChangePlane database. API responses set a request ID and logs contain only structured redacted metadata.
 
@@ -164,19 +169,19 @@ node scripts/run-openai-route-canary.mjs
 
 The script makes one bounded proposal call, uses a temporary worktree, requires the original fixture to fail, validates the patch with `git apply --check`, requires the patched fixture to pass, prints redacted metadata only, and deletes the temporary worktree. Never commit `.env.local`.
 
-## Controlled canary boundary
+## Autonomous harness boundary
 
-The only authorized live GitHub repair target is:
+The disposable live GitHub repair target is:
 
 ```text
 LeChiffreVol2/changeplane-disposable-canary-20260719
 ```
 
-Set both `CHANGEPLANE_CANARY_REPOSITORY` and `CHANGEPLANE_REPAIR_REPOSITORY` to that exact value. Every other repository route rejects before GitHub access. Never use a RouteThai repository as the canary target.
+Never use a RouteThai repository as the canary target. The RouteThai fixture is synthetic and may be copied into the disposable repository only.
 
-The inactive templates under [`examples`](examples) are not installed workflows. Files under `.github/workflows` remain limited to production CI. Keep both repair switches false until the App-signed attempt ledger, one-repository Contents-only push token, exact-head synchronize event, fresh recheck, and negative stale/path/provider/budget cases are observed in the disposable repository.
+The self-serve setup PR vendors the small Action, harness policy reader, repair helpers, and two workflows into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
 
-The current tracked adapter canary proves live Luna access, bounded patch parsing, clean apply, and deterministic re-validation. It does **not** prove the App-authored GitHub push or Check publication; that limitation is recorded in the evidence file and [JUDGE_GUIDE.md](JUDGE_GUIDE.md).
+The current tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. App-signed ledger, one-time exact-repository push-token, stale-head, replay, path, and budget behavior are covered by the automated controller tests; the disposable repository remains the only release canary used for live end-to-end evidence.
 
 ## Current limits
 
@@ -185,7 +190,8 @@ The current tracked adapter canary proves live Luna access, bounded patch parsin
 - Observe mode cannot block merge or deploy.
 - Managed model execution, metering, billing, and subscription checkout are disabled.
 - GitHub Enterprise Server is not supported; self-serve onboarding targets GitHub.com personal accounts, organizations, and Enterprise Cloud.
-- Production repair enforcement is not enabled.
+- Autonomous repair requires a repository-scoped GitHub App installation, one exact behavioral check, BYOK, and the managed harness setup PR.
+- ChangePlane publishes a Check but does not merge; repositories choose whether to require that Check through GitHub rulesets.
 - GitHub.com and same-repository pull requests only.
 - GitHub Merge Queue `merge_group` is not yet supported.
 - No ChangePlane database, queue, billing service, CLI, TUI, proprietary agent runtime, merge service, or generalized provider framework.

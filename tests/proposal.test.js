@@ -84,7 +84,20 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
       const body = JSON.parse(options.body);
       assert.equal(body.model, "gpt-5.6-luna");
       assert.deepEqual(body.reasoning, { effort: "high" });
-      assert.equal(body.max_output_tokens, 4_096);
+      assert.equal(body.max_output_tokens, 16_384);
+      assert.deepEqual(body.text, {
+        format: {
+          type: "json_schema",
+          name: "bounded_patch",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { patch: { type: "string", minLength: 1, maxLength: 256 * 1024 } },
+            required: ["patch"],
+            additionalProperties: false,
+          },
+        },
+      });
       assert.equal(body.store, false);
       assert.match(body.instructions, /not the verifier/u);
       assert.match(body.input, /expected one charge but observed two/u);
@@ -94,7 +107,7 @@ test("requests GPT-5.6 Luna through Responses API without returning the credenti
         async text() {
           return JSON.stringify({
             status: "completed",
-            output: [{ type: "message", content: [{ type: "output_text", text: patch }] }],
+            output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ patch }) }] }],
           });
         },
       };
@@ -130,6 +143,7 @@ test("rejects Responses API refusal, incomplete, malformed, and empty outputs", 
     JSON.stringify({ status: "incomplete", output: [] }),
     JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "refusal", refusal: "No" }] }] }),
     JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "" }] }] }),
+    JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ answer: patch }) }] }] }),
   ];
   for (const responseBody of cases) {
     await assert.rejects(requestPatchProposal({
@@ -137,7 +151,7 @@ test("rejects Responses API refusal, incomplete, malformed, and empty outputs", 
       request,
       files: [{ path: "src/payments/retry.js", content: "return charge(order)" }],
       fetchImpl: async () => new Response(responseBody, { status: 200 }),
-    }), /invalid JSON|no patch proposal/u);
+    }), /invalid JSON|incomplete response|no patch proposal|malformed patch envelope/u);
   }
 });
 

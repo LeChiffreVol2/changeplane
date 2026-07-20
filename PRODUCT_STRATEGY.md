@@ -32,7 +32,8 @@ These features establish a complete, credible wedge without expanding into a for
 1. **Self-serve GitHub App onboarding**
    - Personal accounts and GitHub organizations, including Enterprise Cloud organizations.
    - A returning user may choose repositories across every eligible installation they can access.
-   - One repository, one observe-mode setup pull request, no direct default-branch write.
+   - One repository, one protected setup pull request, no direct default-branch write.
+   - Bind one exact behavioral check and BYOK to enable the autonomous harness; scope-only remains observe mode.
    - GitHub Enterprise Server remains unsupported until a separate deployment and authentication model exists.
 
 2. **Bring your own OpenAI key**
@@ -47,13 +48,15 @@ These features establish a complete, credible wedge without expanding into a for
    - Observe mode reports without changing merge rules; GitHub remains merge authority.
 
 4. **Autonomous handback contract**
-   - When evidence fails, return a compact machine-readable finding to the original coding agent.
-   - Allow at most two bounded repair attempts inside the existing path and time budget.
-   - The agent never receives Check, push, approval, merge, or PASS authority.
+   - Every pull-request event enters an exact-head harness without a web-app handoff.
+   - When evidence fails, issue one App-signed, machine-readable repair grant for the current revision and allowed paths.
+   - Allow at most two bounded repair attempts inside one immutable 15-minute campaign.
+   - GPT-5.6 proposes; a clean job validates; the trusted controller applies with a one-time exact-repository token; a fresh run alone may publish PASS.
+   - The proposal model never receives Check, push, approval, merge, or PASS authority.
 
 5. **Public proof path**
    - A signed-out RouteThai synthetic replay tells the complete failed-head → Luna proposal → clean validation → new-head verification story.
-   - Live repair claims remain gated by the disposable GitHub canary.
+   - The disposable GitHub repository remains the release canary; RouteThai production code is never connected.
 
 ## Next evidence-gated features
 
@@ -99,7 +102,7 @@ Offer reviewed repository templates for security-sensitive paths, migrations, AP
 
 ## Release gates
 
-Observe onboarding may be public while repair remains canary-bound. Each stronger claim is evidence-gated:
+Self-serve onboarding and the bounded harness may be public while every stronger claim remains evidence-gated:
 
 - **Independent review:** diff-location validation, prompt-injection cases, and no-write-tool tests pass.
 - **Autonomous repair:** live App-signed ledger, bounded patch, trusted apply, synchronize event, fresh exact-head verification, and Check publication are captured.

@@ -93,18 +93,25 @@ const EMPTY_BYOK = {
   secretName: RUNTIME.secretName,
   updatedAt: null,
 };
+const EMPTY_HARNESS = {
+  mode: "observe",
+  autonomousAvailable: false,
+  ready: false,
+  maxAttempts: 2,
+  budgetMinutes: 15,
+};
 const PREVIEW_PREFLIGHT = {
   repositoryState: "active",
   installable: true,
   conflicts: [],
-  setupFiles: 7,
+  setupFiles: 16,
   evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
+  harness: { autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
   boundary: {
     defaultBranchWrite: false,
     pullRequestOnly: true,
-    observeOnly: true,
     mergeBlocking: false,
-    agentRepair: false,
+    agentRepairDuringSetup: false,
     untrustedCodeExecution: false,
     providerSecretAccess: false,
   },
@@ -270,7 +277,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                   ? "Synthetic RouteThai case · recorded Luna evidence"
                   : "Works with Codex, Cursor, Claude Code, and other coding agents"}</span>
               </div>
-              <span className="auth-pass-label">{exampleOnly ? "No repository access" : "Observe mode first"}</span>
+              <span className="auth-pass-label">{exampleOnly ? "No repository access" : "Autonomous by policy"}</span>
             </div>
           </div>
         </div>
@@ -281,7 +288,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
             <h2 id="sign-in-title">{exampleOnly ? "See how assurance works." : "Make every agent PR prove it works."}</h2>
             <p>{exampleOnly
               ? "Replay one synthetic routing failure from failed evidence to a verified new commit. Nothing connects to GitHub."
-              : "Install ChangePlane on a personal account or organization. Choose a repository and merge one setup pull request."}</p>
+              : "Connect a repository, bind one real test, and merge one setup pull request. ChangePlane handles the normal path from then on."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
@@ -325,12 +332,12 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               : exampleOnly
               ? "Synthetic data only. The public example cannot push, merge, or deploy."
               : authMode === "github_app"
-                ? "Bring your own OpenAI key after setup. It is encrypted into GitHub Actions and never stored by ChangePlane."
+                ? "Bring your own OpenAI key. It stays encrypted in GitHub Actions and powers only bounded patch proposals."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
               <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>
             ) : exampleOnly ? (
-              <p className="auth-deployment-note">Recorded evidence only. Live repair remains gated by repository policy.</p>
+              <p className="auth-deployment-note">Recorded autonomous run · synthetic data · no live repository access.</p>
             ) : configured ? (
               <p className="auth-deployment-note">GitHub.com personal accounts, organizations, and Enterprise Cloud. GitHub Enterprise Server is not yet supported.</p>
             ) : configured === false && !checking && (
@@ -404,10 +411,13 @@ function RuntimeFunding({
   modelSaving,
   runtimeUpdate,
   runtimeConfigurable,
+  harness,
+  autonomyReady,
   saving,
   onSave,
   onDisconnect,
   onChangeModel,
+  onChangeHarness,
 }) {
   const [apiKey, setApiKey] = useState("");
   const [replaceOpen, setReplaceOpen] = useState(false);
@@ -451,10 +461,34 @@ function RuntimeFunding({
     <section className="runtime-funding" aria-labelledby="runtime-funding-title">
       <div className="runtime-heading">
         <div>
-          <p className="runtime-kicker">Optional repair</p>
-          <h3 id="runtime-funding-title">OpenAI for bounded fixes</h3>
+          <p className="runtime-kicker">Autonomous harness</p>
+          <h3 id="runtime-funding-title">Repair only when proof fails</h3>
         </div>
         <span className="runtime-model">{activeModel || RUNTIME.modelId}</span>
+      </div>
+
+      <div className={`runtime-option ${harness?.ready ? "is-connected" : ""}`}>
+        <span className="runtime-option-icon"><Lightning size={17} weight="fill" /></span>
+        <div className="runtime-option-copy">
+          <div>
+            <strong>Exact-revision repair loop</strong>
+            <span className={`runtime-badge ${harness?.ready || autonomyReady ? "is-connected" : "is-available"}`}>
+              {harness?.ready ? "Active" : autonomyReady ? "Ready" : "Needs test + key"}
+            </span>
+          </div>
+          <p>Two attempts within 15 minutes. Protected, ambiguous, stale, or exhausted changes stop for a human.</p>
+          {runtimeConfigurable && harness?.autonomousAvailable && (
+            <button
+              className="text-action"
+              type="button"
+              onClick={() => onChangeHarness(harness?.mode === "autonomous" ? "observe" : "autonomous")}
+              disabled={modelSaving || (harness?.mode !== "autonomous" && !connected)}
+            >
+              {harness?.mode === "autonomous" ? "Switch to observe with config PR" : "Enable with config PR"} <ArrowRight size={13} />
+            </button>
+          )}
+          {!runtimeConfigurable && autonomyReady && <p className="runtime-inline-note">The setup pull request will enable this harness.</p>}
+        </div>
       </div>
 
       <div className="runtime-option runtime-option-model">
@@ -535,7 +569,7 @@ function RuntimeFunding({
               </div>
             </form>
           )}
-          <small className="runtime-observe-note">Optional while ChangePlane only observes. Required for bounded repair.</small>
+          <small className="runtime-observe-note">Required for autonomous proposals. Disconnecting it makes repair fail closed.</small>
         </div>
       </div>
     </section>
@@ -564,10 +598,12 @@ function GitHubSetup({
   modelConfigured,
   modelSaving,
   runtimeUpdate,
+  harness,
   byokSaving,
   onSaveByok,
   onDisconnectByok,
   onChangeModel,
+  onChangeHarness,
   onInstall,
   onRecheckInstall,
   onResetInstall,
@@ -599,6 +635,15 @@ function GitHubSetup({
   const preflightBlocked = Boolean(selected && preflightStatus === "ready" && !preflightReady && !isCurrent);
   const evidenceReady = isUpgrade || pendingSetup || evidenceMode === "scope"
     || (checkName.trim() && checkPublisher.trim() && behaviorConfirmed);
+  const requestedHarnessMode = evidenceMode === "behavior" ? "autonomous" : "observe";
+  const autonomyReady = session.isPreview || Boolean(
+    preflight?.harness?.autonomousAvailable
+    && byok?.configured
+    && evidenceMode === "behavior"
+    && checkName.trim()
+    && checkPublisher.trim()
+    && behaviorConfirmed
+  );
   const repositoryMutationBusy = installStatus === "installing" || byokSaving;
 
   useEffect(() => {
@@ -643,7 +688,7 @@ function GitHubSetup({
             />
             <div className="setup-boundary">
               <LockKey size={17} aria-hidden="true" />
-              <p><strong>Nothing touches the default branch directly.</strong><span>Observe mode cannot merge, deploy, or run a repair.</span></p>
+              <p><strong>The model never receives GitHub authority.</strong><span>A separate harness validates, applies, and rechecks one exact revision.</span></p>
             </div>
           </aside>
 
@@ -723,7 +768,9 @@ function GitHubSetup({
                         <span>Selected repository</span>
                         <strong>{selected?.fullName || "Choose a repository"}</strong>
                       </div>
-                      <div><span>Mode</span><strong>Observe</strong></div>
+                      <div><span>Mode</span><strong>{isCurrent
+                        ? harness?.mode === "autonomous" ? "Autonomous" : "Observe"
+                        : requestedHarnessMode === "autonomous" ? "Autonomous" : "Observe"}</strong></div>
                       <div><span>Change</span><strong>{isCurrent
                         ? "None needed"
                         : preflightFailed
@@ -787,7 +834,7 @@ function GitHubSetup({
                                     : "No existing checks were found. Scope-only is selected; add a real automated test later to prove behavior."
                               : preflight?.setup?.message || preflightError || (preflight?.conflicts?.length
                                 ? `Existing ChangePlane paths found: ${preflight.conflicts.join(", ")}`
-                                : "This repository is not eligible for the observe rollout.")}</span>
+                              : "This repository is not eligible for setup.")}</span>
                           {preflight?.installation?.state === "conflict" && (
                             <span>Ask a repository owner to review the listed paths. ChangePlane did not overwrite them.</span>
                           )}
@@ -797,8 +844,8 @@ function GitHubSetup({
                       {(preflightReady || isCurrent) && (
                         <ul className="safety-preflight-facts">
                           <li><Check size={13} weight="bold" /> Pull request only</li>
-                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Policy stays repository-owned" : "Cannot block merge or deploy"}</li>
-                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Managed files are versioned" : "No repair runs during setup"}</li>
+                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Policy stays repository-owned" : "No direct default-branch write"}</li>
+                          <li><Check size={13} weight="bold" /> {isUpgrade || isCurrent ? "Managed files are versioned" : "Nothing runs before merge"}</li>
                         </ul>
                       )}
                       {preflight?.setup?.state === "stale" && preflight.setup.pullRequest?.url && (
@@ -875,10 +922,13 @@ function GitHubSetup({
                         modelSaving={modelSaving}
                         runtimeUpdate={runtimeUpdate}
                         runtimeConfigurable={isCurrent}
+                        harness={harness}
+                        autonomyReady={autonomyReady}
                         saving={byokSaving}
                         onSave={onSaveByok}
                         onDisconnect={onDisconnectByok}
                         onChangeModel={onChangeModel}
+                        onChangeHarness={onChangeHarness}
                       />
                     )}
 
@@ -908,11 +958,20 @@ function GitHubSetup({
                         requiredCheck: evidenceMode === "behavior"
                           ? { name: checkName.trim(), appSlug: checkPublisher.trim() }
                           : null,
-                      })} disabled={!selected || !preflightReady || !evidenceReady || installStatus === "installing"}>
+                        harnessMode: requestedHarnessMode,
+                      })} disabled={!selected || !preflightReady || !evidenceReady
+                        || (requestedHarnessMode === "autonomous" && !autonomyReady)
+                        || installStatus === "installing"}>
                         {installStatus === "installing" ? <ArrowsClockwise className="spin" size={17} weight="bold" /> : <GitBranch size={17} weight="bold" />}
                         {installStatus === "installing"
                           ? session.isPreview ? "Preparing installation flow…" : `Creating ${isUpgrade ? "upgrade" : "installation"} pull request…`
-                          : isUpgrade ? "Create upgrade PR" : session.isPreview ? "Preview setup" : "Create setup PR"}
+                          : isUpgrade
+                            ? "Create upgrade PR"
+                            : session.isPreview
+                              ? "Preview autonomous setup"
+                              : requestedHarnessMode === "autonomous"
+                                ? "Enable autonomous harness"
+                                : "Create observe setup PR"}
                       </button>
                     )}
                     <p className="install-note">{session.isPreview
@@ -931,7 +990,9 @@ function GitHubSetup({
                               ? "ChangePlane stopped before writing. Resolve the repository state shown above, then run the read-only check again."
                           : isUpgrade
                             ? "Creates one upgrade pull request for pristine managed files only. Your policy is never included."
-                            : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation, and GitHub may retain the unmerged branch until you delete it."}</p>
+                            : requestedHarnessMode === "autonomous" && !autonomyReady
+                              ? "Connect an OpenAI key and confirm one meaningful test. ChangePlane will not enable autonomous repair without both."
+                              : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation."}</p>
                   </>
                 )}
               </>
@@ -939,7 +1000,9 @@ function GitHubSetup({
               <div className="install-success" role="status">
                 <span className="success-mark"><Check size={24} weight="bold" /></span>
                 <p className="auth-eyebrow">{installResult.preview ? "Setup preview ready" : installResult.operation === "upgrade" ? "Upgrade PR created" : "Setup PR created"}</p>
-                <h2 id="setup-title">{installResult.preview ? "Observe-mode setup prepared" : installResult.operation === "upgrade" ? "Review the managed upgrade" : "One last step in GitHub"}</h2>
+                <h2 id="setup-title">{installResult.preview
+                  ? "Autonomous setup prepared"
+                  : installResult.operation === "upgrade" ? "Review the managed upgrade" : "One last step in GitHub"}</h2>
                 <p>{installResult.preview
                   ? "In production, the next GitHub pull request update starts ChangePlane automatically. This example did not access or change a repository."
                   : installResult.operation === "upgrade"
@@ -949,7 +1012,7 @@ function GitHubSetup({
                 <dl className="install-result-facts">
                   <div><dt>Repository</dt><dd>{installResult.repository}</dd></div>
                   <div><dt>Branch</dt><dd>{installResult.branch}</dd></div>
-                  <div><dt>Mode</dt><dd>Observe</dd></div>
+                  <div><dt>Mode</dt><dd>{installResult.harnessMode === "autonomous" ? "Autonomous" : "Observe"}</dd></div>
                   <div><dt>Repository write</dt><dd>{installResult.operation === "upgrade" ? "Upgrade pull request only" : "Setup pull request only"}</dd></div>
                   {!installResult.preview && <div><dt>Activation</dt><dd>{installResult.operation === "upgrade" ? "Current installation stays active until merge" : "Not active until this PR is merged"}</dd></div>}
                 </dl>
@@ -972,7 +1035,7 @@ function GitHubSetup({
                   <ol>
                     <li><span>1</span><p>Merge the {installResult.operation === "upgrade" ? "upgrade" : "setup"} pull request.</p></li>
                     <li><span>2</span><p>Open or update one normal pull request, then open its <strong>Checks</strong> tab.</p></li>
-                    <li><span>3</span><p>Choose <code>ChangePlane / guard</code>. <strong>Neutral</strong> reports what it found without changing merge rules. <strong>Scope only</strong> means files and protected paths were checked, but no behavior test was bound.</p></li>
+                    <li><span>3</span><p>Choose <code>ChangePlane / guard</code>. <strong>PASS</strong> is published only for the latest exact commit after the bound test succeeds. Fixable failures use the bounded harness automatically.</p></li>
                   </ol>
                 </section>
                 {!installResult.preview && (
@@ -1071,9 +1134,9 @@ function Queue({ changes, selectedId, onSelect, filter, onFilter }) {
       </div>
 
       <div className="queue-foot">
-        <span>Pilot policy</span>
-        <strong>Reports first</strong>
-        <small>Does not block merging</small>
+        <span>Harness policy</span>
+        <strong>Autonomous</strong>
+        <small>Human only on exceptions</small>
       </div>
     </aside>
   );
@@ -1395,7 +1458,7 @@ function MetaRows({ change }) {
     ["Evidence source", change.id === "route" ? "synthetic-service-window · github-actions" : "configured checks · github-actions"],
     ["Proposal model", "gpt-5.6-luna · high"],
     ["Evaluator", "ChangePlane guard v1"],
-    ["Receipt", change.status === "passed" ? "Recorded canary · PASS" : "Public replay · observe only"],
+    ["Receipt", change.status === "passed" ? "Recorded canary · PASS" : "Recorded autonomous run"],
     ["Human", change.status === "blocked" ? "Required" : "0 actions"],
   ];
   return (
@@ -1449,7 +1512,7 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
 
       {change.status === "ready" && (
         <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
-          <Play size={17} weight="fill" /> Run assurance replay
+          <Play size={17} weight="fill" /> Start recorded autonomous run
         </button>
       )}
       {running && (
@@ -1460,7 +1523,7 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
       {change.status === "passed" && change.id === "route" && (
         <div className="result-actions">
           <button className="secondary-action run-action" type="button" onClick={() => onReplay(change.id)}>
-            <ArrowsClockwise size={17} /> Replay assurance
+            <ArrowsClockwise size={17} /> Replay autonomous run
           </button>
           {isPreview && (
             <button className="setup-link-action" type="button" onClick={onShowSetup}>
@@ -1541,7 +1604,7 @@ function GuideDrawer({ onClose, onStart }) {
         <h2 id="guide-title">No handoff to ChangePlane.</h2>
         <p className="guide-intro">A platform lead installs once. After that, GitHub pull request events trigger the assurance loop; developers stay in their coding agent and GitHub.</p>
         <ol className="guide-steps">
-          <li><span>01</span><div><strong>Platform lead · once</strong><p>Merge one trusted observe-mode setup PR for a repository. No developer installs a new CLI or changes coding tools.</p></div></li>
+          <li><span>01</span><div><strong>Platform lead · once</strong><p>Bind one meaningful test, add a BYOK key, and merge one trusted harness setup PR. No developer installs a new CLI or changes coding tools.</p></div></li>
           <li><span>02</span><div><strong>Coding agent · normal workflow</strong><p>Codex, Claude Code, Cursor, or another agent opens or updates the pull request with its declared goal and scope.</p></div></li>
           <li><span>03</span><div><strong>Luna · proposal only</strong><p>Receives bounded failure evidence and allowed-path source, then returns only a unified diff without GitHub credentials.</p></div></li>
           <li><span>04</span><div><strong>ChangePlane · independent result</strong><p>A clean harness validates, a trusted controller applies, and only a fresh exact-head recheck may publish PASS.</p></div></li>
@@ -1666,6 +1729,7 @@ export function App() {
   const [modelConfigured, setModelConfigured] = useState(false);
   const [modelSaving, setModelSaving] = useState(false);
   const [runtimeUpdate, setRuntimeUpdate] = useState(null);
+  const [harness, setHarness] = useState(EMPTY_HARNESS);
   const [byokSaving, setByokSaving] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(CHANGES[0].id);
@@ -1679,6 +1743,7 @@ export function App() {
   const [previewEvidenceOpen, setPreviewEvidenceOpen] = useState(false);
   const [backboneOpen, setBackboneOpen] = useState(false);
   const timersRef = useRef([]);
+  const autoReplayRef = useRef(false);
 
   useEffect(() => {
     if (!session) return;
@@ -1760,6 +1825,7 @@ export function App() {
       setActiveModel(DEFAULT_PROPOSAL_MODEL);
       setModelConfigured(false);
       setRuntimeUpdate(null);
+      setHarness(EMPTY_HARNESS);
       return;
     }
     if (session.isPreview) {
@@ -1769,6 +1835,7 @@ export function App() {
       setActiveModel(DEFAULT_PROPOSAL_MODEL);
       setModelConfigured(true);
       setRuntimeUpdate(null);
+      setHarness({ ...EMPTY_HARNESS, autonomousAvailable: true });
       return;
     }
 
@@ -1783,6 +1850,7 @@ export function App() {
         setActiveModel(payload.activeModel || DEFAULT_PROPOSAL_MODEL);
         setModelConfigured(Boolean(payload.modelConfigured));
         setRuntimeUpdate(null);
+        setHarness({ ...EMPTY_HARNESS, ...payload.harness });
         setRuntimeStatus("ready");
       })
       .catch((error) => {
@@ -1798,6 +1866,14 @@ export function App() {
   }, [runs, session]);
 
   useEffect(() => () => timersRef.current.forEach(window.clearTimeout), []);
+
+  useEffect(() => {
+    if (!session?.isPreview || !workspaceOpen || runs.route || autoReplayRef.current) return undefined;
+    autoReplayRef.current = true;
+    const timer = window.setTimeout(() => startRun("route"), 450);
+    timersRef.current.push(timer);
+    return undefined;
+  }, [runs.route, session, workspaceOpen]);
 
   const changes = useMemo(() => CHANGES.map((item) => {
     const record = runs[item.id];
@@ -1844,6 +1920,7 @@ export function App() {
       window.localStorage.setItem(SESSION_KEY, JSON.stringify(PRESENTATION_USER));
       window.localStorage.removeItem(RUNS_KEY);
       setRuns({});
+      autoReplayRef.current = false;
       setSession(PRESENTATION_USER);
       setRepositories(PREVIEW_REPOSITORIES);
       setSelectedRepository("");
@@ -1877,6 +1954,7 @@ export function App() {
     window.localStorage.removeItem(SESSION_KEY);
     window.localStorage.removeItem(RUNS_KEY);
     setRuns({});
+    autoReplayRef.current = false;
     setAccountOpen(false);
     setRepositories([]);
     setRepositoryStatus("idle");
@@ -1892,6 +1970,7 @@ export function App() {
     setActiveModel(DEFAULT_PROPOSAL_MODEL);
     setModelConfigured(false);
     setRuntimeUpdate(null);
+    setHarness(EMPTY_HARNESS);
     setWorkspaceOpen(false);
     setPreviewEvidenceOpen(false);
     setBackboneOpen(false);
@@ -1920,7 +1999,7 @@ export function App() {
     }
   }
 
-  async function installRepository({ requiredCheck = null } = {}) {
+  async function installRepository({ requiredCheck = null, harnessMode = "observe" } = {}) {
     if (!selectedRepository || preflightStatus !== "ready" || !preflight?.installable || installStatus === "installing") return;
     setInstallStatus("installing");
     setInstallError("");
@@ -1930,6 +2009,7 @@ export function App() {
           preview: true,
           repository: selectedRepository,
           branch: "changeplane/observe-setup",
+          harnessMode,
         });
         setInstallStatus("complete");
       }, 780);
@@ -1944,7 +2024,7 @@ export function App() {
           "content-type": "application/json",
           "x-changeplane-csrf": session.csrf,
         },
-        body: JSON.stringify({ repository: selectedRepository, requiredCheck }),
+        body: JSON.stringify({ repository: selectedRepository, requiredCheck, harnessMode }),
       }));
       setInstallResult(payload);
       setInstallStatus("complete");
@@ -2021,6 +2101,37 @@ export function App() {
     } catch (error) {
       if (selectedRepositoryRef.current === repository) {
         setRuntimeError(error instanceof Error ? error.message : "The runtime pull request could not be created.");
+      }
+    } finally {
+      setModelSaving(false);
+    }
+  }
+
+  async function changeHarnessMode(mode) {
+    if (!selectedRepository || modelSaving || !["observe", "autonomous"].includes(mode)) return;
+    const repository = selectedRepository;
+    setModelSaving(true);
+    setRuntimeError("");
+    try {
+      const payload = await responseJson(await fetch("/api/github?action=runtime", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-changeplane-csrf": session.csrf,
+        },
+        body: JSON.stringify({ repository, model: activeModel, harnessMode: mode }),
+      }));
+      if (selectedRepositoryRef.current === repository) {
+        setRuntimeUpdate(payload);
+        if (payload.state === "current") {
+          setHarness((current) => ({ ...current, mode, ready: mode === "autonomous" }));
+        }
+        showToast(payload.state === "current" ? `${mode} mode is already active` : `Harness PR created for ${mode} mode`);
+      }
+    } catch (error) {
+      if (selectedRepositoryRef.current === repository) {
+        setRuntimeError(error instanceof Error ? error.message : "The harness pull request could not be created.");
       }
     } finally {
       setModelSaving(false);
@@ -2193,10 +2304,12 @@ export function App() {
         modelConfigured={modelConfigured}
         modelSaving={modelSaving}
         runtimeUpdate={runtimeUpdate}
+        harness={harness}
         byokSaving={byokSaving}
         onSaveByok={saveByok}
         onDisconnectByok={disconnectByok}
         onChangeModel={changeRuntimeModel}
+        onChangeHarness={changeHarnessMode}
         onInstall={installRepository}
         onRecheckInstall={recheckInstall}
         onResetInstall={resetInstall}
