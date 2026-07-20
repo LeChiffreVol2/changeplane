@@ -42,7 +42,8 @@ There were no repository commits before the Build Week eligibility window. The r
 | Last baseline before this Build Week package | July 19, 2026 | `44edc14ec0f32aaf6db89e08a9ec3c2a23d1739e` | Observe canary and prior provider boundary |
 | GPT-5.6 RouteThai adapter canary | July 20, 2026 | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) | Live Luna request, bounded patch, clean apply, deterministic re-validation |
 | Autonomous GitHub canary | July 20, 2026 | [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json) | Live Luna proposal, signed ledger, clean apply, App-authored push, fresh exact-head PASS |
-| Submission release | July 20, 2026 | `0e8e093262a175d8ffa8284106c0c62ed2f68f65` | Public RouteThai replay, self-serve GitHub/BYOK, autonomous harness, competition package |
+| Autonomous runtime hardening | July 20, 2026 | `0e8e093262a175d8ffa8284106c0c62ed2f68f65` | Public RouteThai replay, self-serve GitHub/BYOK, autonomous harness, duplicate-trigger hardening |
+| Submission release | July 20, 2026 | Use the exact commit returned by `GET /api/github?action=readiness` | Competition package; may advance for evidence-only documentation commits |
 
 Add the Codex Session ID from `/feedback` to the Devpost submission before final submission. The application cannot infer or fabricate that identifier.
 
