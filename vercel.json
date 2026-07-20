@@ -6,7 +6,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/github.js": {
-      "includeFiles": "{action.yml,action/index.js,src/lib/changeplane.js}",
+      "includeFiles": "{action.yml,action/**,src/lib/**,server/**,examples/changeplane-*.{js,yml}}",
       "maxDuration": 60
     }
   },
