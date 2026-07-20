@@ -1,0 +1,21 @@
+{
+  "evidenceType": "local_adapter_canary",
+  "recordedAt": "2026-07-20T13:11:16Z",
+  "fixture": "routethai-synthetic-service-window-v1",
+  "dataClassification": "synthetic",
+  "model": "gpt-5.6-luna",
+  "requestId": "req_c2e19d34297641bb8288feb3b8efa62f",
+  "initialEvidence": "failed",
+  "allowedPaths": [
+    "examples/routethai-synthetic/service-window.js"
+  ],
+  "patchBytes": 642,
+  "patchSha256": "f4eb76f0ad0739f7aac3f9ec30b3b9eca0173202e9291380068b08c79417cb8d",
+  "cleanGitApply": true,
+  "finalEvidence": "passed",
+  "modelForgeAuthority": false,
+  "limitations": [
+    "This proves the live OpenAI adapter, bounded-path patch parsing, clean git apply, and deterministic re-validation.",
+    "It does not prove an App-authored GitHub push, signed attempt ledger publication, or exact-head Check dispatch in the disposable repository."
+  ]
+}

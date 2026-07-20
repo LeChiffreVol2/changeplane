@@ -231,7 +231,7 @@ test("GitHub App BYOK fails before provider access when Actions Secrets write is
       }, response);
       assert.equal(response.statusCode, 403);
       assert.match(JSON.parse(response.body).error, /No provider request was made/u);
-      assert.equal(calls.some((url) => url.origin === "https://api.deepseek.com"), false);
+      assert.equal(calls.some((url) => url.origin === "https://api.openai.com"), false);
     } finally {
       globalThis.fetch = originalFetch;
     }

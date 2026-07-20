@@ -1,0 +1,13 @@
+{
+  "fixture": "routethai-synthetic-service-window-v1",
+  "head": "71b04c2",
+  "allowedPaths": [
+    "examples/routethai-synthetic/service-window.js"
+  ],
+  "failure": {
+    "check": "synthetic-service-window",
+    "code": "SERVICE_WINDOW_EXCEEDED",
+    "message": "SYN-STOP-B was scheduled after its synthetic service window"
+  },
+  "dataClassification": "synthetic"
+}

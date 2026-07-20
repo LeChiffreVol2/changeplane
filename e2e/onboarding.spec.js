@@ -28,7 +28,7 @@ async function mockLocalApi(page, handler) {
   return externalRequests;
 }
 
-test("controlled-canary public root shows a fictional exact-revision receipt on mobile", async ({ page }) => {
+test("controlled-canary public root replays RouteThai assurance from failed head to PASS on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const externalRequests = await mockLocalApi(page, (route, url) => {
     expect(url.searchParams.get("action")).toBe("session");
@@ -42,9 +42,9 @@ test("controlled-canary public root shows a fictional exact-revision receipt on 
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "See what ChangePlane checks on one agent-authored PR." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "See RouteThai assurance from failure to PASS." })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
-  const exampleButton = page.getByRole("button", { name: "Open example workspace" });
+  const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
   await expect(page.getByText("New GitHub installations stay closed while the private canary is validated.")).toBeVisible();
@@ -53,14 +53,15 @@ test("controlled-canary public root shows a fictional exact-revision receipt on 
   await exampleButton.focus();
   await expect(exampleButton).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "Prevent duplicate checkout charges" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Keep every stop inside its service window" })).toBeFocused();
   await expect(page.locator(".decision-pill")).toHaveText("Ready to check");
-  await expect(page.getByText("Needs repair", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Run the exact-revision check" }).click();
-  await expect(page.locator(".decision-pill")).toHaveText("Finding reported");
-  await expect(page.getByText("Duplicate-charge evidence failed on 71b04c2")).toBeVisible();
-  await expect(page.getByText("Neutral receipt posted to GitHub")).toBeVisible();
-  await expect(page.locator("time").filter({ hasText: "GitHub merge rules unchanged" })).toBeVisible();
+  await expect(page.getByText("GPT-5.6 Luna · recorded canary evidence")).toBeVisible();
+  await page.getByRole("button", { name: "Replay RouteThai assurance" }).click();
+  await expect(page.getByText("GPT-5.6 Luna is proposing a bounded patch")).toBeVisible();
+  await expect(page.locator(".decision-pill")).toHaveText("Check passed");
+  await expect(page.getByText("PASS published on 9fc82a1")).toBeVisible();
+  await expect(page.getByText("Exact new head passed")).toBeVisible();
+  await expect(page.locator("time").filter({ hasText: "ChangePlane / guard · 9fc82a1" })).toBeVisible();
   expect(externalRequests).toEqual([]);
 });
 
@@ -146,8 +147,11 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
     }
     if (action === "runtime") {
       return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
         managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
-        byok: { configured: false, state: "not_connected", secretName: "DEEPSEEK_API_KEY", updatedAt: null },
+        byok: { configured: false, state: "not_connected", secretName: "OPENAI_API_KEY", updatedAt: null },
       });
     }
     if (action === "install") {
@@ -188,7 +192,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
 
   await expect(page.getByText("Safe to install · choose evidence below")).toBeVisible();
   await page.getByText("Optional · connect a provider key").click();
-  await expect(page.getByLabel("DeepSeek API key")).toBeVisible();
+  await expect(page.getByLabel("OpenAI API key")).toBeVisible();
   await expect(page.getByText("Stored in GitHub only · repair remains disabled")).toBeVisible();
   await page.getByText("Optional · connect a provider key").click();
   const evidenceSelect = page.getByLabel("Use a test from GitHub");
@@ -304,8 +308,11 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
     }
     if (action === "runtime") {
       return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
         managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
-        byok: { configured: false, state: "not_connected", secretName: "DEEPSEEK_API_KEY", updatedAt: null },
+        byok: { configured: false, state: "not_connected", secretName: "OPENAI_API_KEY", updatedAt: null },
       });
     }
     if (action === "install") {
@@ -471,8 +478,11 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
     }
     if (action === "runtime") {
       return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
         managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
-        byok: { configured: false, state: "not_connected", secretName: "DEEPSEEK_API_KEY", updatedAt: null },
+        byok: { configured: false, state: "not_connected", secretName: "OPENAI_API_KEY", updatedAt: null },
       });
     }
     if (action === "install") {

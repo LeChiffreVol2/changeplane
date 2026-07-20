@@ -6,6 +6,7 @@ import sodium from "libsodium-wrappers";
 
 import {
   buildPilotFiles,
+  buildRuntimePolicy,
   classifyManagedInstallation,
   default as handler,
   githubRetryDelayMs,
@@ -13,7 +14,8 @@ import {
   unseal,
   validateByokKey,
   validateRepository,
-  verifyDeepSeekKey,
+  validateRuntimeModel,
+  verifyOpenAIKey,
 } from "../api/github.js";
 
 const SECRET = "test-secret-that-is-longer-than-thirty-two-characters";
@@ -41,6 +43,7 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_REPAIR_ENABLED",
     "CHANGEPLANE_REPAIR_GENERATION",
     "CHANGEPLANE_CONTROLLER_SECRET",
+    "CHANGEPLANE_MANAGED_OPENAI_API_KEY",
     "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY",
     "VERCEL",
@@ -126,36 +129,98 @@ test("BYOK validation accepts opaque provider keys and rejects unsafe input", ()
   }
 });
 
-test("DeepSeek credential verification confirms the pinned model without returning the key", async () => {
+test("OpenAI credential verification confirms the active allowlisted model without returning the key", async () => {
   const apiKey = `provider-${"v".repeat(32)}`;
   let authorization;
-  const result = await verifyDeepSeekKey(apiKey, {
+  const result = await verifyOpenAIKey(apiKey, {
     fetchImpl: async (url, options) => {
-      assert.equal(String(url), "https://api.deepseek.com/models");
+      assert.equal(String(url), "https://api.openai.com/v1/models/gpt-5.6-luna");
       authorization = options.headers.authorization;
       assert.equal(options.redirect, "error");
       return {
         ok: true,
         status: 200,
         async json() {
-          return { data: [{ id: "deepseek-v4-flash", object: "model", owned_by: "deepseek" }] };
+          return { id: "gpt-5.6-luna", object: "model", owned_by: "openai" };
         },
       };
     },
   });
   assert.equal(authorization, `Bearer ${apiKey}`);
-  assert.deepEqual(result, { provider: "deepseek", model: "deepseek-v4-flash", verified: true });
+  assert.deepEqual(result, { provider: "openai", model: "gpt-5.6-luna", verified: true });
   assert.equal(JSON.stringify(result).includes(apiKey), false);
 });
 
-test("DeepSeek credential verification fails closed before a secret can be saved", async () => {
+test("OpenAI credential verification fails closed before a secret can be saved", async () => {
   const apiKey = `provider-${"x".repeat(32)}`;
   await assert.rejects(
-    verifyDeepSeekKey(apiKey, {
+    verifyOpenAIKey(apiKey, {
       fetchImpl: async () => ({ ok: false, status: 401 }),
     }),
     /rejected this API key/u,
   );
+});
+
+test("runtime model validation rejects unsupported values before provider or GitHub access", () => {
+  assert.equal(validateRuntimeModel("gpt-5.6-luna"), "gpt-5.6-luna");
+  assert.equal(validateRuntimeModel("gpt-5.6-terra"), "gpt-5.6-terra");
+  assert.equal(validateRuntimeModel("gpt-5.6-sol"), "gpt-5.6-sol");
+  for (const value of ["gpt-5.6", "deepseek-v4-flash", "gpt-5.6-luna\n", null]) {
+    assert.throws(() => validateRuntimeModel(value), /Luna, Terra, or Sol/u);
+  }
+});
+
+test("runtime policy changes only the reserved runtime object and preserves repository policy", () => {
+  const original = `${JSON.stringify({
+    version: 1,
+    protectedPaths: { requireApproval: ["infra/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions" }], timeoutSeconds: 120 },
+    runtime: { provider: "legacy", model: "legacy" },
+  }, null, 2)}\n`;
+  const updated = JSON.parse(buildRuntimePolicy(original, "gpt-5.6-terra"));
+  assert.deepEqual(updated.protectedPaths, { requireApproval: ["infra/**"], block: ["secrets/**"] });
+  assert.deepEqual(updated.evidence, { requiredChecks: [{ name: "test", appSlug: "github-actions" }], timeoutSeconds: 120 });
+  assert.deepEqual(updated.runtime, {
+    funding: "byok",
+    provider: "openai",
+    secretName: "OPENAI_API_KEY",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "high",
+    managedSubscription: "reserved",
+  });
+});
+
+test("runtime API rejects an unsupported model before GitHub access", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    let called = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { called = true; throw new Error("network should not be reached"); };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=runtime",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", model: "gpt-5.6" },
+      }, response);
+      assert.equal(response.statusCode, 400);
+      assert.match(JSON.parse(response.body).error, /Luna, Terra, or Sol/u);
+      assert.equal(called, false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 test("pilot payload vendors the action and installs a trusted observe workflow", () => {
@@ -204,7 +269,7 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.match(appSource, /Independent exact-head assurance for agent PRs/u);
-  assert.match(appSource, /A separate deterministic harness checks the exact commit/u);
+  assert.match(appSource, /The model may propose a patch; only a separate deterministic harness and trusted controller can publish the result/u);
   assert.match(installerSource, /\*\*Done when:\*\* open or update one normal pull request/u);
   assert.match(installerSource, /\*\*Neutral\*\* means ChangePlane reported findings without changing merge rules/u);
   assert.match(installerSource, /\*\*Scope only\*\* means the exact commit and files were checked/u);
@@ -218,10 +283,10 @@ test("pilot payload vendors the action and installs a trusted observe workflow",
   assert.deepEqual(policy.evidence, { requiredChecks: [], timeoutSeconds: 0 });
   assert.deepEqual(policy.runtime, {
     funding: "byok",
-    provider: "deepseek",
-    secretName: "DEEPSEEK_API_KEY",
-    model: "deepseek-v4-flash",
-    effort: "high",
+    provider: "openai",
+    secretName: "OPENAI_API_KEY",
+    model: "gpt-5.6-luna",
+    reasoningEffort: "high",
     managedSubscription: "reserved",
   });
 
@@ -688,7 +753,7 @@ test("GitHub retries honor server rate-limit headers and fail fast on a distant 
   assert.equal(githubRetryDelayMs(503, headers({}), 2, 1_000), 500);
 });
 
-test("controlled repair canary keeps DeepSeek proposal access separate from forge write", () => {
+test("controlled repair canary keeps OpenAI proposal access separate from forge write", () => {
   const workflow = readFileSync(new URL("../examples/changeplane-repair.yml", import.meta.url), "utf8");
   const guardWorkflow = readFileSync(new URL("../examples/changeplane-repair-guard.yml", import.meta.url), "utf8");
   const grantVerifier = readFileSync(new URL("../examples/changeplane-grant.js", import.meta.url), "utf8");
@@ -733,15 +798,15 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   const controllerClaimIndex = workflow.indexOf("Claim the App-authored grant before provider access");
   const claimIndex = workflow.indexOf("Reserve the one-time claim before provider access");
   const providerValidateIndex = workflow.indexOf("Revalidate server authority immediately before provider access");
-  const providerHeadIndex = workflow.indexOf("Re-check the exact pull-request head immediately before DeepSeek");
-  const providerIndex = workflow.indexOf("Ask DeepSeek V4 Flash for a patch proposal");
+  const providerHeadIndex = workflow.indexOf("Re-check the exact pull-request head immediately before OpenAI");
+  const providerIndex = workflow.indexOf("Ask GPT-5.6 for a bounded patch proposal");
   assert.ok(controllerClaimIndex > 0 && claimIndex > controllerClaimIndex
     && providerValidateIndex > claimIndex && providerHeadIndex > providerValidateIndex
     && providerIndex > providerHeadIndex,
   "server authority and the exact head must be rechecked immediately before provider access");
-  assert.match(workflow, /CHANGEPLANE_PROPOSAL_MODEL: deepseek-v4-flash/u);
-  assert.match(workflow, /DEEPSEEK_API_KEY: \$\{\{ secrets\.DEEPSEEK_API_KEY \}\}/u);
-  const providerStep = workflow.match(/- name: Ask DeepSeek V4 Flash for a patch proposal[\s\S]*?changeplane-proposal\.js propose/u)?.[0] ?? "";
+  assert.match(workflow, /CHANGEPLANE_TRUSTED_POLICY: \$\{\{ github\.workspace \}\}\/trusted\/\.changeplane\.json/u);
+  assert.match(workflow, /OPENAI_API_KEY: \$\{\{ secrets\.OPENAI_API_KEY \}\}/u);
+  const providerStep = workflow.match(/- name: Ask GPT-5\.6 for a bounded patch proposal[\s\S]*?changeplane-proposal\.js propose/u)?.[0] ?? "";
   assert.doesNotMatch(providerStep, /CHANGEPLANE_CONTROLLER_HMAC|CHANGEPLANE_PUSH_TOKEN/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.base-sha \}\}[\s\S]*?path: trusted/u);
   assert.match(workflow, /ref: \$\{\{ steps\.grant\.outputs\.head-sha \}\}[\s\S]*?path: workspace/u);
@@ -751,7 +816,7 @@ test("controlled repair canary keeps DeepSeek proposal access separate from forg
   assert.match(workflow, /\n  apply:[\s\S]*?permissions:\n      actions: read\n      contents: read\n      pull-requests: read/u);
   assert.doesNotMatch(workflow.match(/jobs:\n  repair:[\s\S]*?\n  apply:/u)?.[0] ?? "", /contents: write/u);
   assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /contents: write/u);
-  assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /DEEPSEEK_API_KEY/u);
+  assert.doesNotMatch(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /OPENAI_API_KEY/u);
   assert.match(workflow.match(/\n  apply:[\s\S]*/u)?.[0] ?? "", /\.\.\/controller\/examples\/changeplane-proposal\.js validate/u);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|main|master)$/mu);
   assert.match(workflow, /git apply --check --index/u);
@@ -1661,7 +1726,7 @@ test("safe GitHub reads retry one transient upstream failure", async () => {
   });
 });
 
-test("Managed pilot verifies the server-side DeepSeek key without exposing or enabling execution", async () => {
+test("Managed pilot verifies the server-side OpenAI key without exposing or enabling execution", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -1670,27 +1735,44 @@ test("Managed pilot verifies the server-side DeepSeek key without exposing or en
       csrf: "alice-csrf",
     }, SECRET);
     const managedKey = `provider-${"m".repeat(40)}`;
-    const originalManagedKey = process.env.CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY;
+    const originalManagedKey = process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY;
     const originalFetch = globalThis.fetch;
-    process.env.CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY = managedKey;
+    process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY = managedKey;
     globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
-      if (requestUrl.origin === "https://api.deepseek.com") {
+      if (requestUrl.origin === "https://api.openai.com") {
         assert.equal(options.headers.authorization, `Bearer ${managedKey}`);
         return {
           ok: true,
           status: 200,
-          async json() { return { data: [{ id: "deepseek-v4-flash" }] }; },
+          async json() { return { id: "gpt-5.6-luna" }; },
         };
       }
       if (requestUrl.pathname === "/repos/alice/private-service") {
         return {
           ok: true,
           status: 200,
-          async json() { return { full_name: "alice/private-service", permissions: { push: true, admin: false } }; },
+          async json() { return { full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin: false } }; },
         };
       }
-      if (requestUrl.pathname.endsWith("/actions/secrets/DEEPSEEK_API_KEY")) {
+      if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+        return { ok: true, status: 200, async json() { return { object: { sha: "a".repeat(40) } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+        const content = Buffer.from(JSON.stringify({
+          version: 1,
+          runtime: {
+            funding: "byok",
+            provider: "openai",
+            secretName: "OPENAI_API_KEY",
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            managedSubscription: "reserved",
+          },
+        })).toString("base64");
+        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+      }
+      if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY")) {
         return {
           ok: false,
           status: 404,
@@ -1716,39 +1798,40 @@ test("Managed pilot verifies the server-side DeepSeek key without exposing or en
         providerVerified: true,
         executionReady: false,
       });
-      assert.equal(payload.model, "deepseek-v4-flash");
+      assert.equal(payload.model, "gpt-5.6-luna");
       assert.equal(response.body.includes(managedKey), false);
     } finally {
       globalThis.fetch = originalFetch;
-      if (originalManagedKey === undefined) delete process.env.CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY;
-      else process.env.CHANGEPLANE_MANAGED_DEEPSEEK_API_KEY = originalManagedKey;
+      if (originalManagedKey === undefined) delete process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY;
+      else process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY = originalManagedKey;
     }
   });
 });
 
-test("Enterprise BYOK encrypts directly for GitHub Actions and never echoes plaintext", async () => {
+test("Enterprise BYOK encrypts and rotates directly in GitHub Actions without echoing plaintext", async () => {
   await withOAuthEnvironment(async () => {
     await sodium.ready;
     const keyPair = sodium.crypto_box_keypair();
     const repositoryPublicKey = sodium.to_base64(keyPair.publicKey, sodium.base64_variants.ORIGINAL);
     const apiKey = `provider-${"s".repeat(40)}`;
+    const rotatedApiKey = `provider-${"r".repeat(40)}`;
     const session = seal({
       kind: "session",
       token: "alice-token",
       login: "alice",
       csrf: "alice-csrf",
     }, SECRET);
-    let storedSecret;
+    const storedSecrets = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
       const method = options.method || "GET";
-      if (requestUrl.origin === "https://api.deepseek.com" && requestUrl.pathname === "/models") {
-        assert.equal(options.headers.authorization, `Bearer ${apiKey}`);
+      if (requestUrl.origin === "https://api.openai.com" && requestUrl.pathname === "/v1/models/gpt-5.6-luna") {
+        assert.equal([`Bearer ${apiKey}`, `Bearer ${rotatedApiKey}`].includes(options.headers.authorization), true);
         return {
           ok: true,
           status: 200,
-          async json() { return { data: [{ id: "deepseek-v4-flash" }] }; },
+          async json() { return { id: "gpt-5.6-luna" }; },
         };
       }
       if (requestUrl.pathname === "/repos/alice/private-service") {
@@ -1756,9 +1839,26 @@ test("Enterprise BYOK encrypts directly for GitHub Actions and never echoes plai
           ok: true,
           status: 200,
           async json() {
-            return { full_name: "alice/private-service", permissions: { push: true, admin: false } };
+            return { full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin: false } };
           },
         };
+      }
+      if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+        return { ok: true, status: 200, async json() { return { object: { sha: "a".repeat(40) } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+        const content = Buffer.from(JSON.stringify({
+          version: 1,
+          runtime: {
+            funding: "byok",
+            provider: "openai",
+            secretName: "OPENAI_API_KEY",
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            managedSubscription: "reserved",
+          },
+        })).toString("base64");
+        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
       }
       if (requestUrl.pathname.endsWith("/actions/secrets/public-key")) {
         return {
@@ -1767,15 +1867,15 @@ test("Enterprise BYOK encrypts directly for GitHub Actions and never echoes plai
           async json() { return { key_id: "github-key-1", key: repositoryPublicKey }; },
         };
       }
-      if (requestUrl.pathname.endsWith("/actions/secrets/DEEPSEEK_API_KEY") && method === "PUT") {
-        storedSecret = JSON.parse(options.body);
+      if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY") && method === "PUT") {
+        storedSecrets.push(JSON.parse(options.body));
         return { ok: true, status: 201 };
       }
-      if (requestUrl.pathname.endsWith("/actions/secrets/DEEPSEEK_API_KEY") && method === "GET") {
+      if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY") && method === "GET") {
         return {
           ok: true,
           status: 200,
-          async json() { return { name: "DEEPSEEK_API_KEY", updated_at: "2026-07-18T10:24:00Z" }; },
+          async json() { return { name: "OPENAI_API_KEY", updated_at: "2026-07-18T10:24:00Z" }; },
         };
       }
       throw new Error(`Unexpected GitHub call: ${method} ${requestUrl.pathname}`);
@@ -1797,17 +1897,81 @@ test("Enterprise BYOK encrypts directly for GitHub Actions and never echoes plai
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.body.includes(apiKey), false);
-      assert.equal(storedSecret.key_id, "github-key-1");
-      assert.equal(storedSecret.encrypted_value.includes(apiKey), false);
+      assert.equal(storedSecrets[0].key_id, "github-key-1");
+      assert.equal(storedSecrets[0].encrypted_value.includes(apiKey), false);
 
-      const cipher = sodium.from_base64(storedSecret.encrypted_value, sodium.base64_variants.ORIGINAL);
+      const cipher = sodium.from_base64(storedSecrets[0].encrypted_value, sodium.base64_variants.ORIGINAL);
       const plaintext = sodium.crypto_box_seal_open(cipher, keyPair.publicKey, keyPair.privateKey);
       assert.equal(sodium.to_string(plaintext), apiKey);
       sodium.memzero(cipher);
       sodium.memzero(plaintext);
+
+      const rotatedResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=byok",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/private-service", apiKey: rotatedApiKey },
+      }, rotatedResponse);
+      assert.equal(rotatedResponse.statusCode, 200);
+      assert.equal(rotatedResponse.body.includes(rotatedApiKey), false);
+      assert.equal(storedSecrets.length, 2);
+      const rotatedCipher = sodium.from_base64(storedSecrets[1].encrypted_value, sodium.base64_variants.ORIGINAL);
+      const rotatedPlaintext = sodium.crypto_box_seal_open(rotatedCipher, keyPair.publicKey, keyPair.privateKey);
+      assert.equal(sodium.to_string(rotatedPlaintext), rotatedApiKey);
+      sodium.memzero(rotatedCipher);
+      sodium.memzero(rotatedPlaintext);
     } finally {
       sodium.memzero(keyPair.publicKey);
       sodium.memzero(keyPair.privateKey);
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("Enterprise BYOK deletion removes only the OpenAI Actions Secret", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({ kind: "session", token: "alice-token", login: "alice", csrf: "alice-csrf" }, SECRET);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      const requestUrl = new URL(String(url));
+      const method = options.method || "GET";
+      calls.push(`${method} ${requestUrl.pathname}`);
+      if (requestUrl.pathname === "/repos/alice/private-service") {
+        return { ok: true, status: 200, async json() { return { full_name: "alice/private-service", permissions: { push: true } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY") && method === "DELETE") {
+        return { ok: true, status: 204 };
+      }
+      throw new Error(`Unexpected request: ${method} ${requestUrl.pathname}`);
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "DELETE",
+        url: "/api/github?action=byok",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/private-service" },
+      }, response);
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(calls, [
+        "GET /repos/alice/private-service",
+        "DELETE /repos/alice/private-service/actions/secrets/OPENAI_API_KEY",
+      ]);
+      assert.equal(response.body.includes("OPENAI_API_KEY"), true);
+      assert.equal(response.body.includes(".changeplane.json"), false);
+    } finally {
       globalThis.fetch = originalFetch;
     }
   });
