@@ -247,7 +247,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 5);
+  assert.equal(manifest.managedVersion, 6);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -268,6 +268,8 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const workflow = files.get(".github/workflows/changeplane.yml");
   assert.match(workflow, /pull_request_target:/u);
+  assert.match(workflow, /types: \[opened, synchronize, reopened\]/u);
+  assert.doesNotMatch(workflow, /\bedited\b/u);
   assert.match(workflow, /deployment_status:/u);
   assert.match(workflow, /repository_dispatch:\n    types: \[changeplane_recheck\]/u);
   assert.match(workflow, /uses: \.\/changeplane/u);
@@ -358,13 +360,34 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 5,
-    targetVersion: 5,
+    currentVersion: 6,
+    targetVersion: 6,
     conflicts: [],
   });
 
   const currentManifest = JSON.parse(currentFiles["changeplane/manifest.json"]);
-  const v4Action = currentFiles["changeplane/action/index.js"]
+  const v5Files = {
+    ...currentFiles,
+    ".github/workflows/changeplane.yml": currentFiles[".github/workflows/changeplane.yml"]
+      .replace("types: [opened, synchronize, reopened]", "types: [opened, synchronize, reopened, edited]"),
+  };
+  const v5Hashes = Object.fromEntries(Object.keys(currentManifest.managedFiles).map((filePath) => [
+    filePath,
+    createHash("sha256").update(v5Files[filePath]).digest("hex"),
+  ]));
+  v5Files["changeplane/manifest.json"] = `${JSON.stringify({
+    schemaVersion: 1,
+    managedVersion: 5,
+    managedFiles: v5Hashes,
+  }, null, 2)}\n`;
+  assert.deepEqual(classifyManagedInstallation({ files: v5Files, reservedEntries }), {
+    state: "outdated",
+    currentVersion: 5,
+    targetVersion: 6,
+    conflicts: [],
+  });
+
+  const v4Action = v5Files["changeplane/action/index.js"]
     .replace(`export function remediationIdempotencyKey({ repository, pullRequestNumber, headSha, inputDigest, attempt }) {
   return digest({ repository, pullRequestNumber, headSha, inputDigest, attempt });
 }
@@ -398,9 +421,9 @@ export function findCurrentRemediationRequest(remediationComments, context) {
       inputDigest,
       attempt: autonomousPlan.nextAttempt,
     });`);
-  assert.equal(v4Action === currentFiles["changeplane/action/index.js"], false, "the v4 action fixture must restore the prior remediation identity");
+  assert.equal(v4Action === v5Files["changeplane/action/index.js"], false, "the v4 action fixture must restore the prior remediation identity");
   const v4Files = {
-    ...currentFiles,
+    ...v5Files,
     "changeplane/action/index.js": v4Action,
   };
   const v4Hashes = Object.fromEntries(Object.keys(currentManifest.managedFiles).map((filePath) => [
@@ -415,7 +438,7 @@ export function findCurrentRemediationRequest(remediationComments, context) {
   assert.deepEqual(classifyManagedInstallation({ files: v4Files, reservedEntries }), {
     state: "outdated",
     currentVersion: 4,
-    targetVersion: 5,
+    targetVersion: 6,
     conflicts: [],
   });
 
@@ -442,7 +465,7 @@ export function findCurrentRemediationRequest(remediationComments, context) {
   assert.deepEqual(classifyManagedInstallation({ files: v3Files, reservedEntries }), {
     state: "outdated",
     currentVersion: 3,
-    targetVersion: 5,
+    targetVersion: 6,
     conflicts: [],
   });
 
@@ -472,7 +495,7 @@ export function findCurrentRemediationRequest(remediationComments, context) {
   assert.deepEqual(classifyManagedInstallation({ files: v2Files, reservedEntries }), {
     state: "outdated",
     currentVersion: 2,
-    targetVersion: 5,
+    targetVersion: 6,
     conflicts: [],
   });
 
@@ -480,7 +503,7 @@ export function findCurrentRemediationRequest(remediationComments, context) {
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 5,
+    targetVersion: 6,
     conflicts: [],
   });
 
@@ -497,7 +520,7 @@ export function findCurrentRemediationRequest(remediationComments, context) {
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v5 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v6 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -567,7 +590,7 @@ test("pristine manifestless install creates one manifest-only v5 upgrade PR from
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v5") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v6") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1861,7 +1884,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 5,
+        targetVersion: 6,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
