@@ -981,6 +981,7 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   );
   for (const managedExample of [
     "changeplane-claim.js",
+    "changeplane-evidence-policy.js",
     "changeplane-grant.js",
     "changeplane-proposal.js",
     "changeplane-provider-openai.js",

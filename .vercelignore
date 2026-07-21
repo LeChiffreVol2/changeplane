@@ -6,6 +6,7 @@ audit-blueprint/
 docs/
 examples/*
 !examples/changeplane-claim.js
+!examples/changeplane-evidence-policy.js
 !examples/changeplane-grant.js
 !examples/changeplane-proposal.js
 !examples/changeplane-provider-openai.js
