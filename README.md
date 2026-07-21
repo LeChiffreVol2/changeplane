@@ -27,6 +27,36 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 
 Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path. Product and competitive priorities are in [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md).
 
+## Installation, supported platforms, and judge test
+
+### Fast judge path — no credentials or installation
+
+1. Open [changeplane.vercel.app](https://changeplane.vercel.app/) in a signed-out browser.
+2. Select **View RouteThai example**.
+3. Watch the sanitized autonomous replay progress from exact-head failure through GPT-5.6 Luna proposal, clean validation, trusted apply, and `ChangePlane / guard` PASS on the new head.
+4. Open **New commit verified independently** to inspect the authority boundary.
+
+The public workspace requires no account, API key, repository access, test account, or rebuild. It uses synthetic data and makes no request to RouteThai production systems. Detailed judge instructions and evidence links are in [JUDGE_GUIDE.md](JUDGE_GUIDE.md).
+
+### Connected GitHub installation — optional
+
+1. Select **Install ChangePlane on GitHub**.
+2. On GitHub, choose a personal account or organization and grant the repository-scoped App access only to the intended repository.
+3. Return to ChangePlane, choose one writable repository, and complete the read-only safety preflight.
+4. Bind one existing behavioral GitHub Check for autonomous assurance, or deliberately choose scope-only observe mode.
+5. For model-backed review and bounded repair, provide a repository BYOK OpenAI key. ChangePlane verifies it, encrypts it directly to the repository's `OPENAI_API_KEY` Actions Secret, and clears the browser field.
+6. Review and merge the single protected setup pull request. No automation starts before GitHub reports that pull request merged.
+
+Autonomous mode requires the repository-scoped App, an exact behavioral Check and expected publisher, repository BYOK, and the reviewed managed setup pull request. Missing gates fail closed; GitHub remains the merge authority.
+
+### Supported platforms
+
+- GitHub.com personal accounts and organizations, including Enterprise Cloud organizations.
+- Same-repository GitHub pull requests; GitHub Merge Queue is guard-only on the exact `merge_group` revision.
+- Current desktop and mobile browsers for onboarding and the public replay.
+- Node.js `>=22.18 <23` for local evaluation.
+- GitHub Enterprise Server, GitLab, Bitbucket, fork pull requests, and cross-repository repair are not supported in this release.
+
 ## What was built with Codex and GPT-5.6
 
 Codex worked as the implementation and verification partner across the repository. It inspected the original assurance boundary, implemented the OpenAI proposal and review adapters, built the GitHub App/BYOK onboarding and autonomous controller paths, added fail-closed tests, preserved the established visual system, exercised the disposable canary, and reconciled the release evidence and competition package.
