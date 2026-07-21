@@ -266,7 +266,7 @@ button {
   letter-spacing: -0.04em;
 }
 
-.auth-form > p:not(.auth-eyebrow):not(.auth-security) {
+.auth-form > p:not(.auth-eyebrow):not(.auth-security):not(.auth-account-choice) {
   margin: 12px 0 30px;
   color: var(--muted);
   font-size: 14px;
@@ -331,34 +331,11 @@ button {
   cursor: wait;
 }
 
-.preview-entry {
-  width: 100%;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
-  padding: 0 16px;
-  border: 1px solid var(--line-dark);
-  background: transparent;
-  color: #2d3330;
-  font-weight: 620;
-  cursor: pointer;
-}
-
-.preview-entry:hover:not(:disabled) {
-  border-color: #777e7a;
-  background: #eeede8;
-}
-
-.preview-entry span {
-  flex: 1;
-  text-align: left;
-}
-
-.preview-entry:disabled {
-  color: var(--muted);
-  cursor: wait;
+.auth-account-choice {
+  margin: 9px 2px 0 !important;
+  color: #727874 !important;
+  font-size: 10px !important;
+  line-height: 1.5;
 }
 
 .auth-error,

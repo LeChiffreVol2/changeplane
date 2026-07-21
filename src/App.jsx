@@ -56,6 +56,10 @@ const GITHUB_ENTRY_ERROR = {
   owner_required: "This owner-controlled canary is not available to that GitHub account.",
   owner_ambiguous: "More than one owner installation was found. Review the GitHub App installations before trying again.",
   authorization_cancelled: "GitHub authorization was cancelled. Nothing was connected or changed. Try again when you are ready.",
+  authorization_failed: "GitHub could not complete authorization. Try again; no repository access or settings were changed.",
+  installation_missing: "No ChangePlane installation is available yet. If you requested organization access, wait for an owner to approve it, then continue with GitHub.",
+  installation_unavailable: "That ChangePlane installation is not available to this GitHub account. Sign in with an account that can access it or install ChangePlane again.",
+  permissions_required: "ChangePlane is installed, but its required repository permissions are not active. Ask an organization owner to review the App request, then continue with GitHub.",
 }[PAGE_QUERY.get("github")] ?? "";
 const SESSION_KEY = "changeplane.preview-session.v3";
 const RUNS_KEY = "changeplane.autonomous-runs.v1";
@@ -104,7 +108,7 @@ const PREVIEW_PREFLIGHT = {
   repositoryState: "active",
   installable: true,
   conflicts: [],
-  setupFiles: 20,
+  setupFiles: 21,
   evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
   harness: { autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
   capabilities: {
@@ -315,27 +319,21 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                 >
                   {isSigningIn || checking ? (
                     <ArrowsClockwise className="spin" size={20} weight="bold" aria-hidden="true" />
-                  ) : authMode === "github_app" ? (
-                    <UserCircle size={21} weight="fill" aria-hidden="true" />
                   ) : (
                     <GithubLogo size={21} weight="fill" aria-hidden="true" />
                   )}
-                  <span>{isSigningIn ? "Opening GitHub…" : canConnect && authMode === "github_app" ? "Connect as an individual" : buttonLabel}</span>
+                  <span>{isSigningIn ? "Opening GitHub…" : canConnect && authMode === "github_app" ? "Install ChangePlane on GitHub" : buttonLabel}</span>
                   {!isSigningIn && !checking && canConnect && <ArrowRight size={18} aria-hidden="true" />}
                 </button>
                 {authMode === "github_app" && (
-                  <button className="preview-entry" type="button" onClick={onSignIn} disabled={isSigningIn || !canConnect}>
-                    <GithubLogo size={21} weight="fill" aria-hidden="true" />
-                    <span>Connect an organization</span>
-                    <ArrowRight size={18} aria-hidden="true" />
-                  </button>
+                  <p className="auth-account-choice">Choose a personal account or organization on GitHub. Organization access may require owner approval.</p>
                 )}
               </>
             )}
 
             {authMode === "github_app" && canConnect && (!controlledCanary || ownerEntry) && (
               <button className="github-existing" type="button" onClick={onAuthorize} disabled={isSigningIn}>
-                {controlledCanary ? "Canary owner sign in" : "Already installed? Sign in with GitHub"}
+                {controlledCanary ? "Canary owner sign in" : "Already installed? Continue with GitHub"}
               </button>
             )}
 
@@ -350,7 +348,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               : exampleOnly
               ? "Synthetic data only. The public example cannot push, merge, or deploy."
               : authMode === "github_app"
-                ? "Use your own OpenAI key after choosing a repository. It is encrypted directly into GitHub Actions."
+                ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
               <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>

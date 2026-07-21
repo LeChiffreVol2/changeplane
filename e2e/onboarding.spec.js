@@ -71,6 +71,26 @@ test("controlled-canary public root replays RouteThai assurance from failed head
   expect(externalRequests).toEqual([]);
 });
 
+test("self-serve root explains organization approval recovery without changing access", async ({ page }) => {
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    expect(url.searchParams.get("action")).toBe("session");
+    return json(route, {
+      configured: true,
+      authenticated: false,
+      authMode: "github_app",
+      rolloutMode: "self_serve",
+    });
+  });
+
+  await page.goto("/?github=installation_missing");
+
+  await expect(page.getByRole("alert")).toContainText("wait for an owner to approve it");
+  await expect(page.getByRole("button", { name: "Install ChangePlane on GitHub" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Already installed? Continue with GitHub" })).toBeVisible();
+  await expect(page.getByText("Organization access may require owner approval.", { exact: false })).toBeVisible();
+  expect(externalRequests).toEqual([]);
+});
+
 test("mocked self-serve onboarding reaches a setup pull request with keyboard navigation", async ({ page }) => {
   let connected = false;
   let byokConnected = false;
@@ -111,7 +131,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 9, targetVersion: 9, conflicts: [] },
+          installation: { state: "current", currentVersion: 10, targetVersion: 10, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -139,7 +159,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         installation: {
           state: "fresh",
           currentVersion: null,
-          targetVersion: 9,
+          targetVersion: 10,
           conflicts: [],
         },
         installable: true,
@@ -205,9 +225,10 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   });
 
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Connect as an individual" })).toBeVisible();
-  const connectButton = page.getByRole("button", { name: "Connect an organization" });
+  const connectButton = page.getByRole("button", { name: "Install ChangePlane on GitHub" });
   await expect(connectButton).toBeVisible();
+  await expect(page.getByText("Choose a personal account or organization on GitHub.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Already installed? Continue with GitHub" })).toBeVisible();
   await connectButton.focus();
   await page.keyboard.press("Enter");
 
@@ -307,7 +328,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 9, targetVersion: 9, conflicts: [] },
+          installation: { state: "current", currentVersion: 10, targetVersion: 10, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -328,7 +349,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         installation: {
           state: "outdated",
           currentVersion: 0,
-          targetVersion: 9,
+          targetVersion: 10,
           conflicts: [],
         },
         installable: true,
@@ -360,7 +381,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
       installPayload = route.request().postDataJSON();
       return json(route, {
         repository: "acme/payments-api",
-        branch: "changeplane/observe-upgrade-v9",
+        branch: "changeplane/observe-upgrade-v10",
         operation: "upgrade",
         pullRequest: {
           number: 43,
@@ -373,11 +394,11 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Connect an organization" }).click();
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
   await expect(page.getByText("Upgrade ready")).toBeVisible();
-  await expect(page.getByText("Update managed files to version 9 without changing your policy.")).toBeVisible();
+  await expect(page.getByText("Update managed files to version 10 without changing your policy.")).toBeVisible();
   await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
   const capabilities = page.locator(".repository-capabilities");
   await expect(capabilities).toContainText("0 of 5 available");
@@ -458,7 +479,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         pendingPreflightRequests += 1;
         return json(route, {
           repositoryState: "active",
-          installation: { state: "outdated", currentVersion: 0, targetVersion: 9, conflicts: [] },
+          installation: { state: "outdated", currentVersion: 0, targetVersion: 10, conflicts: [] },
           installable: true,
           conflicts: [],
           setupFiles: 1,
@@ -474,7 +495,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
       if (repository === "acme/current-api") {
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 9, targetVersion: 9, conflicts: [] },
+          installation: { state: "current", currentVersion: 10, targetVersion: 10, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -490,7 +511,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         }
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 9, targetVersion: 9, conflicts: [] },
+          installation: { state: "current", currentVersion: 10, targetVersion: 10, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
@@ -505,7 +526,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
           installation: {
             state: "conflict",
             currentVersion: null,
-            targetVersion: 9,
+            targetVersion: 10,
             conflicts: ["changeplane/action/index.js"],
           },
           installable: false,
@@ -537,7 +558,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Connect an organization" }).click();
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
 
   await page.getByRole("radio", { name: /acme\/pending-api/u }).click();
   await expect(page.getByText("Upgrade PR already ready")).toBeVisible();

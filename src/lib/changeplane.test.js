@@ -42,7 +42,7 @@ function remediationContext(overrides = {}) {
     contract: { scope: ['src/payments/**'], goal: null },
     contractDigest: '1'.repeat(64),
     policyDigest: '2'.repeat(64),
-    evaluatorVersion: '0.3.0',
+    evaluatorVersion: '0.4.0',
     inputDigest: '3'.repeat(64),
     ...overrides,
   };

@@ -12,9 +12,10 @@ import {
   evaluateEvidence,
   planAutonomousDecision,
 } from "../src/lib/changeplane.js";
+import { effectiveProtectedPaths } from "../examples/changeplane-evidence-policy.js";
 
 const API_VERSION = "2022-11-28";
-export const EVALUATOR_VERSION = "0.3.0";
+export const EVALUATOR_VERSION = "0.4.0";
 const CHECK_NAME = "ChangePlane / guard";
 const WRITE_PERMISSIONS = new Set(["admin", "maintain", "write"]);
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
@@ -1313,7 +1314,7 @@ async function runMergeGroup({ event, repository, token, mode }) {
   const pathResult = evaluateChange({
     plannedPaths: plan.scope,
     actualFiles: target.actualFiles,
-    protectedPaths: policy.protectedPaths,
+    protectedPaths: effectiveProtectedPaths(policy),
     approval: undefined,
     ...revision,
   });
@@ -1421,7 +1422,7 @@ export async function run() {
   const pathResult = evaluateChange({
     plannedPaths: plan.scope,
     actualFiles,
-    protectedPaths: policy.protectedPaths,
+    protectedPaths: effectiveProtectedPaths(policy),
     approval,
     ...revision,
   });

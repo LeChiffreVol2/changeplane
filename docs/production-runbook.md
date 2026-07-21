@@ -6,6 +6,8 @@ This release supports one GitHub.com repository per reviewed setup in `observe` 
 
 Autonomous mode requires the repository-scoped GitHub App, one exact behavioral check and publisher, verified BYOK, and one reviewed setup PR. It allows only two attempts inside an immutable 15-minute campaign; protected, ambiguous, stale, provider-failed, or exhausted work stops for a human. `ChangePlane Managed` is a disabled reservation; a successful OpenAI adapter canary is not managed execution or billing.
 
+The managed policy treats tests, evidence configuration, dependency manifests, and `evidence.protectedPaths` as human-review controls. Never remove the immutable defaults to make an autonomous repair pass. If a repository needs a different evidence boundary, add exact paths through a reviewed `.changeplane.json` configuration pull request; the defaults remain additive.
+
 The managed setup also provides `ChangePlane / review`, repository-owned assurance memory, vendor-neutral agent handback, exact-head preview receipts, and exact-`merge_group` guard evaluation. Model-backed findings run only when repository BYOK exists; without it, the review Check remains neutral and makes no model call. Merge Queue evaluation never dispatches repair or a model.
 
 The current Vercel deployment is a fixed free-phase constraint. `CHANGEPLANE_SELF_SERVE_ENABLED=true` opens GitHub App onboarding to eligible personal and organization installations. Keep the disposable repository as the controlled release canary; never connect a RouteThai production repository. Hosting-plan work remains outside this release. See [Vercel limits](https://vercel.com/docs/limits).

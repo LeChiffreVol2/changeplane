@@ -16,6 +16,10 @@ import {
   planAutonomousDecision,
 } from "../src/lib/changeplane.js";
 import {
+  effectiveProtectedPaths,
+  evidenceProtectedPaths,
+} from "../examples/changeplane-evidence-policy.js";
+import {
   canonicalJson,
   issueRepairGrant,
   repairLedgerEntryDigest,
@@ -30,7 +34,7 @@ const CLAIM_DOMAIN = "changeplane:controller-claim:v1\0";
 const TRANSITION_DOMAIN = "changeplane:repair-transition:v1\0";
 const LEDGER_SCHEMA_VERSION = 3;
 const REQUEST_SCHEMA_VERSION = 3;
-const EVALUATOR_VERSION = "0.3.0";
+const EVALUATOR_VERSION = "0.4.0";
 const MAX_CHANGED_FILES = 3_000;
 const MAX_DIAGNOSTIC_LENGTH = 6_000;
 const REQUEST_KEYS = [
@@ -448,6 +452,7 @@ function protectedPathRules(policy) {
   const values = [
     ...(Array.isArray(policy.protectedPaths.requireApproval) ? policy.protectedPaths.requireApproval : []),
     ...(Array.isArray(policy.protectedPaths.block) ? policy.protectedPaths.block : []),
+    ...evidenceProtectedPaths(policy),
   ];
   if (values.some((value) => typeof value !== "string")) throw new Error("Policy protected paths are invalid");
   return [...new Set(values)].sort();
@@ -664,7 +669,7 @@ export async function buildTrustedRepairCandidate({
   const pathResult = evaluateChange({
     plannedPaths: plan.scope,
     actualFiles,
-    protectedPaths: policy.protectedPaths,
+    protectedPaths: effectiveProtectedPaths(policy),
     ...revision,
   });
   const checks = await evidenceResult(change.repository, change.headSha, policy, installationToken, request);
