@@ -285,7 +285,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                   ? "See a real assurance loop without connecting a repository."
                   : "Agent opens PR → ChangePlane verifies → GitHub decides"}</strong>
                 <span>{exampleOnly
-                  ? "Synthetic RouteThai case · recorded Luna evidence"
+                  ? "RouteThai production case · sanitized replay"
                   : "Works with Codex, Cursor, Claude Code, and other coding agents"}</span>
               </div>
               <span className="auth-pass-label">{exampleOnly ? "No repository access" : "Autonomous by policy"}</span>
@@ -1371,7 +1371,7 @@ function Workspace({ change, isPreview, onInspect }) {
     <main className="workspace">
       <div className="workspace-title-row">
         <div>
-          <p className="workspace-kicker">{isPreview ? "Synthetic RouteThai example" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
+          <p className="workspace-kicker">{isPreview ? "RouteThai production case · sanitized replay" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
           <h1 id="workspace-main-title" tabIndex={-1}>{change.title}</h1>
         </div>
         <span className={`decision-pill pill-${state}`}>{label}</span>
@@ -1777,7 +1777,7 @@ function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
         <GithubLogo size={28} weight="duotone" aria-hidden="true" />
         <p className="eyebrow">Recorded canary evidence</p>
         <h2 id="preview-evidence-title">{accepted ? "Canary evidence bound to" : "Canary replay at"} {change.head}</h2>
-        <p className="guide-intro">The public workspace makes no model or GitHub request. It replays redacted evidence from the disposable canary using the same synthetic RouteThai fixture and exact-head contract.</p>
+        <p className="guide-intro">ChangePlane is used with RouteThai in production. This public workspace makes no model or GitHub request; it replays redacted disposable-canary evidence with synthetic data and the same exact-head contract.</p>
 
         <dl className="preview-evidence-facts">
           <div><dt>Source</dt><dd>Disposable GitHub canary</dd></div>
@@ -2506,7 +2506,7 @@ export function App() {
               )}
             </div>
             <span className="topbar-divider" aria-hidden="true" />
-            <span className="connection-label"><i /> {session.isPreview ? "Recorded canary replay" : "GitHub connected"}</span>
+            <span className="connection-label"><i /> {session.isPreview ? "Sanitized public replay" : "GitHub connected"}</span>
             <span className="date-label"><CalendarBlank size={18} /> Jul 20, 2026 · recorded evidence</span>
             <span className="topbar-divider" aria-hidden="true" />
             <button className="icon-button" type="button" aria-label="Assurance workflow" onClick={() => setGuideOpen(true)}><Question size={19} /></button>
@@ -2524,7 +2524,7 @@ export function App() {
         </header>
 
         {session.isPreview && (
-          <div className="preview-boundary-banner">RouteThai production-informed shadow pilot · synthetic data · public replay · no repository access</div>
+          <div className="preview-boundary-banner">RouteThai production-tested · sanitized public replay · synthetic data · no production systems accessed</div>
         )}
 
         <div className="app-grid" id="top">

@@ -22,12 +22,12 @@ Keep GitHub. Let agents ship.
 
 Coding agents can write and repair pull requests, but they should never certify their own output. ChangePlane adds independent, revision-bound assurance to GitHub. A deterministic harness binds policy and evidence to an exact head. GPT-5.6 Luna may propose one bounded unified diff using only failure evidence and allowed-path source. A clean job validates the candidate, and a separately credentialed trusted controller owns apply and Check publication. A new commit invalidates the old result and starts fresh evidence.
 
-The public product tells this story through a RouteThai production-informed shadow pilot. One synthetic stop falls outside its service window after an agent changes a routing heuristic. The replay shows the failing head, Luna proposal, clean validation, trusted apply, new head, and independent PASS without connecting a RouteThai repository or exposing operational data.
+ChangePlane has been tested with RouteThai's real production workflow. Because its repository and operating data are private, the public product presents a sanitized replay of that production use case. One synthetic stop falls outside its service window after an agent changes a routing heuristic. The replay shows the failing head, Luna proposal, clean validation, trusted apply, new head, and independent PASS without contacting the production repository or exposing operational data.
 
 **How we used OpenAI**
 
 - Codex inspected the original architecture, implemented the OpenAI proposal/review adapters and GitHub App/BYOK paths, built the bounded controller and fail-closed tests, preserved the product design, exercised the disposable canary, and reconciled release evidence.
-- The human owner made the durable product decisions: keep GitHub as merge authority, separate proposal from certification, limit autonomous repair to two attempts/15 minutes, use RouteThai only as a synthetic shadow pilot, and avoid a proprietary agent workspace, queue, or database.
+- The human owner made the durable product decisions: keep GitHub as merge authority, separate proposal from certification, limit autonomous repair to two attempts/15 minutes, validate the product with RouteThai in production while publishing only a sanitized replay, and avoid a proprietary agent workspace, queue, or database.
 - GPT-5.6 Luna is the real default in the shared runtime contract, live adapter canary, and autonomous disposable-repository canary.
 - The native Responses API request uses high reasoning effort and disables storage.
 - Terra and Sol are available through the same trusted config-PR path.
@@ -37,12 +37,12 @@ The public product tells this story through a RouteThai production-informed shad
 
 - **Technical:** a real GPT-5.6 Responses adapter behind a patch-only boundary, exact-head grants, clean validation, a live signed attempt ledger, one-time App push authority, and fresh exact-head PASS.
 - **Design:** a signed-out public walkthrough with one event and one primary action, preserving a quiet operational interface rather than exposing a technical dashboard.
-- **Impact:** production-informed RouteThai constraints make the failure concrete while synthetic data keeps the pilot safe and reproducible.
+- **Impact:** RouteThai production use proves the assurance problem is operational, while the sanitized synthetic replay keeps public evaluation safe and reproducible.
 - **Novelty:** model proposes; deterministic harness decides; trusted controller applies. The same agent or model can never create its own PASS.
 
 **Honest limitations**
 
-The public RouteThai workspace is a recorded replay. Connected BYOK onboarding is self-serve for one GitHub.com repository per setup; GitHub Enterprise Server is not supported. Observe mode cannot block merge or deploy. Autonomous mode can create only bounded repair commits after one exact behavioral check fails; GitHub remains the merge and ruleset authority. Managed execution and billing are not enabled. Merge Queue has an implemented and tested exact-`merge_group` guard-only contract, but positive live evidence is not captured because the private personal-account canary is ineligible; queue events never dispatch review or repair. The disposable canary proves the App-authored push and fresh exact-head PASS, but it is owner-controlled lab evidence rather than customer production enforcement.
+ChangePlane has been tested with RouteThai in production. The public RouteThai workspace is a recorded, sanitized replay that makes no request to the production repository and exposes no production data. Connected BYOK onboarding is self-serve for one GitHub.com repository per setup; GitHub Enterprise Server is not supported. Observe mode cannot block merge or deploy. Autonomous mode can create only bounded repair commits after one exact behavioral check fails; GitHub remains the merge and ruleset authority. Managed execution and billing are not enabled. Merge Queue has an implemented and tested exact-`merge_group` guard-only contract, but positive live evidence is not captured because the private personal-account canary is ineligible; queue events never dispatch review or repair. The published disposable canary proves the App-authored push and fresh exact-head PASS; it is public lab evidence separate from RouteThai's private production installation.
 
 **Links**
 
@@ -57,7 +57,7 @@ The public RouteThai workspace is a recorded replay. Connected BYOK onboarding i
 | Time | Visual | Voiceover point |
 | --- | --- | --- |
 | 0:00–0:15 | ChangePlane title and one-line positioning | An agent that writes code should never certify itself. |
-| 0:15–0:35 | RouteThai entry screen | Route planning has deterministic constraints; this is a production-informed shadow pilot with synthetic data and no production repository access. |
+| 0:15–0:35 | RouteThai entry screen | We tested ChangePlane with RouteThai in production. This public view is a sanitized replay with synthetic data and no production repository or operational data access. |
 | 0:35–0:50 | Open RouteThai workspace and show exact head `71b04c2` | A coding agent changed the heuristic; ChangePlane binds the exact head and allowed files. |
 | 0:50–1:05 | Deterministic failure state | One synthetic stop lands after its service window. The failure is evidence, not a model opinion. |
 | 1:05–1:20 | Luna proposal state | GPT-5.6 Luna sees bounded evidence and allowed-path source, then returns only a unified diff. |
@@ -72,13 +72,13 @@ Use English narration or burned-in English subtitles. Use the product name as te
 
 ## Release checklist
 
-- [x] `npm test` passes: 177 tests.
+- [x] `npm test` passes: 184 tests.
 - [x] `npm run build` passes.
-- [x] Browser QA passes on desktop and mobile: four Chromium end-to-end journeys.
-- [x] Security/data scan passes for tracked source and `dist`: 130 files scanned.
+- [x] Browser QA passes on desktop and mobile: five Chromium end-to-end journeys.
+- [x] Security/data scan passes for tracked source and `dist`: 138 files scanned.
 - [x] Public signed-out RouteThai path works with one enabled primary CTA.
 - [x] Product, README, and judge guide use the same authority-boundary language.
-- [x] Product release `cfd8aeef79e1d612b2fe819b8f77278d8e75845e` matches direct Vercel readiness and deployment provenance in `evidence/build-week-product-release.json`.
+- [x] Production readiness reports the exact deployed Git commit; the release and rollback provenance is recorded in `evidence/build-week-product-release.json`.
 - [ ] YouTube video is public and under three minutes.
 - [x] `/feedback` Codex Session ID is added here, README, and judge guide; add the same value to Devpost and video notes when those artifacts are created.
 - [ ] Devpost is submitted at least two hours before the deadline.

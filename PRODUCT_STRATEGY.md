@@ -55,8 +55,8 @@ These features establish a complete, credible wedge without expanding into a for
    - The proposal model never receives Check, push, approval, merge, or PASS authority.
 
 5. **Public proof path**
-   - A signed-out RouteThai synthetic replay tells the complete failed-head → Luna proposal → clean validation → new-head verification story.
-   - The disposable GitHub repository remains the release canary; RouteThai production code is never connected.
+   - RouteThai is the real production use case; a signed-out sanitized synthetic replay tells the complete failed-head → Luna proposal → clean validation → new-head verification story without exposing the private installation.
+   - The disposable GitHub repository remains the public release canary; RouteThai production code and operational data never enter public QA or submission evidence.
 
 6. **Independent Review Plane**
    - `ChangePlane / review` inspects only the exact changed diff and publishes at most five validated, deduplicated findings on changed lines.
