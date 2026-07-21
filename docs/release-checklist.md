@@ -1,13 +1,12 @@
 # Production release checklist
 
-## Build Week self-serve product release — 2026-07-21
+## Self-serve product release — 2026-07-21
 
 - [x] Record the protected product release, exact CI job, GitHub deployment, Vercel Production deployment, direct readiness response, and previous rollback candidate in `evidence/build-week-product-release.json`.
   - Protected product source `cfd8aeef79e1d612b2fe819b8f77278d8e75845e` from [PR #37](https://github.com/LeChiffreVol2/changeplane/pull/37); [`CI / verify`](https://github.com/LeChiffreVol2/changeplane/actions/runs/29790822891/job/88512038372) passed on the exact release.
   - GitHub Production deployment `5530924912` points to that SHA. Vercel Production `dpl_FJHW94gj9WoZBafC3E5HMmTGYPyc` is `READY`, aliases `https://changeplane.vercel.app`, and previous Production `dpl_FGv73hZ4eFXJwBBEbXeEJE7CkcTp` remains a rollback candidate.
 - [x] Capture a direct Production readiness response for the protected product release.
   - HTTP `200`, request ID `df966b64247dfbf27bb928c8`, `Cache-Control: no-store`, `status: ready`, `authMode: github_app`, `rolloutMode: self_serve`, release `cfd8aeef79e1`; every public connector and repair-controller readiness check is true.
-- [x] Record the Build Week Codex Session ID in README, judge guide, and submission copy: `019f7ebd-79a5-73b1-b93e-42349c652ce3`.
 - [x] Self-serve GitHub App onboarding supports eligible personal and organization installations and limits repository selection to the verified installation.
 - [x] Autonomous setup requires one exact behavioral check plus verified repository BYOK and creates one protected setup PR; scope-only remains observe mode.
 - [x] The managed payload vendors the trusted harness, repair helpers, and workflows without a queue, database, proprietary workspace, or model-held GitHub credential.
@@ -16,7 +15,7 @@
 - [x] Capture the disposable repository's App-signed grant, redacted Luna request metadata, clean apply, App-authored push, synchronize event, new exact head, and `ChangePlane / guard` result.
   - Managed v9 [PR #31](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/31): `7b670f341662cfd97699d3957e6491a2bc026f9a` → `e053526676f0fb189b4fa87d8da4612725ffd9ee`; repair run `29788370891`; grant Check `88504652456`; final guard Check `88504854987`; zero human repair commits; closed without merge.
 
-Unchecked items below are explicit rollout-expansion or destructive live-drill evidence. They are not represented as completed and are not Build Week eligibility claims. The video and Devpost submission remain tracked separately in `BUILD_WEEK_SUBMISSION.md`.
+Unchecked items below are explicit rollout-expansion or destructive live-drill evidence. They are not represented as completed release claims.
 
 ## Controlled-canary release record — 2026-07-19
 
@@ -57,7 +56,7 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 - [x] From a clean checkout, confirm `npm ci --cache .npm-cache`, `npm run verify`, and `npm run audit:prod` pass with Node `22.18.0`.
 - [x] Confirm CI serves `dist` only on runner-local `127.0.0.1` and smoke-checks the built root without calling Preview or Production.
 - [x] Confirm the Chromium onboarding suite passes for controlled-canary isolation plus fresh, upgrade, pending, current, and owner-review repository states without making non-local requests.
-- [x] Review every dependency and pinned Action SHA in the submission release; no high/critical production audit finding is waived.
+- [x] Review every dependency and pinned Action SHA in the product release; no high/critical production audit finding is waived.
   - `npm audit --omit=dev --audit-level=high` reports zero vulnerabilities, and installed repair workflows pin third-party Actions to reviewed full SHAs.
 - [x] Confirm Vercel's Git integration is the only deployment path, `main` is the Production branch, and the install/build/output settings match `vercel.json`.
 
@@ -73,9 +72,9 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_OPENAI_API_KEY` server-side and absent unless the private canary is explicitly approved.
 - [x] Confirm plaintext provider keys never appear in localStorage, logs, responses, tracked source, `dist`, screenshots, or release records.
-  - BYOK response/log redaction tests and the 130-file submission audit pass. Production evidence contains only secret names, booleans, bounded request IDs, and redacted metadata.
+  - BYOK response/log redaction tests and the repository data audit pass. Production evidence contains only secret names, booleans, bounded request IDs, and redacted metadata.
 - [x] Publish and verify the Vercel WAF fixed-window rate limit for `/api/github`; record its threshold and owner, confirm excess traffic receives `429`, and keep total allowed requests inside the included allowance.
-  - Evidence captured 2026-07-19: active fixed-window rule, 60 requests per 60 seconds per IP; a controlled 65-request burst returned 60 `200` responses and 5 `429` responses. Owner: `@LeChiffreVol2` during the Build Week pilot.
+  - Evidence captured 2026-07-19: active fixed-window rule, 60 requests per 60 seconds per IP; a controlled 65-request burst returned 60 `200` responses and 5 `429` responses. Owner: `@LeChiffreVol2`.
 - [x] Confirm structured logs contain only the approved redacted metadata and request ID.
   - Automated API/log tests pass, direct readiness returned a request ID, and the production runtime-log error review contained no application errors or secret-bearing record.
 
@@ -132,7 +131,7 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 - [x] Wire ledger publication and dispatch to a dedicated GitHub App installation-token controller outside repository-controlled workflows.
 - [x] Prove tampered signature, unknown key, future/expired grant, deadline reset, wrong repository/head/path, third attempt, fork, sequential replay, and concurrent replay all fail closed before provider access in the automated controller suite.
 - [x] Record the active Vercel Production deployment's full 40-character source SHA and confirm its first 12 characters equal readiness `release`.
-  - Build Week product evidence captured 2026-07-21: Production source `cfd8aeef79e1d612b2fe819b8f77278d8e75845e`, readiness release `cfd8aeef79e1`, GitHub App self-serve enabled, and every repair-controller readiness check true. See `evidence/build-week-product-release.json`.
+  - Product evidence captured 2026-07-21: Production source `cfd8aeef79e1d612b2fe819b8f77278d8e75845e`, readiness release `cfd8aeef79e1`, GitHub App self-serve enabled, and every repair-controller readiness check true. See `evidence/build-week-product-release.json`.
   - Autonomous runtime evidence captured 2026-07-20: Production source `0e8e093262a175d8ffa8284106c0c62ed2f68f65`, readiness release `0e8e093262a1`, repair enabled/configured with every nested check true. Later evidence-only documentation releases may advance the deployment SHA without changing these runtime bytes.
   - Observe-release evidence captured 2026-07-19: Production source `38d4c4d261ba43df7e6d580b56e797100519526e`, readiness release `38d4c4d261ba`. This is not authorization to reuse that SHA for a later repair install; pin the full active reviewed repair-capable release at activation time.
 - [x] Install the v9 managed guard, repair workflow, review plane, assurance memory contract, provider request metadata, and reviewed helpers through upgrade PRs #23, #28, and #30; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.
