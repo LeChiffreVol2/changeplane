@@ -2,7 +2,7 @@
 
 ## Supported boundary
 
-This release supports one-repository GitHub.com rollouts in `observe` or bounded `autonomous` mode. GitHub remains the source of truth, audit surface, and merge authority. ChangePlane has no database, queue, merge service, or proprietary agent runtime to operate.
+This release supports one GitHub.com repository per reviewed setup in `observe` or bounded `autonomous` mode. A returning owner may repeat that setup for repositories across eligible personal and organization App installations. GitHub remains the source of truth, audit surface, and merge authority. ChangePlane has no database, queue, merge service, or proprietary agent runtime to operate.
 
 Autonomous mode requires the repository-scoped GitHub App, one exact behavioral check and publisher, verified BYOK, and one reviewed setup PR. It allows only two attempts inside an immutable 15-minute campaign; protected, ambiguous, stale, provider-failed, or exhausted work stops for a human. `ChangePlane Managed` is a disabled reservation; a successful OpenAI adapter canary is not managed execution or billing.
 

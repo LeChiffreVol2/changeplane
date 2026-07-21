@@ -44,6 +44,9 @@ There were no repository commits before the Build Week eligibility window. The r
 | GPT-5.6 RouteThai adapter canary | July 20, 2026 | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) | Live Luna request, bounded patch, clean apply, deterministic re-validation |
 | Autonomous GitHub canary | July 20, 2026 | [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json) | Live Luna proposal, signed ledger, clean apply, App-authored push, fresh exact-head PASS |
 | Autonomous runtime hardening | July 20, 2026 | `0e8e093262a175d8ffa8284106c0c62ed2f68f65` | Public RouteThai replay, self-serve GitHub/BYOK, autonomous harness, duplicate-trigger hardening |
+| Assurance plane and managed v7 | July 20, 2026 | [`PR #32`](https://github.com/LeChiffreVol2/changeplane/pull/32) | Independent review, assurance memory, agent handback, exact-head preview contract, and `merge_group` guard contract |
+| Luna raw-diff hardening and managed v8 | July 20, 2026 | [`PR #34`](https://github.com/LeChiffreVol2/changeplane/pull/34) | Live fail-closed canary finding converted into a strict `^diff --git ` Structured Outputs constraint |
+| Redacted provider evidence and managed v9 | July 20, 2026 | [`PR #35`](https://github.com/LeChiffreVol2/changeplane/pull/35) · [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json) | Production release plus live Luna request metadata, clean validation, App-authored repair, synchronize event, and new-head PASS |
 | Submission release | July 20, 2026 | Use the exact commit returned by `GET /api/github?action=readiness` | Competition package; may advance for evidence-only documentation commits |
 
 Add the Codex Session ID from `/feedback` to the Devpost submission before final submission. The application cannot infer or fabricate that identifier.
@@ -62,7 +65,7 @@ The replay follows one event from beginning to end:
 6. A separately credentialed trusted controller applies the accepted patch.
 7. Fresh evidence passes on new exact head `9fc82a1`, and only then may `ChangePlane / guard` publish PASS.
 
-The reusable synthetic fixture is in [`examples/routethai-synthetic`](examples/routethai-synthetic). The recorded adapter result is in [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json), and the full disposable-repository run is in [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json).
+The reusable synthetic fixture is in [`examples/routethai-synthetic`](examples/routethai-synthetic). The recorded adapter result is in [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json), the first full disposable-repository run is in [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json), and the managed-v9 production release and final canary are in [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json).
 
 ## Architecture and authority boundary
 
@@ -142,7 +145,7 @@ Runtime and harness policy are read from the trusted default-branch checkout. Pu
 - source context only from allowed paths; and
 - an official Responses API `text.format` JSON schema with one required `patch` field.
 
-The adapter extracts only that field and passes it to the unchanged unified-diff and allowed-path validator. It fails closed on invalid credentials, unsupported models, provider refusal, timeout, oversized output, malformed JSON or schema, incomplete output, empty patches, new files, deleted files, protected paths, paths outside the grant, clean-apply failure, or failed deterministic re-validation. Provider errors never include upstream response bodies. See OpenAI's [Responses API structured-output definition](https://developers.openai.com/api/docs/guides/migrate-to-responses#6-update-structured-outputs-definitions).
+The schema requires the patch string to begin with `diff --git `; the adapter then extracts only that field and passes it to the unchanged unified-diff and allowed-path validator. It fails closed on invalid credentials, unsupported models, provider refusal, timeout, oversized output, malformed JSON or schema, incomplete output, empty patches, new files, deleted files, protected paths, paths outside the grant, clean-apply failure, or failed deterministic re-validation. Successful provider metadata records only the allowlisted model, completed/incomplete state, and a bounded request ID; prompts, patches, response bodies, and credentials are never logged. See OpenAI's [Responses API structured-output definition](https://developers.openai.com/api/docs/guides/migrate-to-responses#6-update-structured-outputs-definitions).
 
 ## GitHub and BYOK API
 
@@ -199,11 +202,11 @@ Never use a RouteThai repository as the canary target. The RouteThai fixture is 
 
 The self-serve setup PR vendors the small Action, harness policy reader, advisory review helper, repair helpers, workflows, and starter assurance memory into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
 
-The tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. The disposable GitHub canary additionally proves the App-signed attempt ledger, one-time exact-repository push credential, App-authored repair commit, fresh `pull_request` synchronization, and PASS on only the repaired exact head. Stale-head, replay, path expansion, provider failure, and budget exhaustion remain fail-closed and are covered by the controller test suite.
+The tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. The managed-v9 disposable GitHub canary additionally proves redacted provider request metadata, the App-signed attempt ledger, one-time exact-repository push credential, App-authored repair commit, fresh `pull_request` synchronization, and PASS on only the repaired exact head. The live malformed-format canary stopped before apply, and stale-head, replay, path expansion, provider failure, and budget exhaustion remain fail-closed in the controller test suite. Exact-preview and `merge_group` contracts are automated; positive live evidence requires an eligible deployment and Merge Queue repository.
 
 ## Current limits
 
-- Public execution is a recorded replay, not a browser-side model call.
+- The signed-out RouteThai workspace is a recorded replay, not a browser-side model call. Connected repositories execute live only after the owner merges the reviewed setup pull request.
 - BYOK is configured per repository after GitHub connection; it is not stored by ChangePlane.
 - Observe mode cannot block merge or deploy.
 - Managed model execution, metering, billing, and subscription checkout are disabled.
@@ -211,7 +214,7 @@ The tracked adapter canary proves live Luna access, structured patch extraction,
 - Autonomous repair requires a repository-scoped GitHub App installation, one exact behavioral check, BYOK, and the managed harness setup PR.
 - ChangePlane publishes a Check but does not merge; repositories choose whether to require that Check through GitHub rulesets.
 - GitHub.com and same-repository pull requests only.
-- GitHub Merge Queue is supported for exact-`merge_group` guard evaluation only. Queue runs never dispatch repair or model review.
+- GitHub Merge Queue is supported for exact-`merge_group` guard evaluation only. Queue runs never dispatch repair or model review. Positive live queue evidence is not captured because the private personal-account canary is not eligible for Merge Queue.
 - Independent review runs only when repository BYOK is configured, is advisory, and never contributes PASS.
 - No ChangePlane database, queue, billing service, CLI, TUI, proprietary agent runtime, merge service, or generalized provider framework.
 - The DeepSeek compatibility adapter remains in source but is not selectable in the Build Week UI.

@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "production_release_and_live_autonomous_canary",
+  "recordedAt": "2026-07-20T23:52:41Z",
+  "dataClassification": "synthetic_and_redacted_metadata_only",
+  "source": {
+    "repository": "LeChiffreVol2/changeplane",
+    "protectedReleaseSha": "3af23a881175fb82f7bbb4ab5bda89f3b0945e58",
+    "sourceScope": "runtime-changing release before the evidence-only documentation commit",
+    "releasePullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/35",
+    "patchContractPullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/34",
+    "productionPreflightHotfixPullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/33",
+    "assurancePlanePullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/32",
+    "ciRunUrl": "https://github.com/LeChiffreVol2/changeplane/actions/runs/29788007157",
+    "ciConclusion": "success",
+    "managedVersion": 9
+  },
+  "deployment": {
+    "provider": "vercel_git_integration",
+    "environment": "production",
+    "publicUrl": "https://changeplane.vercel.app/",
+    "deploymentId": "dpl_Fwr7Rm2Fr7TUaJCFRJKFyemTyZGE",
+    "deploymentUrl": "https://changeplane-2u71y6npg-lechiffres-projects-029895e4.vercel.app",
+    "githubDeploymentId": 5530459819,
+    "sourceSha": "3af23a881175fb82f7bbb4ab5bda89f3b0945e58",
+    "readyState": "READY",
+    "previousKnownGoodDeploymentId": "dpl_7GWdo5SAUGLatDQL5GTmJj1Pvtt1",
+    "rollbackAvailable": true,
+    "rollbackExercised": false
+  },
+  "readiness": {
+    "verified": false,
+    "httpStatus": null,
+    "requestId": null,
+    "status": "not_captured_for_runtime_release",
+    "release": "3af23a881175",
+    "authMode": null,
+    "selfServeEntryVerified": true,
+    "signedOutRootVerified": true,
+    "connectedCanaryStateVerified": true,
+    "checkedAt": "2026-07-20T23:50:00Z",
+    "blocker": "The selected in-app browser blocked direct navigation to the readiness JSON. The Vercel deployment, signed-out root, authenticated preflight, and managed-v9 repository state were verified without bypassing that browser control."
+  },
+  "canary": {
+    "repository": "LeChiffreVol2/changeplane-disposable-canary-20260719",
+    "dataClassification": "synthetic",
+    "managedVersion": 9,
+    "upgrades": [
+      {
+        "version": 7,
+        "pullRequest": 23,
+        "baseSha": "a5444400b016f0db2e4fbdd39d7386e09448e65b",
+        "headSha": "fe3c3b0772316c4b0689106da12c50df4f445359",
+        "mergeSha": "bb38d3497cfc344a52e85aa448ba2ad8cd8c0d73",
+        "managedFileCount": 7
+      },
+      {
+        "version": 8,
+        "pullRequest": 28,
+        "baseSha": "43c15f47a1aef555255db3065e97999dc1f607cb",
+        "headSha": "4266a3a1b3e679c2261e00d55b6e4fc9c6a24722",
+        "mergeSha": "a1f0355b629044ecf0a324ec46af1137517b27fe",
+        "managedFileCount": 2
+      },
+      {
+        "version": 9,
+        "pullRequest": 30,
+        "baseSha": "a1f0355b629044ecf0a324ec46af1137517b27fe",
+        "headSha": "b387a5e87ee3c567474867d5d51b7a73a1f2d42e",
+        "mergeSha": "e929750147d5839f7f374c5dc23ae4e869fe9cf7",
+        "managedFileCount": 2
+      }
+    ],
+    "policyAndMemory": {
+      "pullRequest": 24,
+      "headSha": "9eb68b150bd94610a26d1304dc32f5e513d9604c",
+      "mergeSha": "86d13a27fb061ce0391a859bda3b5da90f982708",
+      "paths": [
+        ".changeplane.json",
+        ".changeplane/assurance.md"
+      ],
+      "trustedDefaultBranchRead": true
+    },
+    "review": {
+      "pullRequest": 25,
+      "headSha": "d77122a278e96559f313e3bc2dee6a7209248b27",
+      "checkRunId": 88499084548,
+      "conclusion": "neutral",
+      "annotationCount": 1,
+      "findingPath": "routethai/route-planning.js",
+      "closedWithoutMerge": true,
+      "guardRemainedIndependent": true
+    },
+    "formatFailureGate": {
+      "pullRequest": 26,
+      "initialHeadSha": "94783d8309d272d3d0f696e226f9151844af7e60",
+      "workflowRunId": 29786674731,
+      "conclusion": "failure",
+      "applySkipped": true,
+      "pushOccurred": false,
+      "passPublished": false,
+      "closedWithoutMerge": true,
+      "resultingFix": "Managed v8 constrains the strict patch field to begin with diff --git while retaining every local validator."
+    },
+    "repair": {
+      "pullRequest": 31,
+      "pullRequestUrl": "https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/31",
+      "baseSha": "e929750147d5839f7f374c5dc23ae4e869fe9cf7",
+      "initialHeadSha": "7b670f341662cfd97699d3957e6491a2bc026f9a",
+      "repairedHeadSha": "e053526676f0fb189b4fa87d8da4612725ffd9ee",
+      "provider": {
+        "model": "gpt-5.6-luna",
+        "status": "completed",
+        "requestId": "req_[redacted-by-github-actions]",
+        "metadataTimestamp": "2026-07-20T23:48:38.0108933Z",
+        "responseBodyLogged": false
+      },
+      "workflowRunId": 29788370891,
+      "repairJobId": 88504665162,
+      "applyJobId": 88504733770,
+      "grantCheckRunId": 88504652456,
+      "initialGuardCheckRunId": 88504662779,
+      "finalTestWorkflowRunId": 29788420795,
+      "finalGuardWorkflowRunId": 29788419816,
+      "finalGuardCheckRunId": 88504854987,
+      "finalGuardPublisher": "github-actions",
+      "grantPublisher": "changeplane-guard",
+      "allowedPaths": [
+        "routethai/route-planning.js"
+      ],
+      "cleanValidation": true,
+      "appAuthoredPush": true,
+      "appCommitAuthor": "changeplane[bot]",
+      "synchronizeObserved": true,
+      "exactHeadRecheckObserved": true,
+      "repairedTreeMatchesBase": true,
+      "humanRepairCommits": 0,
+      "modelForgeAuthority": false,
+      "modelCheckAuthority": false,
+      "modelMergeAuthority": false,
+      "closedWithoutMerge": true
+    }
+  },
+  "gates": {
+    "independentReview": {
+      "status": "live",
+      "evidence": "canary PR 25, check run 88499084548"
+    },
+    "assuranceMemory": {
+      "status": "live",
+      "evidence": "canary PR 24"
+    },
+    "agentHandback": {
+      "status": "live",
+      "evidence": "canary PR 31 initial-head receipt and repair grant"
+    },
+    "autonomousRepair": {
+      "status": "live",
+      "evidence": "canary PR 31, workflow run 29788370891, final guard 88504854987"
+    },
+    "exactHeadPreview": {
+      "status": "automated_and_live_omission",
+      "evidence": "The exact-head contract tests pass; the live receipt correctly omitted a preview because this private canary has no preview deployment provider.",
+      "positiveLiveProof": false
+    },
+    "mergeGroup": {
+      "status": "blocked",
+      "evidence": "Exact-revision and stale-base automated tests pass. GitHub Merge Queue is unavailable for this private personal-account repository.",
+      "positiveLiveProof": false
+    },
+    "byokLifecycle": {
+      "status": "partially_live",
+      "evidence": "Connected repository BYOK status and live Luna calls passed; atomic rotation and delete/fail-closed paths pass automated tests.",
+      "rotationLive": false,
+      "deletionLive": false,
+      "reasonNotExercised": "Deleting the unreadable active GitHub Secret without a replacement key would strand the controlled canary."
+    },
+    "rollback": {
+      "status": "available_not_exercised",
+      "evidence": "The immediately previous Vercel deployment remains READY; the full repository-first kill-switch drill was not run."
+    },
+    "budgetAndFailClosed": {
+      "status": "live_and_automated",
+      "evidence": "PR 26 proves malformed-format rejection before apply; the controller suite covers stale head, path expansion, replay, provider failure, and exhausted attempts."
+    }
+  },
+  "limitations": [
+    "The public RouteThai workspace is a recorded replay; connected repository execution is live only after a reviewed setup pull request.",
+    "The disposable private GitHub Free canary is owner-controlled lab evidence and has no enforceable branch protection.",
+    "The final v9 readiness JSON was not captured because the selected in-app browser blocked direct navigation to that API response.",
+    "A later evidence-only documentation merge may advance the Vercel source SHA without changing the recorded runtime bytes; the runtime release and deployment remain pinned above.",
+    "Positive live preview binding requires a real deployment provider on the evaluated canary head.",
+    "Positive live merge-group evidence requires an eligible organization repository and GitHub plan.",
+    "BYOK deletion and the full repair kill-switch rollback drill were not exercised against the active canary."
+  ],
+  "omitted": [
+    "OpenAI API key",
+    "GitHub tokens and App private key",
+    "controller and ledger secrets",
+    "provider response body",
+    "patch contents",
+    "cookies and OAuth state",
+    "customer data, coordinates, map URLs, and private repository material"
+  ]
+}
