@@ -306,20 +306,31 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                 {!isSigningIn && <ArrowRight size={18} aria-hidden="true" />}
               </button>
             ) : (
-              <button
-                className={`github-sign-in ${isSigningIn ? "is-loading" : ""}`}
-                type="button"
-                onClick={onSignIn}
-                disabled={isSigningIn || !canConnect}
-              >
-                {isSigningIn || checking ? (
-                  <ArrowsClockwise className="spin" size={20} weight="bold" aria-hidden="true" />
-                ) : (
-                  <GithubLogo size={21} weight="fill" aria-hidden="true" />
+              <>
+                <button
+                  className={`github-sign-in ${isSigningIn ? "is-loading" : ""}`}
+                  type="button"
+                  onClick={onSignIn}
+                  disabled={isSigningIn || !canConnect}
+                >
+                  {isSigningIn || checking ? (
+                    <ArrowsClockwise className="spin" size={20} weight="bold" aria-hidden="true" />
+                  ) : authMode === "github_app" ? (
+                    <UserCircle size={21} weight="fill" aria-hidden="true" />
+                  ) : (
+                    <GithubLogo size={21} weight="fill" aria-hidden="true" />
+                  )}
+                  <span>{isSigningIn ? "Opening GitHub…" : canConnect && authMode === "github_app" ? "Connect as an individual" : buttonLabel}</span>
+                  {!isSigningIn && !checking && canConnect && <ArrowRight size={18} aria-hidden="true" />}
+                </button>
+                {authMode === "github_app" && (
+                  <button className="preview-entry" type="button" onClick={onSignIn} disabled={isSigningIn || !canConnect}>
+                    <GithubLogo size={21} weight="fill" aria-hidden="true" />
+                    <span>Connect an organization</span>
+                    <ArrowRight size={18} aria-hidden="true" />
+                  </button>
                 )}
-                <span>{isSigningIn ? "Opening GitHub…" : buttonLabel}</span>
-                {!isSigningIn && !checking && canConnect && <ArrowRight size={18} aria-hidden="true" />}
-              </button>
+              </>
             )}
 
             {authMode === "github_app" && canConnect && (!controlledCanary || ownerEntry) && (
@@ -339,7 +350,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               : exampleOnly
               ? "Synthetic data only. The public example cannot push, merge, or deploy."
               : authMode === "github_app"
-                ? "Bring your own OpenAI key. It stays encrypted in GitHub Actions and powers only bounded patch proposals."
+                ? "Use your own OpenAI key after choosing a repository. It is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
               <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>

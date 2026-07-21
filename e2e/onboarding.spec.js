@@ -205,7 +205,8 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   });
 
   await page.goto("/");
-  const connectButton = page.getByRole("button", { name: "Connect GitHub" });
+  await expect(page.getByRole("button", { name: "Connect as an individual" })).toBeVisible();
+  const connectButton = page.getByRole("button", { name: "Connect an organization" });
   await expect(connectButton).toBeVisible();
   await connectButton.focus();
   await page.keyboard.press("Enter");
@@ -372,7 +373,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Connect GitHub" }).click();
+  await page.getByRole("button", { name: "Connect an organization" }).click();
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
   await expect(page.getByText("Upgrade ready")).toBeVisible();
@@ -536,7 +537,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Connect GitHub" }).click();
+  await page.getByRole("button", { name: "Connect an organization" }).click();
 
   await page.getByRole("radio", { name: /acme\/pending-api/u }).click();
   await expect(page.getByText("Upgrade PR already ready")).toBeVisible();
