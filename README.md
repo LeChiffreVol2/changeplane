@@ -8,7 +8,7 @@ ChangePlane is an OpenAI Build Week project in the **Developer Tools** track. It
 
 The public product is available at [changeplane.vercel.app](https://changeplane.vercel.app/). Install the repository-scoped GitHub App on a personal account or organization, choose one repository, bind one meaningful GitHub test, save your own OpenAI key directly to GitHub Actions, and merge one autonomous-harness setup pull request. A signed-out RouteThai assurance replay remains available without repository access.
 
-## Build Week submission summary
+## Build Week project summary
 
 - **Track:** Developer Tools
 - **One-liner:** Independent, exact-revision assurance for code written and repaired by AI agents.
@@ -25,18 +25,18 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 - **Evidence boundary:** autonomous repair cannot edit tests, evidence configuration, dependency manifests, or repository-declared evidence paths; those changes require human review
 - **Production boundary:** no managed spend, direct default-branch write, model-held forge credential, or merge authority
 
-Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path. Product and competitive priorities are in [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md).
+Start with [EVALUATION.md](EVALUATION.md) for the public product path and reproducible verification.
 
-## Installation, supported platforms, and judge test
+## Installation, supported platforms, and evaluation
 
-### Fast judge path — no credentials or installation
+### Public product path — no credentials or installation
 
 1. Open [changeplane.vercel.app](https://changeplane.vercel.app/) in a signed-out browser.
 2. Select **View RouteThai example**.
 3. Watch the sanitized autonomous replay progress from exact-head failure through GPT-5.6 Luna proposal, clean validation, trusted apply, and `ChangePlane / guard` PASS on the new head.
 4. Open **New commit verified independently** to inspect the authority boundary.
 
-The public workspace requires no account, API key, repository access, test account, or rebuild. It uses synthetic data and makes no request to RouteThai production systems. Detailed judge instructions and evidence links are in [JUDGE_GUIDE.md](JUDGE_GUIDE.md).
+The public workspace requires no account, API key, repository access, test account, or rebuild. It uses synthetic data and makes no request to RouteThai production systems. Reproducible verification and evidence links are in [EVALUATION.md](EVALUATION.md).
 
 ### Connected GitHub installation — optional
 
@@ -59,7 +59,7 @@ Autonomous mode requires the repository-scoped App, an exact behavioral Check an
 
 ## What was built with Codex and GPT-5.6
 
-Codex worked as the implementation and verification partner across the repository. It inspected the original assurance boundary, implemented the OpenAI proposal and review adapters, built the GitHub App/BYOK onboarding and autonomous controller paths, added fail-closed tests, preserved the established visual system, exercised the disposable canary, and reconciled the release evidence and competition package.
+Codex worked as the implementation and verification partner across the repository. It inspected the original assurance boundary, implemented the OpenAI proposal and review adapters, built the GitHub App/BYOK onboarding and autonomous controller paths, added fail-closed tests, preserved the established visual system, exercised the disposable canary, and reconciled the release evidence.
 
 The project owner retained the product and authority decisions that materially define ChangePlane:
 
@@ -89,15 +89,15 @@ There were no repository commits before the Build Week eligibility window. The r
 | Assurance plane and managed v7 | July 20, 2026 | [`PR #32`](https://github.com/LeChiffreVol2/changeplane/pull/32) | Independent review, assurance memory, agent handback, exact-head preview contract, and `merge_group` guard contract |
 | Luna raw-diff hardening and managed v8 | July 20, 2026 | [`PR #34`](https://github.com/LeChiffreVol2/changeplane/pull/34) | Live fail-closed canary finding converted into a strict `^diff --git ` Structured Outputs constraint |
 | Redacted provider evidence and managed v9 | July 20, 2026 | [`PR #35`](https://github.com/LeChiffreVol2/changeplane/pull/35) · [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json) | Production release plus live Luna request metadata, clean validation, App-authored repair, synchronize event, and new-head PASS |
-| Self-serve submission product release | July 21, 2026 | [`cfd8aeef79e1d612b2fe819b8f77278d8e75845e`](https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e) · [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json) | Personal and organization onboarding; direct Production readiness and exact deployment provenance |
+| Self-serve product release | July 21, 2026 | [`cfd8aeef79e1d612b2fe819b8f77278d8e75845e`](https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e) · [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json) | Personal and organization onboarding; direct Production readiness and exact deployment provenance |
 
 **Codex Session ID:** `019f7ebd-79a5-73b1-b93e-42349c652ce3`
 
-The product-release evidence is pinned to the last product-changing commit. Documentation-only competition-package commits may advance the repository and Vercel source SHA without changing the verified product runtime; the final deployed SHA remains available from `GET /api/github?action=readiness`.
+The product-release evidence is pinned to the last product-changing commit. Documentation-only updates may advance the repository and Vercel source SHA without changing the verified product runtime; the final deployed SHA remains available from `GET /api/github?action=readiness`.
 
 ## RouteThai production validation and sanitized public replay
 
-ChangePlane is connected to and has been tested with RouteThai's real production workflow. That private production installation is the use-case proof; it is not the public judge workspace. Because the RouteThai repository, routing data, customer context, and operating details are trade secrets, the signed-out workspace is a sanitized replay that makes no request to the production repository. Every public stop ID, service window, repository name, source file, timestamp, and evidence value is synthetic. No customer name, coordinate, map URL, production workbook, or private-repository screenshot is included.
+ChangePlane is connected to and has been tested with RouteThai's real production workflow. That private production installation is the use-case proof; it is separate from the public workspace. Because the RouteThai repository, routing data, customer context, and operating details are trade secrets, the signed-out workspace is a sanitized replay that makes no request to the production repository. Every public stop ID, service window, repository name, source file, timestamp, and evidence value is synthetic. No customer name, coordinate, map URL, production workbook, or private-repository screenshot is included.
 
 The replay follows one event from beginning to end:
 

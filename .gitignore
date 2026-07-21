@@ -12,6 +12,7 @@ audit-blueprint/
 *.log
 .DS_Store
 design-qa.md
+.devpost/
 qa-*.png
 qa-*.webp
 ChangePlane-Autonomous-Assurance-System-Design.docx
