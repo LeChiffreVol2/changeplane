@@ -44,6 +44,7 @@ test("controlled-canary public root replays RouteThai assurance from failed head
 
   await expect(page.getByRole("heading", { name: "See how assurance works." })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
+  await expect(page.getByText("RouteThai production case · sanitized replay")).toHaveCount(1);
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
@@ -54,6 +55,7 @@ test("controlled-canary public root replays RouteThai assurance from failed head
   await expect(exampleButton).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Keep every stop inside its service window" })).toBeFocused();
+  await expect(page.locator(".preview-boundary-banner")).toHaveText("RouteThai production-tested · sanitized public replay · synthetic data · no production systems accessed");
   await expect(page.getByText("GPT-5.6 Luna · recorded canary evidence")).toBeVisible();
   await expect(page.locator(".decision-pill")).toHaveText("Check passed");
   await expect(page.getByRole("button", { name: "Replay autonomous run" })).toBeVisible();

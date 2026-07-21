@@ -4,9 +4,9 @@
 
 Open [https://changeplane.vercel.app/](https://changeplane.vercel.app/) in a signed-out browser.
 
-1. Confirm the page offers **Connect as an individual** and **Connect an organization**, plus one signed-out **View RouteThai example** action.
+1. Confirm the page offers **Install ChangePlane on GitHub**, a returning-user **Already installed? Continue with GitHub** path, and one signed-out **View RouteThai example** action.
 2. Select **View RouteThai example**. No sign-in is required.
-3. Read the boundary banner: production-informed shadow pilot, synthetic data, public replay, no repository access.
+3. Read the boundary banner: RouteThai production-tested, sanitized public replay, synthetic data, and no production systems accessed by the replay.
 4. The recorded autonomous run starts automatically.
 5. Watch the exact sequence: bound head `71b04c2` → deterministic service-window failure → GPT-5.6 Luna proposal → clean validation → trusted apply → new head `9fc82a1` → `ChangePlane / guard` PASS.
 6. Open **New commit verified independently** to inspect the authority separation.
@@ -19,7 +19,8 @@ The replay lasts about five seconds and makes no live OpenAI or GitHub request.
 | Surface | Status | Evidence |
 | --- | --- | --- |
 | Self-serve GitHub onboarding | Public autonomous setup | Personal and organization installations; exact test + repository BYOK + one protected setup PR |
-| Public RouteThai workspace | Public recorded replay | Synthetic data; no authentication or repository access |
+| RouteThai production use case | Private production validation | ChangePlane has been tested with RouteThai's real production workflow; private repository and operational details are not included in the submission |
+| Public RouteThai workspace | Public sanitized replay | Synthetic data; no authentication, production repository request, or production operational data |
 | GPT-5.6 Luna API adapter | Live verified | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) |
 | Structured patch boundary | Live verified | Official Responses API schema; one extracted patch field; one allowed file; patch hash recorded |
 | Clean apply and deterministic re-validation | Live verified | Original fixture failed; patched temporary worktree passed |
@@ -86,8 +87,8 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - Merge Queue support is guard-only on the exact `merge_group`; it never dispatches repair or model review. Positive live evidence still requires an eligible organization repository and GitHub plan.
 - Exact-head preview binding is implemented and tested, but the current private canary has no preview deployment provider; its live receipt correctly omitted the URL.
 - The connected canary's BYOK status and live Luna calls passed. Destructive secret deletion was not exercised because GitHub Secrets are unreadable and no replacement key was available for safe restoration.
-- The disposable canary is owner-controlled lab evidence on GitHub Free, not a claim of customer production enforcement or branch protection.
-- RouteThai is a production-informed shadow pilot, not a customer claim or production-connected integration.
+- The disposable canary is owner-controlled lab evidence on GitHub Free, separate from RouteThai's private production installation; it does not disclose or prove RouteThai's branch-protection configuration.
+- ChangePlane has been tested with RouteThai in production. The public workspace and video remain sanitized replays because the production repository, routes, customer context, and operating details are private.
 
 ## Submission identity
 

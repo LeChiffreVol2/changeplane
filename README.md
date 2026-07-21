@@ -17,7 +17,7 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 - **Default proposal model:** `gpt-5.6-luna`
 - **Connected alternatives:** `gpt-5.6-terra`, `gpt-5.6-sol`
 - **OpenAI API:** Responses API through native `fetch`, `reasoning.effort: "high"`, `store: false`
-- **Primary use case:** RouteThai production-informed shadow pilot using only synthetic data
+- **Primary use case:** RouteThai production validation, presented publicly through a sanitized synthetic replay
 - **Public boundary:** self-serve autonomous onboarding plus a signed-out recorded replay
 - **BYOK boundary:** required for autonomous proposals and stored only as a per-repository GitHub Actions Secret
 - **Review boundary:** `ChangePlane / review` is exact-diff, advisory evidence; it never certifies, approves, or publishes PASS
@@ -37,7 +37,7 @@ The project owner retained the product and authority decisions that materially d
 | --- | --- |
 | Keep GitHub as forge and merge authority | Implemented the GitHub-native setup, Checks/comments receipts, and repository-scoped App paths |
 | A model may propose but never certify itself | Implemented separate proposal, deterministic validation, trusted apply, and exact-head Check boundaries |
-| Use RouteThai only as a sanitized production-informed shadow pilot | Built and audited the synthetic fixture, replay, redacted evidence, and prohibited-data scan |
+| Validate with RouteThai in production while keeping its repository and operating data private | Built and audited the sanitized fixture, public replay, redacted evidence, and prohibited-data scan |
 | Make Luna the real default while allowing Terra and Sol | Migrated the shared runtime contract, Responses API adapter, config-PR flow, and allowlist tests |
 | Prefer a small repository-native harness over an agent platform | Removed the need for a ChangePlane queue, database, proprietary workspace, CLI, or merge service |
 | Open self-serve onboarding to both individuals and organizations | Implemented one GitHub-owned account-selection flow, installation-scoped repository discovery, BYOK, safety preflight, and one protected setup PR |
@@ -65,9 +65,9 @@ There were no repository commits before the Build Week eligibility window. The r
 
 The product-release evidence is pinned to the last product-changing commit. Documentation-only competition-package commits may advance the repository and Vercel source SHA without changing the verified product runtime; the final deployed SHA remains available from `GET /api/github?action=readiness`.
 
-## RouteThai sanitized shadow pilot
+## RouteThai production validation and sanitized public replay
 
-The public story is informed by a real startup operating production route-planning software, but it is **not connected to the RouteThai production repository**. All stop IDs, service windows, repository names, source files, timestamps, and evidence are synthetic. No customer, coordinate, map URL, production workbook, or private-repository screenshot is included.
+ChangePlane is connected to and has been tested with RouteThai's real production workflow. That private production installation is the use-case proof; it is not the public judge workspace. Because the RouteThai repository, routing data, customer context, and operating details are trade secrets, the signed-out workspace is a sanitized replay that makes no request to the production repository. Every public stop ID, service window, repository name, source file, timestamp, and evidence value is synthetic. No customer name, coordinate, map URL, production workbook, or private-repository screenshot is included.
 
 The replay follows one event from beginning to end:
 
@@ -212,7 +212,7 @@ The disposable live GitHub repair target is:
 LeChiffreVol2/changeplane-disposable-canary-20260719
 ```
 
-Never use a RouteThai repository as the canary target. The RouteThai fixture is synthetic and may be copied into the disposable repository only.
+Never use a RouteThai repository as the public release-canary target. RouteThai's private production installation is operated separately; only the synthetic fixture may be copied into the disposable evidence repository.
 
 The self-serve setup PR vendors the small Action, harness policy reader, advisory review helper, repair helpers, workflows, and starter assurance memory into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
 
@@ -220,7 +220,7 @@ The tracked adapter canary proves live Luna access, structured patch extraction,
 
 ## Current limits
 
-- The signed-out RouteThai workspace is a recorded replay, not a browser-side model call. Connected repositories execute live only after the owner merges the reviewed setup pull request.
+- ChangePlane has been tested with RouteThai in production. The signed-out RouteThai workspace is a sanitized recorded replay, not a browser-side model call or a connection to that private production repository. Other connected repositories execute live only after the owner merges the reviewed setup pull request.
 - BYOK is configured per repository after GitHub connection; it is not stored by ChangePlane.
 - Observe mode cannot block merge or deploy.
 - Managed model execution, metering, billing, and subscription checkout are disabled.
@@ -237,4 +237,4 @@ The tracked adapter canary proves live Luna access, structured patch extraction,
 
 The source repository is public for product evaluation and transparency. It is source-visible, not open source, and remains proprietary/`UNLICENSED`. The limited judging license is in [EVALUATION_LICENSE.md](EVALUATION_LICENSE.md). Dependency notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Security reporting and operational controls are in [SECURITY.md](SECURITY.md), [`docs/production-runbook.md`](docs/production-runbook.md), and [`docs/release-checklist.md`](docs/release-checklist.md).
 
-The RouteThai name is used with the project owner's stated authorization solely to identify the sanitized shadow pilot. No third-party customer endorsement or production integration is claimed.
+The RouteThai name is used with the project owner's stated authorization to identify a real production use case and its sanitized public replay. No third-party customer endorsement is claimed, and no private RouteThai repository or operational data is distributed.
