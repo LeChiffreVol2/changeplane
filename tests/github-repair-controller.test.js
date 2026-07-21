@@ -53,7 +53,7 @@ function fixtureRequest() {
   const authority = {
     contractDigest: digest(plan),
     policyDigest: digest(policy),
-    evaluatorVersion: "0.3.0",
+    evaluatorVersion: "0.4.0",
     inputDigest: digest({ plan, files }),
     controllerSha: BASE_SHA,
     policyPath: ".changeplane.json",
@@ -111,7 +111,7 @@ function automaticFixture({
   const authority = {
     contractDigest: digest(plan),
     policyDigest: digest(policy),
-    evaluatorVersion: "0.3.0",
+    evaluatorVersion: "0.4.0",
     inputDigest: digest({ plan, files }),
     controllerSha: BASE_SHA,
     policyPath: ".changeplane.json",
@@ -490,6 +490,57 @@ test("automatic first-head contract authorizes bounded evidence repair before it
     diagnostic,
   }]);
   assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
+});
+
+test("automatic repair fails closed when the contract includes protected evidence source", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const title = "Update checkout evidence";
+  const contract = { scope: ["tests/checkout-race.test.js"], goal: title };
+  const files = [{ path: "tests/checkout-race.test.js" }];
+  const policy = {
+    version: 1,
+    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+  };
+  const { request } = automaticFixture({
+    contract,
+    files,
+    policy,
+    repairKind: "evidence",
+    allowedPaths: contract.scope,
+    instructions: [{
+      code: "EVIDENCE_FAILED",
+      path: "check:checkout-race",
+      pathKind: "evidence",
+      action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
+      diagnostic: "Checkout race failed",
+    }],
+  });
+  const github = fakeGitHub(policy, {
+    pullRequestBody: "",
+    pullRequestTitle: title,
+    pullRequestFiles: [{ filename: "tests/checkout-race.test.js" }],
+    initialChecks: [{
+      id: 95,
+      name: "checkout-race",
+      head_sha: HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+      app: { slug: "github-actions" },
+      output: { title: "Checkout race failed", annotations_count: 0 },
+    }],
+  });
+
+  await assert.rejects(buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    publicKeys: ledgerPublicKeys(privateKey),
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  }), /no longer authorizes autonomous repair/u);
 });
 
 test("github-actions bot comments cannot authorize an automatic contract", async () => {

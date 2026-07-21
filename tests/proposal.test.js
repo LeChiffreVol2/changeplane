@@ -45,6 +45,22 @@ test("accepts only bounded modifications inside the controller grant", () => {
   assert.throws(() => validatePatchProposal("I fixed the race", request.allowedPaths), /only a unified Git patch/u);
 });
 
+test("rejects attempts to repair by weakening tests or evidence controls", () => {
+  for (const filePath of [
+    "src/payments/retry.test.js",
+    "tests/payments/retry.js",
+    "package.json",
+    "playwright.config.ts",
+  ]) {
+    const unsafePatch = patch.replaceAll("src/payments/retry.js", filePath);
+    assert.throws(
+      () => validatePatchProposal(unsafePatch, ["src/payments/**", "tests/**", "package.json", "playwright.config.ts"]),
+      /protected evidence or test control/u,
+      filePath,
+    );
+  }
+});
+
 test("marks diagnostics and source as untrusted and keeps the model out of verification", () => {
   const messages = buildProposalMessages({
     request,

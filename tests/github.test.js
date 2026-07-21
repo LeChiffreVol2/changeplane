@@ -237,6 +237,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
     "changeplane/server/github-repair-controller.js",
     "changeplane/server/repair-ledger.js",
     "changeplane/examples/changeplane-claim.js",
+    "changeplane/examples/changeplane-evidence-policy.js",
     "changeplane/examples/changeplane-grant.js",
     "changeplane/examples/changeplane-proposal.js",
     "changeplane/examples/changeplane-provider-openai.js",
@@ -251,7 +252,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 9);
+  assert.equal(manifest.managedVersion, 10);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -259,6 +260,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
     "changeplane/action.yml",
     "changeplane/action/index.js",
     "changeplane/examples/changeplane-claim.js",
+    "changeplane/examples/changeplane-evidence-policy.js",
     "changeplane/examples/changeplane-grant.js",
     "changeplane/examples/changeplane-proposal.js",
     "changeplane/examples/changeplane-provider-openai.js",
@@ -328,7 +330,17 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
   assert.match(installerSource, /The receipt will not claim that the code works/u);
   const policy = JSON.parse(files.get(".changeplane.json"));
   assert.equal(policy.version, 1);
-  assert.deepEqual(policy.evidence, { requiredChecks: [], timeoutSeconds: 0 });
+  assert.deepEqual(policy.evidence, {
+    requiredChecks: [],
+    protectedPaths: [
+      "test/**", "tests/**", "spec/**", "specs/**", "__tests__/**", "e2e/**", "cypress/**",
+      "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
+      "pyproject.toml", "pytest.ini", "tox.ini", "poetry.lock", "Pipfile", "Pipfile.lock",
+      "Cargo.toml", "Cargo.lock", "go.mod", "go.sum", "pom.xml", "build.gradle", "build.gradle.kts",
+      "gradle.lockfile", "composer.json", "composer.lock", "Makefile",
+    ],
+    timeoutSeconds: 0,
+  });
   assert.deepEqual(policy.harness, { mode: "observe", maxAttempts: 2, budgetMinutes: 15 });
   assert.deepEqual(policy.review, {
     mode: "advisory",
@@ -351,6 +363,13 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
   }).map((file) => [file.path, file.content]));
   assert.deepEqual(JSON.parse(behaviorFiles.get(".changeplane.json")).evidence, {
     requiredChecks: [{ name: "CI / test", appSlug: "github-actions" }],
+    protectedPaths: [
+      "test/**", "tests/**", "spec/**", "specs/**", "__tests__/**", "e2e/**", "cypress/**",
+      "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
+      "pyproject.toml", "pytest.ini", "tox.ini", "poetry.lock", "Pipfile", "Pipfile.lock",
+      "Cargo.toml", "Cargo.lock", "go.mod", "go.sum", "pom.xml", "build.gradle", "build.gradle.kts",
+      "gradle.lockfile", "composer.json", "composer.lock", "Makefile",
+    ],
     timeoutSeconds: 120,
   });
   const autonomousFiles = new Map(buildPilotFiles({
@@ -385,8 +404,8 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 9,
-    targetVersion: 9,
+    currentVersion: 10,
+    targetVersion: 10,
     conflicts: [],
   });
 
@@ -394,6 +413,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.match(installerSource, /\n  6: Object\.freeze\(\{/u);
   assert.match(installerSource, /\n  7: Object\.freeze\(\{/u);
   assert.match(installerSource, /\n  8: Object\.freeze\(\{/u);
+  assert.match(installerSource, /\n  9: Object\.freeze\(\{/u);
   assert.match(installerSource, /"changeplane\/action\/index\.js": "ea330794dfc3c9cd2cf1753a67f72cd0fdd71cb6946e80fbb7fe5a97dca71bf2"/u);
   assert.match(installerSource, /"\.github\/workflows\/changeplane\.yml": "f8a241d54c5a84c24ce2b333c25ca688f6f0f81dceb1ae65337057d4881c41f2"/u);
   assert.match(installerSource, /"changeplane\/examples\/changeplane-provider-openai\.js": "28c2264457b438d4e0830d1c378121c1892b0883888068e4fa95a4b2708373bb"/u);
@@ -402,7 +422,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 9,
+    targetVersion: 10,
     conflicts: [],
   });
 
@@ -419,7 +439,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v9 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v10 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -489,7 +509,7 @@ test("pristine manifestless install creates one manifest-only v9 upgrade PR from
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v9") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v10") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1781,11 +1801,11 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       const payload = JSON.parse(response.body);
       assert.equal(payload.installable, true);
       assert.equal(payload.defaultBranch, "main");
-      assert.equal(payload.setupFiles, 20);
+      assert.equal(payload.setupFiles, 21);
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 9,
+        targetVersion: 10,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
@@ -2232,6 +2252,30 @@ test("cancelled GitHub authorization returns to a bounded retry screen without e
   });
 });
 
+test("failed GitHub authorization returns to a redacted retry screen", async () => {
+  await withOAuthEnvironment(async () => {
+    const state = "s".repeat(43);
+    const saved = seal({
+      kind: "oauth",
+      state,
+      redirectUri: "https://changeplane.example/api/github?action=callback",
+      authMode: "oauth",
+      verifier: "v".repeat(64),
+    }, SECRET, { purpose: "oauth" });
+    const response = responseRecorder();
+    await handler({
+      method: "GET",
+      url: `/api/github?action=callback&error=server_error&error_description=private-upstream-message&state=${state}`,
+      headers: { cookie: `__Host-changeplane_oauth=${saved}` },
+    }, response);
+    assert.equal(response.statusCode, 302);
+    const location = new URL(response.getHeader("location"));
+    assert.equal(location.searchParams.get("github"), "authorization_failed");
+    assert.equal(location.toString().includes("private-upstream-message"), false);
+    assert.match(response.getHeader("set-cookie")[0], /Max-Age=0/u);
+  });
+});
+
 test("GitHub App onboarding installs first, then verifies the installation through user OAuth", async () => {
   await withGitHubAppEnvironment(async () => {
     const installResponse = responseRecorder();
@@ -2398,6 +2442,57 @@ test("returning GitHub App users authorize without reopening installation settin
       globalThis.fetch = originalFetch;
     }
   });
+});
+
+test("returning users receive recoverable installation and permission states", async () => {
+  for (const scenario of [
+    { installations: [], expected: "installation_missing" },
+    {
+      installations: [{
+        id: 98765,
+        app_slug: "changeplane-test",
+        permissions: { contents: "read", pull_requests: "read", workflows: "read", checks: "read" },
+      }],
+      expected: "permissions_required",
+    },
+  ]) {
+    await withGitHubAppEnvironment(async () => {
+      const authorizeResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=authorize", headers: {} }, authorizeResponse);
+      const authorizeUrl = new URL(authorizeResponse.getHeader("location"));
+      const oauthState = authorizeUrl.searchParams.get("state");
+      const oauthCookie = authorizeResponse.getHeader("set-cookie")[0].split(";", 1)[0];
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (url) => {
+        const requestUrl = new URL(String(url));
+        if (requestUrl.origin === "https://github.com") {
+          return { ok: true, status: 200, async json() { return { access_token: "ghu_recovery_token", expires_in: 28_800, scope: "" }; } };
+        }
+        if (requestUrl.pathname === "/user") {
+          return { ok: true, status: 200, async json() { return { login: "returning-user" }; } };
+        }
+        if (requestUrl.pathname === "/user/installations") {
+          return { ok: true, status: 200, async json() { return { installations: scenario.installations }; } };
+        }
+        throw new Error(`Unexpected request: ${requestUrl}`);
+      };
+      try {
+        const callbackResponse = responseRecorder();
+        await handler({
+          method: "GET",
+          url: `/api/github?action=callback&code=valid-code-456&state=${oauthState}`,
+          headers: { cookie: oauthCookie },
+        }, callbackResponse);
+        assert.equal(callbackResponse.statusCode, 302);
+        const location = new URL(callbackResponse.getHeader("location"));
+        assert.equal(location.searchParams.get("github"), scenario.expected);
+        assert.match(callbackResponse.getHeader("set-cookie")[0], /Max-Age=0/u);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  }
 });
 
 test("returning authorization keeps every eligible personal and organization installation", async () => {

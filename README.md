@@ -22,6 +22,7 @@ The public product is available at [changeplane.vercel.app](https://changeplane.
 - **BYOK boundary:** required for autonomous proposals and stored only as a per-repository GitHub Actions Secret
 - **Review boundary:** `ChangePlane / review` is exact-diff, advisory evidence; it never certifies, approves, or publishes PASS
 - **Repair boundary:** two attempts within one immutable 15-minute campaign; protected, ambiguous, stale, provider-failed, or exhausted cases stop for a human
+- **Evidence boundary:** autonomous repair cannot edit tests, evidence configuration, dependency manifests, or repository-declared evidence paths; those changes require human review
 - **Production boundary:** no managed spend, direct default-branch write, model-held forge credential, or merge authority
 
 Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path. Product and competitive priorities are in [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md).
@@ -39,7 +40,7 @@ The project owner retained the product and authority decisions that materially d
 | Use RouteThai only as a sanitized production-informed shadow pilot | Built and audited the synthetic fixture, replay, redacted evidence, and prohibited-data scan |
 | Make Luna the real default while allowing Terra and Sol | Migrated the shared runtime contract, Responses API adapter, config-PR flow, and allowlist tests |
 | Prefer a small repository-native harness over an agent platform | Removed the need for a ChangePlane queue, database, proprietary workspace, CLI, or merge service |
-| Open self-serve onboarding to both individuals and organizations | Implemented installation-scoped repository discovery, separate entry actions, BYOK, safety preflight, and one protected setup PR |
+| Open self-serve onboarding to both individuals and organizations | Implemented one GitHub-owned account-selection flow, installation-scoped repository discovery, BYOK, safety preflight, and one protected setup PR |
 
 GPT-5.6 Luna is not marketing copy in the UI. It is the default in the shared runtime contract, trusted policy, server validation, GitHub workflow template, BYOK verification, and live synthetic adapter canary. Terra and Sol use the same allowlisted adapter contract. DeepSeek remains as an unadvertised compatibility adapter and is not part of the Build Week experience.
 
@@ -58,7 +59,7 @@ There were no repository commits before the Build Week eligibility window. The r
 | Assurance plane and managed v7 | July 20, 2026 | [`PR #32`](https://github.com/LeChiffreVol2/changeplane/pull/32) | Independent review, assurance memory, agent handback, exact-head preview contract, and `merge_group` guard contract |
 | Luna raw-diff hardening and managed v8 | July 20, 2026 | [`PR #34`](https://github.com/LeChiffreVol2/changeplane/pull/34) | Live fail-closed canary finding converted into a strict `^diff --git ` Structured Outputs constraint |
 | Redacted provider evidence and managed v9 | July 20, 2026 | [`PR #35`](https://github.com/LeChiffreVol2/changeplane/pull/35) · [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json) | Production release plus live Luna request metadata, clean validation, App-authored repair, synchronize event, and new-head PASS |
-| Self-serve submission product release | July 21, 2026 | [`cfd8aeef79e1d612b2fe819b8f77278d8e75845e`](https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e) · [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json) | Separate personal and organization onboarding; direct Production readiness and exact deployment provenance |
+| Self-serve submission product release | July 21, 2026 | [`cfd8aeef79e1d612b2fe819b8f77278d8e75845e`](https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e) · [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json) | Personal and organization onboarding; direct Production readiness and exact deployment provenance |
 
 **Codex Session ID:** `019f7ebd-79a5-73b1-b93e-42349c652ce3`
 
@@ -94,7 +95,7 @@ flowchart LR
 
 The model job receives no GitHub token, App private key, controller secret, push credential, merge permission, or Check authority. Provider output is treated as untrusted data and must pass the same patch-only validator as every compatibility adapter. A model cannot return PASS.
 
-The public replay is intentionally not a technical dashboard. It is a complete, automatically running explanation of this boundary. Connected onboarding is GitHub App-first: connect GitHub, choose one repository from any eligible personal or organization installation, bind one exact behavioral check, save BYOK directly to GitHub, and merge one setup PR. Scope-only users remain in observe mode; autonomous mode never activates without both the check and provider key.
+The public replay is intentionally not a technical dashboard. It is a complete, automatically running explanation of this boundary. Connected onboarding is GitHub App-first: choose `Install ChangePlane on GitHub`, select a personal account or organization on GitHub, choose one eligible repository, bind one exact behavioral check, save BYOK directly to GitHub, and merge one setup PR. Returning users use `Already installed? Continue with GitHub`. Scope-only users remain in observe mode; autonomous mode never activates without both the check and provider key.
 
 ## Product surface
 
@@ -158,7 +159,7 @@ Runtime and harness policy are read from the trusted default-branch checkout. Pu
 - source context only from allowed paths; and
 - an official Responses API `text.format` JSON schema with one required `patch` field.
 
-The schema requires the patch string to begin with `diff --git `; the adapter then extracts only that field and passes it to the unchanged unified-diff and allowed-path validator. It fails closed on invalid credentials, unsupported models, provider refusal, timeout, oversized output, malformed JSON or schema, incomplete output, empty patches, new files, deleted files, protected paths, paths outside the grant, clean-apply failure, or failed deterministic re-validation. Successful provider metadata records only the allowlisted model, completed/incomplete state, and a bounded request ID; prompts, patches, response bodies, and credentials are never logged. See OpenAI's [Responses API structured-output definition](https://developers.openai.com/api/docs/guides/migrate-to-responses#6-update-structured-outputs-definitions).
+The schema requires the patch string to begin with `diff --git `; the adapter then extracts only that field and passes it to the unchanged unified-diff and allowed-path validator. It fails closed on invalid credentials, unsupported models, provider refusal, timeout, oversized output, malformed JSON or schema, incomplete output, empty patches, new files, deleted files, tests, evidence configuration, dependency manifests, protected paths, paths outside the grant, clean-apply failure, or failed deterministic re-validation. Repository-owned `evidence.protectedPaths` is additive to immutable defaults and is rechecked by the trusted controller. Successful provider metadata records only the allowlisted model, completed/incomplete state, and a bounded request ID; prompts, patches, response bodies, and credentials are never logged. See OpenAI's [Responses API structured-output definition](https://developers.openai.com/api/docs/guides/migrate-to-responses#6-update-structured-outputs-definitions).
 
 ## GitHub and BYOK API
 
