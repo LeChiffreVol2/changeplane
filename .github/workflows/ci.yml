@@ -32,11 +32,11 @@ jobs:
         with:
           node-version: 22.18.0
           cache: npm
-      - name: Enforce the pilot workflow activation boundary
+      - name: Enforce the workflow activation boundary
         run: |
           active_workflows="$(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)"
           if [[ "$active_workflows" != ".github/workflows/ci.yml" ]]; then
-            printf 'Only .github/workflows/ci.yml may be active in the observe pilot. Found:\n%s\n' "$active_workflows"
+            printf 'Only .github/workflows/ci.yml may be active in the ChangePlane source repository. Found:\n%s\n' "$active_workflows"
             exit 1
           fi
           test -f examples/changeplane-observe.yml
@@ -48,6 +48,8 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      - name: Audit public source and build data
+        run: npm run audit:public
       - name: Install the Chromium test browser
         run: npx playwright install --with-deps chromium
       - name: Test onboarding in a real browser

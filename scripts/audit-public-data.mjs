@@ -4,9 +4,16 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const EXCLUDED_DIRECTORIES = new Set([
+  ".audit",
+  ".devpost",
   ".git",
   ".npm-cache",
+  ".playwright-cli",
+  ".vercel",
+  "audit-blueprint",
   "node_modules",
+  "output",
+  "outputs",
   "playwright-report",
   "test-results",
 ]);

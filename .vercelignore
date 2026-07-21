@@ -1,4 +1,5 @@
 .audit/
+.devpost/
 .github/
 .npm-cache/
 .playwright-cli/
@@ -14,6 +15,7 @@ examples/*
 !examples/changeplane-review-run.js
 !examples/changeplane-repair.yml
 output/
+outputs/
 tests/
 *.docx
 design-qa.md

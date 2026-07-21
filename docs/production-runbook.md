@@ -118,7 +118,7 @@ Containment is repository-first because it does not wait for a Vercel deployment
 
 Production request logs are structured JSON with a ChangePlane request ID, route, method, status, duration, and upstream GitHub status/request ID when available. Request bodies, cookies, OAuth tokens, repository names, provider keys, and upstream response bodies must never be logged. Any secret or repository identifier in logs is a security incident.
 
-There is no external log drain, synthetic monitor, pager, or claimed 24/7 alerting in this pilot. GitHub Checks/comments are the durable decision record. Vercel runtime logs are short-lived, so the release owner watches them during onboarding and captures only redacted request IDs and timestamps needed for an incident record. Treat these observed conditions as incidents:
+There is no external log drain, synthetic monitor, pager, or claimed 24/7 alerting in this release. GitHub Checks/comments are the durable decision record. Vercel runtime logs are short-lived, so the release owner watches them during onboarding and captures only redacted request IDs and timestamps needed for an incident record. Treat these observed conditions as incidents:
 
 - Readiness returns non-`200` twice in succession.
 - GitHub returns `429` or repeated `5xx`, or authorization callbacks fail repeatedly.
@@ -169,6 +169,6 @@ ChangePlane cannot recover a provider key because plaintext is never persisted.
 3. Let requests fail closed. There is no queue to drain and no polling service to restart.
 4. Resume only after Preview readiness and one disposable-repository observe evaluation succeed.
 
-## Pilot support handoff
+## Repository support handoff
 
-Every pilot repository needs one customer repository owner and one ChangePlane owner. Record the installation identity, selected repository boundary, contacts, and rollback decision before onboarding. A handoff is incomplete without access to GitHub authorization revocation, Vercel rollback, provider-key revocation, and the release record.
+Every connected repository needs one customer repository owner and one ChangePlane owner. Record the installation identity, selected repository boundary, contacts, and rollback decision before onboarding. A handoff is incomplete without access to GitHub authorization revocation, Vercel rollback, provider-key revocation, and the release record.

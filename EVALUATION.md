@@ -2,6 +2,8 @@
 
 ChangePlane is independent, exact-revision assurance for code written and repaired by AI agents. The fastest evaluation path is public, requires no credentials, and does not access a production repository.
 
+The hosted product is the supported deployment. Evaluators and customers do not need a Vercel account or a self-hosted ChangePlane instance.
+
 ## Public product path
 
 Open [changeplane.vercel.app](https://changeplane.vercel.app/) in a signed-out browser, then select **View RouteThai example**.
@@ -36,8 +38,9 @@ Requirements: Node.js `>=22.18 <23`.
 
 ```sh
 npm ci --cache .npm-cache
-npm test
-npm run build
+npm run verify
+npm run test:e2e
+npm run audit:prod
 ```
 
 The suite verifies the shared model allowlist, Luna default, Responses API failures, BYOK encryption and deletion, exact-diff review validation, repository isolation, stale-head rejection, path grants, two-attempt/15-minute ledgers, trusted controller separation, one-time exact-repository push tokens, and the production build.
@@ -66,6 +69,8 @@ Never paste a provider key into an issue, log, screenshot, or committed file.
 - GitHub App, BYOK, and runtime API: [`api/github.js`](api/github.js)
 - Independent review validator: [`src/lib/review.js`](src/lib/review.js)
 - Production operations: [`docs/production-runbook.md`](docs/production-runbook.md)
+- Hosted/Vercel boundary: [`docs/hosted-service.md`](docs/hosted-service.md)
+- Data handling: [`docs/data-handling.md`](docs/data-handling.md)
 
 ## Current production boundaries
 
@@ -76,3 +81,4 @@ Never paste a provider key into an issue, log, screenshot, or committed file.
 - Managed model billing and GitHub Enterprise Server are not available in this release.
 - Merge Queue support is guard-only for the exact `merge_group`; queue events never dispatch model review or repair.
 - The public RouteThai workspace is a sanitized replay. It does not expose or contact RouteThai's private repository, routes, customers, or operating data.
+- Existing Vercel previews are included only through an exact-SHA GitHub Deployment; ChangePlane requests no customer Vercel credential.

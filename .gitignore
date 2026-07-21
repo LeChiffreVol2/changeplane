@@ -5,6 +5,7 @@ dist/
 .audit/
 .playwright-cli/
 output/
+outputs/
 audit-blueprint/
 .env
 .env.*
