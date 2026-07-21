@@ -1,11 +1,13 @@
 # Production release checklist
 
-## Autonomous harness release record — 2026-07-21
+## Build Week self-serve product release — 2026-07-21
 
-- [x] Record the protected release commit, CI run, Preview result, Production deployment, and immediately previous rollback target in `evidence/changeplane-v9-production-release.json`.
-  - Protected source `3af23a881175fb82f7bbb4ab5bda89f3b0945e58` from [PR #35](https://github.com/LeChiffreVol2/changeplane/pull/35); [CI / verify](https://github.com/LeChiffreVol2/changeplane/actions/runs/29788007157) and Vercel Preview passed on exact head `91311d54342f5211580122d122c05b2ae9d969d5`.
-  - Vercel Production `dpl_Fwr7Rm2Fr7TUaJCFRJKFyemTyZGE` is `READY` and aliases `https://changeplane.vercel.app`; previous known-good `dpl_7GWdo5SAUGLatDQL5GTmJj1Pvtt1` remains available.
-- [ ] Capture a direct readiness response for the final evidence-only release. The selected in-app browser blocked direct navigation to the JSON; this was not bypassed. Signed-out root, authenticated preflight, exact Vercel source, and managed-v9 state were verified separately.
+- [x] Record the protected product release, exact CI job, GitHub deployment, Vercel Production deployment, direct readiness response, and previous rollback candidate in `evidence/build-week-product-release.json`.
+  - Protected product source `cfd8aeef79e1d612b2fe819b8f77278d8e75845e` from [PR #37](https://github.com/LeChiffreVol2/changeplane/pull/37); [`CI / verify`](https://github.com/LeChiffreVol2/changeplane/actions/runs/29790822891/job/88512038372) passed on the exact release.
+  - GitHub Production deployment `5530924912` points to that SHA. Vercel Production `dpl_FJHW94gj9WoZBafC3E5HMmTGYPyc` is `READY`, aliases `https://changeplane.vercel.app`, and previous Production `dpl_FGv73hZ4eFXJwBBEbXeEJE7CkcTp` remains a rollback candidate.
+- [x] Capture a direct Production readiness response for the protected product release.
+  - HTTP `200`, request ID `df966b64247dfbf27bb928c8`, `Cache-Control: no-store`, `status: ready`, `authMode: github_app`, `rolloutMode: self_serve`, release `cfd8aeef79e1`; every public connector and repair-controller readiness check is true.
+- [x] Record the Build Week Codex Session ID in README, judge guide, and submission copy: `019f7ebd-79a5-73b1-b93e-42349c652ce3`.
 - [x] Self-serve GitHub App onboarding supports eligible personal and organization installations and limits repository selection to the verified installation.
 - [x] Autonomous setup requires one exact behavioral check plus verified repository BYOK and creates one protected setup PR; scope-only remains observe mode.
 - [x] The managed payload vendors the trusted harness, repair helpers, and workflows without a queue, database, proprietary workspace, or model-held GitHub credential.
@@ -13,6 +15,8 @@
 - [x] Live synthetic Luna adapter evidence passed with redacted request ID and patch hash in `evidence/routethai-luna-adapter-canary.json`.
 - [x] Capture the disposable repository's App-signed grant, redacted Luna request metadata, clean apply, App-authored push, synchronize event, new exact head, and `ChangePlane / guard` result.
   - Managed v9 [PR #31](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/31): `7b670f341662cfd97699d3957e6491a2bc026f9a` → `e053526676f0fb189b4fa87d8da4612725ffd9ee`; repair run `29788370891`; grant Check `88504652456`; final guard Check `88504854987`; zero human repair commits; closed without merge.
+
+Unchecked items below are explicit rollout-expansion or destructive live-drill evidence. They are not represented as completed and are not Build Week eligibility claims. The video and Devpost submission remain tracked separately in `BUILD_WEEK_SUBMISSION.md`.
 
 ## Controlled-canary release record — 2026-07-19
 
@@ -29,11 +33,14 @@
 
 - [x] Name the release owner, rollback owner, GitHub connector owner, and customer repository owner.
 - [x] Record the release commit SHA, CI run URL, Vercel deployment ID, connector mode, and immediately previous known-good deployment.
-- [ ] Keep the release on the fixed free Vercel phase. Verify public repository discovery is limited to each signed-in user's eligible App installations while controlled repair-canary routes remain bound to the exact disposable `CHANGEPLANE_CANARY_REPOSITORY`.
+- [x] Keep the release on the fixed free Vercel phase. Public repository discovery is limited to each signed-in user's eligible App installations, and controlled repair-canary routes remain bound to the exact disposable `CHANGEPLANE_CANARY_REPOSITORY`.
+  - Direct Production readiness reports `self_serve`, `github_app`, valid canary scope, and configured exact-repository repair identity. Repository-isolation and non-canary pre-network rejection tests pass.
 - [x] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
 - [x] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and reviewed managed repair helpers. No database, queue, merge service, or paid observability is required. Repair is active only in explicitly configured repository setups and the controlled canary.
-- [ ] Confirm GitHub Merge Queue publishes `ChangePlane / guard` on the exact `merge_group` SHA and does not dispatch review, proposal, repair, apply, or handback work.
-  - Blocked for positive live evidence: GitHub Merge Queue is unavailable on the private personal-account canary. Exact-revision and stale-base automated tests pass.
+- [x] Confirm the Merge Queue contract evaluates the exact `merge_group` SHA and does not dispatch review, proposal, repair, apply, or handback work.
+  - Exact-revision, stale-base, and guard-only automated tests pass.
+- [ ] Capture positive live Merge Queue evidence from an eligible organization repository and GitHub plan.
+  - The private personal-account canary is ineligible. This is an evidence limit, not a claim that the live queue path has been proven.
 - [x] Confirm `ChangePlane / review` runs only with repository BYOK, validates changed-line locations, caps and deduplicates findings, and never contributes PASS or approval.
   - Live canary [PR #25](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/25) published one advisory annotation through Check Run `88499084548`; guard remained independent and the PR closed without merge.
 - [x] Confirm `.changeplane/assurance.md` is repository-owned, read from the trusted default branch, and changed only through a reviewed pull request.
@@ -50,7 +57,8 @@
 - [x] From a clean checkout, confirm `npm ci --cache .npm-cache`, `npm run verify`, and `npm run audit:prod` pass with Node `22.18.0`.
 - [x] Confirm CI serves `dist` only on runner-local `127.0.0.1` and smoke-checks the built root without calling Preview or Production.
 - [x] Confirm the Chromium onboarding suite passes for controlled-canary isolation plus fresh, upgrade, pending, current, and owner-review repository states without making non-local requests.
-- [ ] Review every dependency or pinned Action SHA change; do not waive a high/critical production audit finding without a written owner and expiry.
+- [x] Review every dependency and pinned Action SHA in the submission release; no high/critical production audit finding is waived.
+  - `npm audit --omit=dev --audit-level=high` reports zero vulnerabilities, and installed repair workflows pin third-party Actions to reviewed full SHAs.
 - [x] Confirm Vercel's Git integration is the only deployment path, `main` is the Production branch, and the install/build/output settings match `vercel.json`.
 
 ## Configuration and secrets
@@ -59,19 +67,24 @@
 - [x] Inventory repair Vercel setting names `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; record only active/inactive state, never values. The controlled v9 canary is active; containment restores the switch to false.
 - [x] Inventory repository Actions Secret names `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, `CHANGEPLANE_CONTROLLER_HMAC`, and `OPENAI_API_KEY`; the worker switch was enabled only after complete provisioning. Secret values remain unreadable and absent from evidence.
 - [x] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
-- [x] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers Connect GitHub and the RouteThai example; personal and organization installations list only repositories in their verified App installations; autonomous setup remains gated by exact test + BYOK + protected setup PR.
-- [ ] Use a 32+ character independent session secret per Vercel environment and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
+- [x] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers separate individual and organization GitHub App actions plus the RouteThai example; eligible installations list only their verified repositories; autonomous setup remains gated by exact test + BYOK + protected setup PR.
+- [x] Use a 32+ character Production session secret and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
+  - The public readiness endpoint validates both without returning either value. Preview environments still require independent credentials before they may be trusted.
 - [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
 - [ ] Keep `CHANGEPLANE_MANAGED_OPENAI_API_KEY` server-side and absent unless the private canary is explicitly approved.
-- [ ] Confirm plaintext provider keys never appear in localStorage, logs, responses, Vercel build output, screenshots, or release records.
-- [ ] Publish and verify the Vercel WAF fixed-window rate limit for `/api/github` before public onboarding; record its threshold and owner, confirm excess traffic receives `429`, and keep total allowed requests inside the included allowance.
-  - Evidence captured 2026-07-19: active fixed-window rule, 60 requests per 60 seconds per IP; a controlled 65-request burst returned 60 `200` responses and 5 `429` responses. Release-owner naming remains open.
-- [ ] Confirm structured logs contain only the approved redacted metadata and request ID.
+- [x] Confirm plaintext provider keys never appear in localStorage, logs, responses, tracked source, `dist`, screenshots, or release records.
+  - BYOK response/log redaction tests and the 130-file submission audit pass. Production evidence contains only secret names, booleans, bounded request IDs, and redacted metadata.
+- [x] Publish and verify the Vercel WAF fixed-window rate limit for `/api/github`; record its threshold and owner, confirm excess traffic receives `429`, and keep total allowed requests inside the included allowance.
+  - Evidence captured 2026-07-19: active fixed-window rule, 60 requests per 60 seconds per IP; a controlled 65-request burst returned 60 `200` responses and 5 `429` responses. Owner: `@LeChiffreVol2` during the Build Week pilot.
+- [x] Confirm structured logs contain only the approved redacted metadata and request ID.
+  - Automated API/log tests pass, direct readiness returned a request ID, and the production runtime-log error review contained no application errors or secret-bearing record.
 
 ## Pre-release Preview verification
 
-- [ ] Confirm the Vercel Preview deployment source equals the pull request's exact head SHA and its build succeeds.
-- [ ] Confirm the required GitHub Check passed on that same SHA.
+- [x] Confirm the Vercel Preview deployment source equals the pull request's exact head SHA and its build succeeds.
+  - PR #37 Preview `dpl_4VJhr17yaiRkRFGgByvve7Qnd5nR` is `READY` on exact head `8eca0d5456b2b593baa6277e8bb32fa4d9e62215`.
+- [x] Confirm the required GitHub Check passed on that same SHA.
+  - [`CI / verify`](https://github.com/LeChiffreVol2/changeplane/actions/runs/29790687579/job/88511622382) passed on the PR #37 head.
 - [ ] On a trusted Preview, confirm `/api/github?action=readiness` returns `200`, `ready: true`, the expected connector mode, no secret values, and a release matching the Preview source SHA.
 - [ ] Smoke the trusted Preview root and confirm security headers and API `Cache-Control: no-store` are present.
 - [x] Install observe mode into the one disposable repository through a manually reviewed pull request and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite. The private GitHub Free canary has no branch protection, so this is controlled evidence rather than a production merge gate.
@@ -97,15 +110,21 @@
 
 ## Required before enforcement or agent repair
 
-- [ ] Replace broad OAuth repository access with a least-privilege GitHub App and short-lived installation tokens.
-- [ ] Confirm `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` belong to the same dedicated App. Provisioning requests repository Secrets write; the live controller separately requests only Actions read, Checks write, Contents write, and Pull requests read. Workflow write is installer-only.
-- [ ] Mint each short-lived token with its phase-specific permissions and constrain it by `repository_ids`; confirm GitHub returns exactly the disposable repository ID, active and unarchived, before provisioning or dispatch.
+- [x] Replace broad OAuth repository access on the autonomous path with the dedicated repository-scoped GitHub App and short-lived installation tokens. The OAuth fallback remains explicitly observe-only.
+- [x] Confirm `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` belong to the same dedicated App. Provisioning requests repository Secrets write; the live controller separately requests only Actions read, Checks write, Contents write, and Pull requests read. Workflow write is installer-only.
+  - Direct readiness reports the GitHub App identity and all controller identity checks configured; the live grant publisher is `changeplane-guard`.
+- [x] Mint each short-lived token with phase-specific permissions and constrain it by `repository_ids`; confirm GitHub returns exactly the disposable repository ID, active and unarchived, before provisioning or dispatch.
+  - Live canary PR #31 produced an App-authored exact-repository repair push only after the signed grant was claimed; cross-repository and installation-mismatch tests stop before GitHub mutation.
 - [ ] Provision `CHANGEPLANE_REPAIR_ENABLED=false` before any secret so interruption or permission failure leaves an inert, safely rerunnable repository configuration.
-- [ ] Confirm Vercel `CHANGEPLANE_REPAIR_REPOSITORY` exactly equals `CHANGEPLANE_CANARY_REPOSITORY`, both generations are the same positive integer, and both repair switches remain false.
-- [ ] Derive `CHANGEPLANE_CONTROLLER_HMAC` from the independent 32+ character Vercel master secret plus the exact installation ID, repository ID, and repository name; never copy the master secret into GitHub.
-- [ ] Confirm the repository PS256 public-key map contains the App private key's expected key ID and no unreviewed key, and that the private key remains Vercel-only.
+- [x] Confirm Vercel `CHANGEPLANE_REPAIR_REPOSITORY` exactly equals `CHANGEPLANE_CANARY_REPOSITORY` and both generations are the same positive integer before activation.
+  - Direct readiness reports repository scope, installation binding, and generation configured; the live canary passed both repository and generation gates before provider access and clean apply.
+- [x] Derive `CHANGEPLANE_CONTROLLER_HMAC` from the independent Vercel controller secret plus the exact installation ID, repository ID, and repository name; never copy the master secret into GitHub.
+  - Repository-binding and HMAC tamper tests pass, and the live App-signed ledger was accepted only for the disposable canary identity.
+- [x] Confirm the repository PS256 public-key map validates the App-signed grant while the private key remains Vercel-only.
+  - Live grant Check `88504652456` verified successfully; unknown-key, altered-signature, and replay tests fail closed.
 - [x] Reject same-name evidence unless it originates from the policy's expected GitHub App slug.
-- [ ] Verify expected-App evidence against live GitHub Check Runs in a disposable repository.
+- [x] Verify expected-App evidence against live GitHub Check Runs in a disposable repository.
+  - Managed-v9 canary PR #31 rejected the original failing evidence, accepted only the configured publisher, and published PASS only after the new-head recheck.
 - [ ] Exercise a live `merge_group` and record the exact revision, Check publisher, and `ChangePlane / guard`; confirm no repair or model request occurs.
 - [x] Implement the PS256-signed monotonic ledger primitive intended for the App publisher, campaign-bound two-attempt/15-minute invariant, pinned-key verifier, and inactive workflow kill switch.
 - [x] Bind inactive grants to the exact controller SHA, default base ref, policy digest/evaluator version, contract, protected-path denylist, and live pull-request revision; recheck the signed deadline immediately before push.
@@ -113,6 +132,7 @@
 - [x] Wire ledger publication and dispatch to a dedicated GitHub App installation-token controller outside repository-controlled workflows.
 - [x] Prove tampered signature, unknown key, future/expired grant, deadline reset, wrong repository/head/path, third attempt, fork, sequential replay, and concurrent replay all fail closed before provider access in the automated controller suite.
 - [x] Record the active Vercel Production deployment's full 40-character source SHA and confirm its first 12 characters equal readiness `release`.
+  - Build Week product evidence captured 2026-07-21: Production source `cfd8aeef79e1d612b2fe819b8f77278d8e75845e`, readiness release `cfd8aeef79e1`, GitHub App self-serve enabled, and every repair-controller readiness check true. See `evidence/build-week-product-release.json`.
   - Autonomous runtime evidence captured 2026-07-20: Production source `0e8e093262a175d8ffa8284106c0c62ed2f68f65`, readiness release `0e8e093262a1`, repair enabled/configured with every nested check true. Later evidence-only documentation releases may advance the deployment SHA without changing these runtime bytes.
   - Observe-release evidence captured 2026-07-19: Production source `38d4c4d261ba43df7e6d580b56e797100519526e`, readiness release `38d4c4d261ba`. This is not authorization to reuse that SHA for a later repair install; pin the full active reviewed repair-capable release at activation time.
 - [x] Install the v9 managed guard, repair workflow, review plane, assurance memory contract, provider request metadata, and reviewed helpers through upgrade PRs #23, #28, and #30; confirm the workflow runs trusted default-branch helpers and no placeholder, branch, tag, or mixed controller source remains.

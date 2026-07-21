@@ -26,7 +26,8 @@ The public product tells this story through a RouteThai production-informed shad
 
 **How we used OpenAI**
 
-- Codex collaborated on architecture, implementation, tests, security review, product copy, and competition packaging.
+- Codex inspected the original architecture, implemented the OpenAI proposal/review adapters and GitHub App/BYOK paths, built the bounded controller and fail-closed tests, preserved the product design, exercised the disposable canary, and reconciled release evidence.
+- The human owner made the durable product decisions: keep GitHub as merge authority, separate proposal from certification, limit autonomous repair to two attempts/15 minutes, use RouteThai only as a synthetic shadow pilot, and avoid a proprietary agent workspace, queue, or database.
 - GPT-5.6 Luna is the real default in the shared runtime contract, live adapter canary, and autonomous disposable-repository canary.
 - The native Responses API request uses high reasoning effort and disables storage.
 - Terra and Sol are available through the same trusted config-PR path.
@@ -41,7 +42,7 @@ The public product tells this story through a RouteThai production-informed shad
 
 **Honest limitations**
 
-The public RouteThai workspace is a recorded replay. Connected BYOK onboarding is self-serve for one GitHub.com repository per setup; GitHub Enterprise Server is not supported. Observe mode cannot block merge or deploy. Autonomous mode can create only bounded repair commits after one exact behavioral check fails; GitHub remains the merge and ruleset authority. Managed execution, billing, and GitHub merge-queue support are not enabled. The disposable canary proves the App-authored push and fresh exact-head PASS, but it is owner-controlled lab evidence rather than customer production enforcement.
+The public RouteThai workspace is a recorded replay. Connected BYOK onboarding is self-serve for one GitHub.com repository per setup; GitHub Enterprise Server is not supported. Observe mode cannot block merge or deploy. Autonomous mode can create only bounded repair commits after one exact behavioral check fails; GitHub remains the merge and ruleset authority. Managed execution and billing are not enabled. Merge Queue has an implemented and tested exact-`merge_group` guard-only contract, but positive live evidence is not captured because the private personal-account canary is ineligible; queue events never dispatch review or repair. The disposable canary proves the App-authored push and fresh exact-head PASS, but it is owner-controlled lab evidence rather than customer production enforcement.
 
 **Links**
 
@@ -49,7 +50,7 @@ The public RouteThai workspace is a recorded replay. Connected BYOK onboarding i
 - Repository: `https://github.com/LeChiffreVol2/changeplane`
 - Judge guide: `https://github.com/LeChiffreVol2/changeplane/blob/main/JUDGE_GUIDE.md`
 - Video: **add public YouTube URL**
-- Codex Session ID: **add value from `/feedback`**
+- Codex Session ID: `019f7ebd-79a5-73b1-b93e-42349c652ce3`
 
 ## Video storyboard — target 2:45
 
@@ -71,13 +72,13 @@ Use English narration or burned-in English subtitles. Use the product name as te
 
 ## Release checklist
 
-- [ ] `npm test` passes.
-- [ ] `npm run build` passes.
-- [ ] Browser QA passes on desktop and mobile.
-- [ ] Security/data scan passes for tracked source and `dist`.
-- [ ] Public signed-out RouteThai path works with one enabled primary CTA.
-- [ ] Product, README, judge guide, and video use the same authority-boundary language.
-- [ ] Release commit matches Vercel readiness provenance.
+- [x] `npm test` passes: 177 tests.
+- [x] `npm run build` passes.
+- [x] Browser QA passes on desktop and mobile: four Chromium end-to-end journeys.
+- [x] Security/data scan passes for tracked source and `dist`: 130 files scanned.
+- [x] Public signed-out RouteThai path works with one enabled primary CTA.
+- [x] Product, README, and judge guide use the same authority-boundary language.
+- [x] Product release `cfd8aeef79e1d612b2fe819b8f77278d8e75845e` matches direct Vercel readiness and deployment provenance in `evidence/build-week-product-release.json`.
 - [ ] YouTube video is public and under three minutes.
-- [ ] `/feedback` Codex Session ID is added here, README/Devpost, and video notes where appropriate.
+- [x] `/feedback` Codex Session ID is added here, README, and judge guide; add the same value to Devpost and video notes when those artifacts are created.
 - [ ] Devpost is submitted at least two hours before the deadline.

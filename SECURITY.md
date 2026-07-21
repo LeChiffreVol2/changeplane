@@ -10,6 +10,7 @@ Report a suspected vulnerability privately to the repository owner or through th
 - The evaluator reads policy from the trusted base revision and binds decisions to an exact head SHA.
 - A model can propose a patch but cannot issue `PASS`, approve, publish the required Check, or merge.
 - BYOK plaintext is processed only long enough to verify the allowlisted model and seal the key with GitHub's repository public key. It is never persisted, echoed, or logged by ChangePlane.
+- A provider key pasted into chat, an issue, a screenshot, or any other non-secret channel is treated as compromised even when repository and build scans are clean. The repository owner must revoke it at the provider, replace the repository Actions Secret with a new key, and verify fail-closed behavior before autonomous work resumes.
 - Observe mode never dispatches a repair and never blocks a merge.
 - Autonomous mode intentionally sends bounded failure evidence and text context only from controller-granted paths to the repository owner's selected OpenAI project. The proposal and validation helpers execute only from a trusted-base checkout; the pull-request checkout is treated as data. Observe-only evaluation and the public replay send no repository content to a model provider.
 - The setup PR vendors versioned managed workflows and helpers into the selected repository. Repository-owned edits to reserved managed bytes are never overwritten automatically.

@@ -4,7 +4,7 @@
 
 Open [https://changeplane.vercel.app/](https://changeplane.vercel.app/) in a signed-out browser.
 
-1. Confirm the primary action is **Connect GitHub** and the page explains the one-repository autonomous setup.
+1. Confirm the page offers **Connect as an individual** and **Connect an organization**, plus one signed-out **View RouteThai example** action.
 2. Select **View RouteThai example**. No sign-in is required.
 3. Read the boundary banner: production-informed shadow pilot, synthetic data, public replay, no repository access.
 4. The recorded autonomous run starts automatically.
@@ -25,6 +25,7 @@ The replay lasts about five seconds and makes no live OpenAI or GitHub request.
 | Clean apply and deterministic re-validation | Live verified | Original fixture failed; patched temporary worktree passed |
 | App-signed attempt ledger and one-time push credential | Live verified | [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json), canary PR #31, repair run `29788370891` |
 | App-authored GitHub push and exact-head PASS | Live verified | Initial head `7b670f3` → controller repair `e053526` → Check Run `88504854987` |
+| Public self-serve product release | Live verified | [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json): exact CI, GitHub deployment, Vercel deployment, direct readiness response, and rollback candidate |
 | `ChangePlane / review` | Live verified | Canary PR #25, one exact changed-line advisory, Check Run `88499084548`; guard remained independent |
 | Assurance memory | Live verified | Canary PR #24 added trusted `.changeplane/assurance.md` through a reviewed configuration pull request |
 | Agent handback | Live verified | Canary PR #31 exact-head receipt carries a proposal-only payload with no Git, Check, merge, or PASS authority |
@@ -73,6 +74,7 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - Redacted Luna evidence: [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json)
 - Redacted autonomous GitHub evidence: [`evidence/routethai-luna-github-canary.json`](evidence/routethai-luna-github-canary.json)
 - Managed-v9 production and final autonomous evidence: [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json)
+- Self-serve Build Week product-release evidence: [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json)
 
 ## Known limitations
 
@@ -92,4 +94,4 @@ That final command requires the judge's own `OPENAI_API_KEY` with access to `gpt
 - Category: Developer Tools
 - Repository: `https://github.com/LeChiffreVol2/changeplane`
 - Public product: [https://changeplane.vercel.app/](https://changeplane.vercel.app/)
-- Codex Session ID: **add the value returned by `/feedback` before submitting Devpost**
+- Codex Session ID: `019f7ebd-79a5-73b1-b93e-42349c652ce3`
