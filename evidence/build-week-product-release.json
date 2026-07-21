@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "build_week_self_serve_product_release",
+  "recordedAt": "2026-07-21T18:15:01Z",
+  "dataClassification": "public_and_redacted_metadata_only",
+  "source": {
+    "repository": "LeChiffreVol2/changeplane",
+    "protectedProductReleaseSha": "cfd8aeef79e1d612b2fe819b8f77278d8e75845e",
+    "releasePullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/37",
+    "releaseCommitUrl": "https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e",
+    "changeScope": "Separate GitHub App entry paths for individuals and organizations while preserving installation-scoped repository discovery, per-repository BYOK, and the autonomous harness boundary.",
+    "ciRunUrl": "https://github.com/LeChiffreVol2/changeplane/actions/runs/29790822891",
+    "ciJobUrl": "https://github.com/LeChiffreVol2/changeplane/actions/runs/29790822891/job/88512038372",
+    "ciCheck": "CI / verify",
+    "ciConclusion": "success"
+  },
+  "deployment": {
+    "provider": "vercel_git_integration",
+    "environment": "production",
+    "publicUrl": "https://changeplane.vercel.app/",
+    "deploymentId": "dpl_FJHW94gj9WoZBafC3E5HMmTGYPyc",
+    "deploymentUrl": "https://changeplane-o97mnjwb1-lechiffres-projects-029895e4.vercel.app",
+    "githubDeploymentId": 5530924912,
+    "sourceSha": "cfd8aeef79e1d612b2fe819b8f77278d8e75845e",
+    "readyState": "READY",
+    "previousKnownGoodDeploymentId": "dpl_FGv73hZ4eFXJwBBEbXeEJE7CkcTp",
+    "rollbackCandidateAvailable": true
+  },
+  "readiness": {
+    "verified": true,
+    "httpStatus": 200,
+    "requestId": "df966b64247dfbf27bb928c8",
+    "cacheControl": "no-store",
+    "status": "ready",
+    "release": "cfd8aeef79e1",
+    "authMode": "github_app",
+    "rolloutMode": "self_serve",
+    "managedRuntime": "reserved",
+    "checks": {
+      "githubClientId": true,
+      "githubClientSecret": true,
+      "githubAppSlug": true,
+      "sessionSecret": true,
+      "appOrigin": true,
+      "sourceProvenance": true,
+      "canaryRepository": true
+    },
+    "repairController": {
+      "enabled": true,
+      "configured": true,
+      "checks": {
+        "enabled": true,
+        "repositoryScope": true,
+        "installationBound": true,
+        "appId": true,
+        "appPrivateKey": true,
+        "controllerSecret": true,
+        "generation": true
+      }
+    }
+  },
+  "publicAcceptance": {
+    "signedOutRootVerified": true,
+    "individualEntryVisible": true,
+    "organizationEntryVisible": true,
+    "returningUserEntryVisible": true,
+    "routeThaiReplayAvailableWithoutSignIn": true,
+    "syntheticBoundaryVisible": true,
+    "exactHeadRepairSequenceVisible": true,
+    "modelAuthoritySeparationVisible": true,
+    "desktopAndMobileE2EPassed": true
+  },
+  "runtimeEvidence": {
+    "managedVersion": 9,
+    "autonomousCanaryEvidence": "evidence/changeplane-v9-production-release.json",
+    "adapterCanaryEvidence": "evidence/routethai-luna-adapter-canary.json",
+    "githubCanaryEvidence": "evidence/routethai-luna-github-canary.json"
+  },
+  "knownEvidenceLimits": {
+    "mergeGroupPositiveLiveProof": false,
+    "exactHeadPreviewPositiveLiveProof": false,
+    "byokRotationLiveProof": false,
+    "byokDeletionLiveProof": false,
+    "notes": "These paths are implemented and covered by automated contracts where applicable. They are not represented as positive live production evidence."
+  }
+}

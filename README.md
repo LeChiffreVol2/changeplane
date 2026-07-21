@@ -28,7 +28,18 @@ Start with [JUDGE_GUIDE.md](JUDGE_GUIDE.md) for the 90-second evaluation path. P
 
 ## What was built with Codex and GPT-5.6
 
-Codex was used to inspect the existing architecture, migrate the provider boundary, implement runtime policy and GitHub APIs, preserve the established product design, create tests and competition documentation, run the live adapter canary, and verify the release.
+Codex worked as the implementation and verification partner across the repository. It inspected the original assurance boundary, implemented the OpenAI proposal and review adapters, built the GitHub App/BYOK onboarding and autonomous controller paths, added fail-closed tests, preserved the established visual system, exercised the disposable canary, and reconciled the release evidence and competition package.
+
+The project owner retained the product and authority decisions that materially define ChangePlane:
+
+| Human decision | Codex contribution |
+| --- | --- |
+| Keep GitHub as forge and merge authority | Implemented the GitHub-native setup, Checks/comments receipts, and repository-scoped App paths |
+| A model may propose but never certify itself | Implemented separate proposal, deterministic validation, trusted apply, and exact-head Check boundaries |
+| Use RouteThai only as a sanitized production-informed shadow pilot | Built and audited the synthetic fixture, replay, redacted evidence, and prohibited-data scan |
+| Make Luna the real default while allowing Terra and Sol | Migrated the shared runtime contract, Responses API adapter, config-PR flow, and allowlist tests |
+| Prefer a small repository-native harness over an agent platform | Removed the need for a ChangePlane queue, database, proprietary workspace, CLI, or merge service |
+| Open self-serve onboarding to both individuals and organizations | Implemented installation-scoped repository discovery, separate entry actions, BYOK, safety preflight, and one protected setup PR |
 
 GPT-5.6 Luna is not marketing copy in the UI. It is the default in the shared runtime contract, trusted policy, server validation, GitHub workflow template, BYOK verification, and live synthetic adapter canary. Terra and Sol use the same allowlisted adapter contract. DeepSeek remains as an unadvertised compatibility adapter and is not part of the Build Week experience.
 
@@ -47,9 +58,11 @@ There were no repository commits before the Build Week eligibility window. The r
 | Assurance plane and managed v7 | July 20, 2026 | [`PR #32`](https://github.com/LeChiffreVol2/changeplane/pull/32) | Independent review, assurance memory, agent handback, exact-head preview contract, and `merge_group` guard contract |
 | Luna raw-diff hardening and managed v8 | July 20, 2026 | [`PR #34`](https://github.com/LeChiffreVol2/changeplane/pull/34) | Live fail-closed canary finding converted into a strict `^diff --git ` Structured Outputs constraint |
 | Redacted provider evidence and managed v9 | July 20, 2026 | [`PR #35`](https://github.com/LeChiffreVol2/changeplane/pull/35) · [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json) | Production release plus live Luna request metadata, clean validation, App-authored repair, synchronize event, and new-head PASS |
-| Submission release | July 20, 2026 | Use the exact commit returned by `GET /api/github?action=readiness` | Competition package; may advance for evidence-only documentation commits |
+| Self-serve submission product release | July 21, 2026 | [`cfd8aeef79e1d612b2fe819b8f77278d8e75845e`](https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e) · [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json) | Separate personal and organization onboarding; direct Production readiness and exact deployment provenance |
 
-Add the Codex Session ID from `/feedback` to the Devpost submission before final submission. The application cannot infer or fabricate that identifier.
+**Codex Session ID:** `019f7ebd-79a5-73b1-b93e-42349c652ce3`
+
+The product-release evidence is pinned to the last product-changing commit. Documentation-only competition-package commits may advance the repository and Vercel source SHA without changing the verified product runtime; the final deployed SHA remains available from `GET /api/github?action=readiness`.
 
 ## RouteThai sanitized shadow pilot
 
@@ -202,7 +215,7 @@ Never use a RouteThai repository as the canary target. The RouteThai fixture is 
 
 The self-serve setup PR vendors the small Action, harness policy reader, advisory review helper, repair helpers, workflows, and starter assurance memory into the selected repository. No ChangePlane queue, database, proprietary workspace, merge service, or model-held GitHub credential is added. Repository secrets begin inert; the controller derives a repository-bound HMAC, publishes the App verification key ring, and enables repair only after GitHub App scope, BYOK, and the exact behavioral check are verified.
 
-The tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. The managed-v9 disposable GitHub canary additionally proves redacted provider request metadata, the App-signed attempt ledger, one-time exact-repository push credential, App-authored repair commit, fresh `pull_request` synchronization, and PASS on only the repaired exact head. The live malformed-format canary stopped before apply, and stale-head, replay, path expansion, provider failure, and budget exhaustion remain fail-closed in the controller test suite. Exact-preview and `merge_group` contracts are automated; positive live evidence requires an eligible deployment and Merge Queue repository.
+The tracked adapter canary proves live Luna access, structured patch extraction, bounded-path parsing, clean apply, and deterministic re-validation. The managed-v9 disposable GitHub canary additionally proves redacted provider request metadata, the App-signed attempt ledger, one-time exact-repository push credential, App-authored repair commit, fresh `pull_request` synchronization, and PASS on only the repaired exact head. The live malformed-format canary stopped before apply, and stale-head, replay, path expansion, provider failure, and budget exhaustion remain fail-closed in the controller test suite. The self-serve product release additionally has direct Production readiness, CI, deployment, and rollback provenance in [`evidence/build-week-product-release.json`](evidence/build-week-product-release.json). Exact-preview and `merge_group` contracts are automated; positive live evidence requires an eligible deployment and Merge Queue repository.
 
 ## Current limits
 
