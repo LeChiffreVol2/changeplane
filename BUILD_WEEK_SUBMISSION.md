@@ -2,6 +2,67 @@
 
 ## Devpost fields
 
+### Required fields — paste-ready
+
+**Code repository URL**
+
+```text
+https://github.com/LeChiffreVol2/changeplane
+```
+
+The repository is public. Its README includes the Codex/GPT-5.6 collaboration record, Build Week provenance, installation instructions, supported platforms, local test commands, redacted canary evidence, and the 90-second judge path. OpenAI, Devpost, and appointed judges have explicit evaluation rights under `EVALUATION_LICENSE.md`; the commercial source remains proprietary/`UNLICENSED`.
+
+**Project URL and judge instructions**
+
+```text
+https://changeplane.vercel.app/
+
+No credentials are required.
+
+1. Open the URL in a signed-out browser.
+2. Select “View RouteThai example.”
+3. The sanitized replay runs automatically from exact-head failure through GPT-5.6 Luna proposal, clean validation, trusted apply, and ChangePlane / guard PASS on the new head.
+4. Open “New commit verified independently” to inspect the authority separation.
+
+The public workspace uses synthetic data and makes no request to RouteThai production systems. Optional live installation requires the judge's own GitHub account, one writable GitHub.com repository with an existing behavioral Check, and the judge's own OpenAI API key. Do not place credentials in this Devpost field.
+```
+
+**/feedback Session ID**
+
+```text
+019f7ebd-79a5-73b1-b93e-42349c652ce3
+```
+
+**Developer-tool installation, supported platforms, and testing instructions**
+
+```text
+Installation (optional; the public judge path above requires no installation):
+1. Select “Install ChangePlane on GitHub.”
+2. Choose a personal account or organization on GitHub and grant the repository-scoped App access only to the intended repository.
+3. Return to ChangePlane, choose one writable repository, and complete the read-only safety preflight.
+4. Bind one existing behavioral GitHub Check for autonomous assurance, or deliberately choose scope-only observe mode.
+5. For model-backed review and bounded repair, provide a repository BYOK OpenAI key. It is verified, encrypted directly to the repository's OPENAI_API_KEY Actions Secret, and cleared from the browser field.
+6. Review and merge the single setup pull request. No automation starts before GitHub reports it merged.
+
+Supported platforms:
+- GitHub.com personal accounts and organizations, including Enterprise Cloud organizations.
+- Same-repository GitHub pull requests.
+- Current desktop and mobile browsers.
+- Node.js >=22.18 <23 for local evaluation.
+
+Not supported in this release:
+- GitHub Enterprise Server, GitLab, Bitbucket, fork pull requests, and cross-repository repair.
+- Managed model billing or automatic merge.
+
+Local verification:
+npm ci --cache .npm-cache
+npm test
+npm run build
+
+Full judge guide:
+https://github.com/LeChiffreVol2/changeplane/blob/main/JUDGE_GUIDE.md
+```
+
 **Project name**
 
 ChangePlane
