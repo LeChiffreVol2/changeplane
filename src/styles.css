@@ -351,6 +351,11 @@ button {
   background: #eeede8;
 }
 
+.preview-entry span {
+  flex: 1;
+  text-align: left;
+}
+
 .preview-entry:disabled {
   color: var(--muted);
   cursor: wait;
