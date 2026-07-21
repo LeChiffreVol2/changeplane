@@ -1,6 +1,6 @@
 {
   "name": "changeplane",
-  "version": "0.1.0-pilot",
+  "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -9,8 +9,8 @@
     "build": "vite build",
     "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js tests/*.test.js",
     "test:e2e": "npm run build && playwright test",
-    "verify": "npm test && npm run build",
-    "audit:submission": "node scripts/audit-build-week-data.mjs",
+    "verify": "npm test && npm run build && npm run audit:public",
+    "audit:public": "node scripts/audit-public-data.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "preview": "vite preview"
   },

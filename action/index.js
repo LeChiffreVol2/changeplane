@@ -1105,7 +1105,7 @@ export function renderReceiptComment(receipt) {
     "",
     "</details>",
     "",
-    "If this decision is wrong, reply `ChangePlane false positive: <reason>`. The pilot owner will review every report before enforce is enabled.",
+    "If this decision is wrong, reply `ChangePlane false positive: <reason>`. The repository owner will review every report before enforcement is enabled.",
   );
   return `${lines.join("\n")}\n`;
 }
@@ -1364,7 +1364,7 @@ export async function run() {
     || String(process.env.INPUT_AGENT_WEBHOOK_TOKEN ?? "").length < 32
     || !/^[1-9][0-9]{0,19}$/u.test(String(process.env.INPUT_CONTROLLER_INSTALLATION_ID ?? ""))
   )) {
-    throw new Error("Enforce mode is not available in the observe pilot without the dedicated ChangePlane App controller.");
+    throw new Error("Enforce mode requires the dedicated ChangePlane App controller.");
   }
   const token = process.env.INPUT_TOKEN;
   if (!token) throw new Error("The token input is required.");
@@ -1382,7 +1382,7 @@ export async function run() {
     return skipRun(mode, resolution.headSha, "STALE_DEPLOYMENT");
   }
   if (pullRequest.head.repo?.full_name !== repository || pullRequest.base.repo?.full_name !== repository) {
-    throw new Error("ChangePlane pilot supports same-repository pull requests only.");
+    throw new Error("ChangePlane supports same-repository pull requests only.");
   }
   if (pullRequest.changed_files > 3000) throw new Error("Pull requests above 3,000 files are indeterminate and fail closed.");
 

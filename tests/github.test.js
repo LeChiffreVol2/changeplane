@@ -5,7 +5,7 @@ import test from "node:test";
 import sodium from "libsodium-wrappers";
 
 import {
-  buildPilotFiles,
+  buildSetupFiles,
   buildRuntimePolicy,
   classifyManagedInstallation,
   default as handler,
@@ -225,8 +225,8 @@ test("runtime API rejects an unsupported model before GitHub access", async () =
   });
 });
 
-test("pilot payload vendors the autonomous harness behind trusted policy", () => {
-  const files = new Map(buildPilotFiles().map((file) => [file.path, file.content]));
+test("managed setup vendors the autonomous harness behind trusted policy", () => {
+  const files = new Map(buildSetupFiles().map((file) => [file.path, file.content]));
   for (const expected of [
     "changeplane/action.yml",
     "changeplane/action/index.js",
@@ -252,7 +252,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 10);
+  assert.equal(manifest.managedVersion, 11);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -357,7 +357,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
     managedSubscription: "reserved",
   });
 
-  const behaviorFiles = new Map(buildPilotFiles({
+  const behaviorFiles = new Map(buildSetupFiles({
     name: "CI / test",
     appSlug: "github-actions",
   }).map((file) => [file.path, file.content]));
@@ -372,7 +372,7 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
     ],
     timeoutSeconds: 120,
   });
-  const autonomousFiles = new Map(buildPilotFiles({
+  const autonomousFiles = new Map(buildSetupFiles({
     name: "CI / test",
     appSlug: "github-actions",
   }, "autonomous").map((file) => [file.path, file.content]));
@@ -381,21 +381,21 @@ test("pilot payload vendors the autonomous harness behind trusted policy", () =>
     maxAttempts: 2,
     budgetMinutes: 15,
   });
-  assert.throws(() => buildPilotFiles(null, "autonomous"), /exact behavioral check/u);
+  assert.throws(() => buildSetupFiles(null, "autonomous"), /exact behavioral check/u);
   for (const appSlug of ["not a valid slug", "bad.slug", "bad_slug", "bad-"]) {
     assert.throws(
-      () => buildPilotFiles({ name: "test", appSlug }),
+      () => buildSetupFiles({ name: "test", appSlug }),
       /valid GitHub App slug/u,
     );
   }
   assert.throws(
-    () => buildPilotFiles({ name: "ChangePlane / guard", appSlug: "github-actions" }),
+    () => buildSetupFiles({ name: "ChangePlane / guard", appSlug: "github-actions" }),
     /cannot be ChangePlane \/ guard/u,
   );
 });
 
 test("managed install classification protects policy and rejects modified reserved bytes", () => {
-  const currentFiles = Object.fromEntries(buildPilotFiles().map(({ path, content }) => [path, content]));
+  const currentFiles = Object.fromEntries(buildSetupFiles().map(({ path, content }) => [path, content]));
   currentFiles[".changeplane.json"] = `${JSON.stringify({
     version: 1,
     protectedPaths: { requireApproval: ["custom/**"], block: [] },
@@ -404,8 +404,8 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 10,
-    targetVersion: 10,
+    currentVersion: 11,
+    targetVersion: 11,
     conflicts: [],
   });
 
@@ -414,6 +414,9 @@ test("managed install classification protects policy and rejects modified reserv
   assert.match(installerSource, /\n  7: Object\.freeze\(\{/u);
   assert.match(installerSource, /\n  8: Object\.freeze\(\{/u);
   assert.match(installerSource, /\n  9: Object\.freeze\(\{/u);
+  assert.match(installerSource, /\n  10: Object\.freeze\(\{/u);
+  assert.match(installerSource, /"changeplane\/action\/index\.js": "94bad97303c1abe64b1e904045d90f4b0186f301957d50fe17d131b417898041"/u);
+  assert.match(installerSource, /"changeplane\/examples\/changeplane-evidence-policy\.js": "cc8521368126ccf23a31564633ac80cc393ff270c0e6e5f4588b9cb3c0a1fd7e"/u);
   assert.match(installerSource, /"changeplane\/action\/index\.js": "ea330794dfc3c9cd2cf1753a67f72cd0fdd71cb6946e80fbb7fe5a97dca71bf2"/u);
   assert.match(installerSource, /"\.github\/workflows\/changeplane\.yml": "f8a241d54c5a84c24ce2b333c25ca688f6f0f81dceb1ae65337057d4881c41f2"/u);
   assert.match(installerSource, /"changeplane\/examples\/changeplane-provider-openai\.js": "28c2264457b438d4e0830d1c378121c1892b0883888068e4fa95a4b2708373bb"/u);
@@ -422,7 +425,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 10,
+    targetVersion: 11,
     conflicts: [],
   });
 
@@ -439,7 +442,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v10 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless install creates one manifest-only v11 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -448,7 +451,7 @@ test("pristine manifestless install creates one manifest-only v10 upgrade PR fro
       csrf: "alice-csrf",
       authMode: "oauth",
     }, SECRET);
-    const desired = new Map(buildPilotFiles().map(({ path, content }) => [path, content]));
+    const desired = new Map(buildSetupFiles().map(({ path, content }) => [path, content]));
     desired.set(".changeplane.json", "{\n  \"version\": 1,\n  \"ownerPolicy\": true\n}\n");
     const baseSha = "a".repeat(40);
     const baseTreeSha = "b".repeat(40);
@@ -509,7 +512,7 @@ test("pristine manifestless install creates one manifest-only v10 upgrade PR fro
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v10") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v11") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -612,7 +615,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       authMode: "oauth",
     }, SECRET);
     const configuredCheck = { name: "test", appSlug: "github-actions" };
-    let files = buildPilotFiles(configuredCheck);
+    let files = buildSetupFiles(configuredCheck);
     let fileContents = new Map(files.map(({ path, content }) => [path, content]));
     const baseSha = "a".repeat(40);
     const headSha = "b".repeat(40);
@@ -811,7 +814,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       assert.match(JSON.parse(forgedResponse.body).error, /not bound to the setup branch head/u);
 
       setupBranchHead = headSha;
-      files = buildPilotFiles();
+      files = buildSetupFiles();
       fileContents = new Map(files.map(({ path, content }) => [path, content]));
       plan = { goal: "Install the ChangePlane observe harness", scope: [...new Set(scope)], harnessMode: "observe" };
       const conflictingBehaviorResponse = responseRecorder();
@@ -1806,7 +1809,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 10,
+        targetVersion: 11,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
@@ -1912,7 +1915,7 @@ test("safe GitHub reads retry one transient upstream failure", async () => {
   });
 });
 
-test("Managed pilot verifies the server-side OpenAI key without exposing or enabling execution", async () => {
+test("managed execution verifies the server-side OpenAI key without exposing or enabling execution", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -1994,7 +1997,7 @@ test("Managed pilot verifies the server-side OpenAI key without exposing or enab
   });
 });
 
-test("Enterprise BYOK encrypts and rotates directly in GitHub Actions without echoing plaintext", async () => {
+test("repository BYOK encrypts and rotates directly in GitHub Actions without echoing plaintext", async () => {
   await withOAuthEnvironment(async () => {
     await sodium.ready;
     const keyPair = sodium.crypto_box_keypair();
@@ -2120,7 +2123,7 @@ test("Enterprise BYOK encrypts and rotates directly in GitHub Actions without ec
   });
 });
 
-test("Enterprise BYOK deletion removes only the OpenAI Actions Secret", async () => {
+test("repository BYOK deletion removes only the OpenAI Actions Secret", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({ kind: "session", token: "alice-token", login: "alice", csrf: "alice-csrf" }, SECRET);
     const calls = [];

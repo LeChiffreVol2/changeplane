@@ -44,11 +44,11 @@ test("GitHub failures never include upstream response bodies", async () => {
   }
 });
 
-test("the production pilot refuses to activate enforce behavior", async () => {
+test("enforce behavior requires the dedicated App controller", async () => {
   const originalMode = process.env.INPUT_MODE;
   process.env.INPUT_MODE = "enforce";
   try {
-    await assert.rejects(run(), /Enforce mode is not available in the observe pilot/u);
+    await assert.rejects(run(), /Enforce mode requires the dedicated ChangePlane App controller/u);
   } finally {
     if (originalMode === undefined) delete process.env.INPUT_MODE;
     else process.env.INPUT_MODE = originalMode;

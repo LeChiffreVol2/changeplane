@@ -35,7 +35,7 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 - [x] Keep the release on the fixed free Vercel phase. Public repository discovery is limited to each signed-in user's eligible App installations, and controlled repair-canary routes remain bound to the exact disposable `CHANGEPLANE_CANARY_REPOSITORY`.
   - Direct Production readiness reports `self_serve`, `github_app`, valid canary scope, and configured exact-repository repair identity. Repository-isolation and non-canary pre-network rejection tests pass.
 - [x] Confirm the ChangePlane source repository protects `main` and requires `CI / verify`. Record that the private GitHub Free disposable canary cannot enable branch protection and is owner-controlled lab evidence only; do not change its visibility or claim production enforcement.
-- [x] Keep the pilot to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and reviewed managed repair helpers. No database, queue, merge service, or paid observability is required. Repair is active only in explicitly configured repository setups and the controlled canary.
+- [x] Keep the release to the GitHub connector, one GitHub Action, the pure evaluator, GitHub Checks/comments, and reviewed managed repair helpers. No database, queue, merge service, or paid observability is required. Repair is active only in explicitly configured repository setups and the controlled canary.
 - [x] Confirm the Merge Queue contract evaluates the exact `merge_group` SHA and does not dispatch review, proposal, repair, apply, or handback work.
   - Exact-revision, stale-base, and guard-only automated tests pass.
 - [ ] Capture positive live Merge Queue evidence from an eligible organization repository and GitHub plan.

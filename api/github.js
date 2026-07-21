@@ -74,7 +74,7 @@ const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 10;
+const MANAGED_VERSION = 11;
 const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
@@ -95,7 +95,7 @@ const MANAGED_PATHS = [
   ".github/workflows/changeplane.yml",
   ".github/workflows/changeplane-repair.yml",
 ];
-const PILOT_RESERVED_PATHS = [
+const MANAGED_RESERVED_PATHS = [
   "changeplane",
   POLICY_PATH,
   ASSURANCE_MEMORY_PATH,
@@ -246,6 +246,26 @@ const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
     "changeplane/examples/changeplane-claim.js": "e74f6ba36c273f775380035fd74a91f59ebc43878f4700d01a834af1adf6322d",
     "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
     "changeplane/examples/changeplane-proposal.js": "92581707a98ee3bca63f1ff46ad0d7646aebbfa57f2c4082a0dd7a2638d2c9e6",
+    "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
+    "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
+    "changeplane/examples/changeplane-review-run.js": "15416ebc602a1981f171c75471d3a28cc18c1da69473a7ed36ed35991bebf9f5",
+    "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+    ".github/workflows/changeplane.yml": "cc4d3bb7fc810227b46e9bd4a5b69bd44d7466c6f9160a941ff41bb637a45a66",
+    ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
+  }),
+  10: Object.freeze({
+    "changeplane/action.yml": "5a0cde8e0977c921ddbc89dd02a2aa1ce910da1c29a85fc8700a06787c249ef5",
+    "changeplane/action/index.js": "94bad97303c1abe64b1e904045d90f4b0186f301957d50fe17d131b417898041",
+    "changeplane/src/lib/changeplane.js": "4578704217c2c5d3eac50ade6a40ee588ab75d1de736aeb0041fbfe8ce5536e6",
+    "changeplane/src/lib/harness.js": "0eb54fec0d65c7668d3b81be6174e8474ebcca670b834e5186e17b4efd6a1ac8",
+    "changeplane/src/lib/review.js": "77b6e85321827a18a305bf4a952d6493d831374e8208eeca0e0987d1fd95023d",
+    "changeplane/src/lib/runtime.js": "26cff8ddc82756d16577c938fb567c0a13cdd0ee3cf3a94f4f1a4bdd93293b3d",
+    "changeplane/server/github-repair-controller.js": "3b8f7055c74621c52a585550b2a4e96d8968d393202cacf5123e0aba32dcf8a9",
+    "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+    "changeplane/examples/changeplane-claim.js": "e74f6ba36c273f775380035fd74a91f59ebc43878f4700d01a834af1adf6322d",
+    "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
+    "changeplane/examples/changeplane-evidence-policy.js": "cc8521368126ccf23a31564633ac80cc393ff270c0e6e5f4588b9cb3c0a1fd7e",
+    "changeplane/examples/changeplane-proposal.js": "23fab0694682ee7a775c8771bb34bb98316edd50cdef25fb382ccab6d51eaba2",
     "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
     "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
     "changeplane/examples/changeplane-review-run.js": "15416ebc602a1981f171c75471d3a28cc18c1da69473a7ed36ed35991bebf9f5",
@@ -849,7 +869,7 @@ async function inspectInstallTarget(repository, session) {
   const baseRef = await github(`/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`, session.token);
   const baseSha = baseRef?.object?.sha;
   if (!/^[a-f0-9]{40}$/u.test(baseSha ?? "")) throw new Error("GitHub returned an invalid default-branch revision.");
-  const reservedPaths = (await Promise.all(PILOT_RESERVED_PATHS.map(async (filePath) => (
+  const reservedPaths = (await Promise.all(MANAGED_RESERVED_PATHS.map(async (filePath) => (
     await githubPathExists(encodedRepository, filePath, baseSha, session.token) ? filePath : null
   )))).filter(Boolean);
   const installation = reservedPaths.length === 0
@@ -1049,7 +1069,7 @@ jobs:
   ];
 }
 
-export function buildPilotFiles(requiredCheck = null, harnessMode = HARNESS_MODE.OBSERVE) {
+export function buildSetupFiles(requiredCheck = null, harnessMode = HARNESS_MODE.OBSERVE) {
   const managedFiles = buildManagedFiles();
   const harness = harnessPolicy({ mode: harnessMode });
   if (harness.mode === HARNESS_MODE.AUTONOMOUS && !requiredCheck) {
@@ -1304,7 +1324,7 @@ function readObserveSetupPlan(body, files) {
 
 function observeUpgradePlan(files) {
   return {
-    goal: `Upgrade ChangePlane observe managed files to version ${MANAGED_VERSION}`,
+    goal: `Upgrade ChangePlane managed files to version ${MANAGED_VERSION}`,
     scope: files.map(({ path: filePath }) => filePath),
     managedVersion: MANAGED_VERSION,
   };
@@ -1355,7 +1375,7 @@ async function findObserveUpgradePullRequest(encodedRepository, repo, token, fil
       && pullRequest.head?.ref === OBSERVE_UPGRADE_BRANCH
       && pullRequest.head?.repo?.full_name?.toLowerCase() === repo.full_name.toLowerCase()
       && pullRequest.base?.ref === repo.default_branch
-      && pullRequest.title === "chore: upgrade ChangePlane observe pilot"
+      && pullRequest.title === "chore: upgrade ChangePlane managed setup"
       && readObserveUpgradePlan(pullRequest?.body, files)
   ));
   if (matches.length > 1) throw new HttpError(409, "Multiple ChangePlane upgrade pull requests already exist.");
@@ -1492,7 +1512,7 @@ async function validateObserveUpgradePullRequest(encodedRepository, pullRequest,
 }
 
 async function managedUpgradeFiles(encodedRepository, baseSha, token) {
-  const desired = buildPilotFiles().filter(({ path: filePath }) => (
+  const desired = buildSetupFiles().filter(({ path: filePath }) => (
     filePath === MANAGED_MANIFEST_PATH || MANAGED_PATHS.includes(filePath)
   ));
   const current = await Promise.all(desired.map(({ path: filePath }) => (
@@ -1555,7 +1575,7 @@ async function createObserveUpgradePullRequest(target, session) {
     const commit = await github(`/repos/${encodedRepository}/git/commits`, token, {
       method: "POST",
       body: {
-        message: `chore: upgrade ChangePlane observe pilot to v${MANAGED_VERSION}`,
+        message: `chore: upgrade ChangePlane managed setup to v${MANAGED_VERSION}`,
         tree: tree.sha,
         parents: [baseSha],
       },
@@ -1582,7 +1602,7 @@ async function createObserveUpgradePullRequest(target, session) {
     const pullRequest = await github(`/repos/${encodedRepository}/pulls`, token, {
       method: "POST",
       body: {
-        title: "chore: upgrade ChangePlane observe pilot",
+        title: "chore: upgrade ChangePlane managed setup",
         head: OBSERVE_UPGRADE_BRANCH,
         base: repo.default_branch,
         body: [
@@ -1626,11 +1646,11 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
     throw new HttpError(409, `ChangePlane will not overwrite repository-owned or modified paths: ${conflicts.join(", ")}`);
   }
   if (installation.state === "outdated") return createObserveUpgradePullRequest(target, session);
-  const baseFiles = buildPilotFiles();
+  const baseFiles = buildSetupFiles();
   const existingPullRequest = await findObserveSetupPullRequest(encodedRepository, repo, token, baseFiles);
   if (existingPullRequest) {
     const existingPlan = readObserveSetupPlan(existingPullRequest.body, baseFiles);
-    const existingFiles = buildPilotFiles(existingPlan.requiredCheck, existingPlan.harnessMode);
+    const existingFiles = buildSetupFiles(existingPlan.requiredCheck, existingPlan.harnessMode);
     await validateObserveSetupPullRequest(encodedRepository, existingPullRequest, baseSha, existingFiles, token);
     if (JSON.stringify(existingPlan.requiredCheck) !== JSON.stringify(requiredCheck)
       || existingPlan.harnessMode !== selectedHarness.mode) {
@@ -1639,7 +1659,7 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
     return observeSetupResult(repo, existingPullRequest, { harnessMode: selectedHarness.mode });
   }
 
-  const files = buildPilotFiles(requiredCheck, selectedHarness.mode);
+  const files = buildSetupFiles(requiredCheck, selectedHarness.mode);
   const behaviorEvidence = requiredCheck
     ? `\`${requiredCheck.name}\` from \`${requiredCheck.appSlug}\``
     : null;
@@ -2514,7 +2534,7 @@ async function preflight(req, res) {
   const session = requireSession(req);
   const repository = validateRepository(queryValue(req, "repository"));
   const target = await inspectInstallTarget(repository, session);
-  let files = target.installation.state === "fresh" ? buildPilotFiles() : [];
+  let files = target.installation.state === "fresh" ? buildSetupFiles() : [];
   let installable = target.installable;
   let setup = { state: "none" };
   let evidenceOptions = [];
@@ -2577,7 +2597,7 @@ async function preflight(req, res) {
     if (existingPullRequest) {
       try {
         const existingPlan = readObserveSetupPlan(existingPullRequest.body, files);
-        files = buildPilotFiles(existingPlan.requiredCheck, existingPlan.harnessMode);
+        files = buildSetupFiles(existingPlan.requiredCheck, existingPlan.harnessMode);
         await validateObserveSetupPullRequest(target.encodedRepository, existingPullRequest, target.baseSha, files, session.token);
         setup = {
           state: "pending",
