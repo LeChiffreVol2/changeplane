@@ -3,7 +3,7 @@ name: ChangePlane
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
   pull_request_review:
     types: [submitted, dismissed]
   merge_group:
@@ -31,7 +31,11 @@ jobs:
         with:
           persist-credentials: false
           # Never execute code from the untrusted pull-request head with a write token.
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.repository.default_branch }}
+          ref: ${{ github.event.merge_group.base_sha || (github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.base.sha) || github.event.repository.default_branch }}
+      - name: Bind the trusted default-branch revision
+        id: controller
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: ./
         with:
           token: ${{ github.token }}
+          trusted_controller_sha: ${{ steps.controller.outputs.sha }}

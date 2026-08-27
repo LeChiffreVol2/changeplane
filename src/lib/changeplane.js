@@ -6,6 +6,7 @@ export const DECISION = Object.freeze({
 
 export const AUTONOMOUS_DECISION = Object.freeze({
   PASS: 'PASS',
+  CHANGES_REQUIRED: 'CHANGES_REQUIRED',
   REMEDIATION_REQUIRED: 'REMEDIATION_REQUIRED',
   REVIEW_REQUIRED: 'REVIEW_REQUIRED',
   BLOCKED: 'BLOCKED',
@@ -289,7 +290,16 @@ export function evaluateEvidence({ requiredChecks = [], checks = [] } = {}) {
         ...(diagnostic ? { diagnostic } : {}),
       });
     }
-    return { name, source: check.source ?? null, expectedSource: appSlug, status, conclusion };
+    return {
+      name,
+      source: check.source ?? null,
+      expectedSource: appSlug,
+      status,
+      conclusion,
+      ...(Number.isSafeInteger(check.checkRunId) && check.checkRunId > 0 ? { checkRunId: check.checkRunId } : {}),
+      ...(Number.isSafeInteger(check.publisherAppId) && check.publisherAppId > 0 ? { publisherAppId: check.publisherAppId } : {}),
+      ...(typeof check.completedAt === 'string' && check.completedAt ? { completedAt: check.completedAt } : {}),
+    };
   });
 
   return {
@@ -302,6 +312,7 @@ export function evaluateEvidence({ requiredChecks = [], checks = [] } = {}) {
 export function planAutonomousDecision({
   result,
   agentConfigured = false,
+  agentHandoff = false,
   attempt = 0,
   maxAttempts = 2,
 }) {
@@ -361,6 +372,16 @@ export function planAutonomousDecision({
       };
     }
     if (!agentConfigured) {
+      if (agentHandoff) {
+        return {
+          decision: AUTONOMOUS_DECISION.CHANGES_REQUIRED,
+          humanRequired: false,
+          reason: findingKinds.has('EVIDENCE_FAILED')
+            ? 'FIXABLE_EVIDENCE_FAILURE'
+            : 'FIXABLE_SCOPE_DRIFT',
+          findings: fixableFindings,
+        };
+      }
       return {
         decision: AUTONOMOUS_DECISION.REVIEW_REQUIRED,
         humanRequired: true,

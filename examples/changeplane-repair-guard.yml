@@ -42,13 +42,38 @@ jobs:
           path: controller
           persist-credentials: false
 
-      - name: Evaluate the exact GitHub revision
+      - name: Check out the trusted repository base
+        # actions/checkout v4.2.2; never execute pull-request code from this path.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.merge_group.base_sha || (github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.base.sha) || github.event.repository.default_branch }}
+          path: trusted-repository
+          persist-credentials: false
+
+      - name: Bind the trusted default-branch revision
+        id: trusted
+        working-directory: trusted-repository
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate the exact pull-request revision
+        if: github.event_name != 'merge_group'
         env:
           INPUT_AGENT_DISPATCH: webhook
-          INPUT_AGENT_WEBHOOK_TOKEN: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          INPUT_AGENT_WEBHOOK_TOKEN: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
           INPUT_AGENT_WEBHOOK_URL: "https://changeplane.vercel.app/api/github?action=repair"
           INPUT_CONTROLLER_INSTALLATION_ID: ${{ secrets.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
           INPUT_MODE: enforce
           INPUT_POLICY_PATH: .changeplane.json
           INPUT_TOKEN: ${{ github.token }}
+          INPUT_TRUSTED_CONTROLLER_SHA: ${{ steps.trusted.outputs.sha }}
+        run: node controller/action/index.js
+
+      - name: Evaluate the merge queue without repair authority
+        if: github.event_name == 'merge_group'
+        env:
+          INPUT_AGENT_DISPATCH: none
+          INPUT_MODE: enforce
+          INPUT_POLICY_PATH: .changeplane.json
+          INPUT_TOKEN: ${{ github.token }}
+          INPUT_TRUSTED_CONTROLLER_SHA: ${{ steps.trusted.outputs.sha }}
         run: node controller/action/index.js

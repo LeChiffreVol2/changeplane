@@ -8,9 +8,20 @@ import {
   harnessPolicy,
 } from "./harness.js";
 
-test("trusted harness policy maps observe and autonomous modes to the Action boundary", () => {
+test("trusted harness policy maps observe, verify, and autonomous modes to the Action boundary", () => {
   assert.deepEqual(actionHarnessConfig({}), {
     mode: "observe",
+    dispatch: "none",
+    maxAttempts: HARNESS_MAX_ATTEMPTS,
+  });
+  assert.deepEqual(actionHarnessConfig({
+    harness: {
+      mode: "verify",
+      maxAttempts: HARNESS_MAX_ATTEMPTS,
+      budgetMinutes: HARNESS_BUDGET_MINUTES,
+    },
+  }), {
+    mode: "enforce",
     dispatch: "none",
     maxAttempts: HARNESS_MAX_ATTEMPTS,
   });
@@ -28,7 +39,7 @@ test("trusted harness policy maps observe and autonomous modes to the Action bou
 });
 
 test("harness policy rejects expanded authority and budgets", () => {
-  assert.throws(() => harnessPolicy({ mode: "unbounded" }), /observe or autonomous/u);
+  assert.throws(() => harnessPolicy({ mode: "unbounded" }), /observe, verify, or autonomous/u);
   assert.throws(() => harnessPolicy({ mode: "autonomous", maxAttempts: 3 }), /two attempts/u);
   assert.throws(() => harnessPolicy({ mode: "autonomous", budgetMinutes: 30 }), /15 minutes/u);
 });

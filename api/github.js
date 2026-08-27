@@ -54,7 +54,8 @@ const MANAGED_API_KEY_NAME = "CHANGEPLANE_MANAGED_OPENAI_API_KEY";
 const BYOK_MIN_LENGTH = 20;
 const BYOK_MAX_LENGTH = 512;
 const HARNESS_SECRETS = Object.freeze({
-  controller: "CHANGEPLANE_CONTROLLER_HMAC",
+  controller: "CHANGEPLANE_CONTROLLER_HMAC_V12",
+  legacyController: "CHANGEPLANE_CONTROLLER_HMAC",
   installation: "CHANGEPLANE_CONTROLLER_INSTALLATION_ID",
   enabled: "CHANGEPLANE_REPAIR_ENABLED",
   generation: "CHANGEPLANE_REPAIR_GENERATION",
@@ -74,7 +75,9 @@ const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 11;
+const MANAGED_VERSION = 12;
+const MANAGED_REPAIR_ACTIVATION = `managed-v${MANAGED_VERSION}`;
+const LEGACY_CONTROLLER_TOMBSTONE = `retired-by-${MANAGED_REPAIR_ACTIVATION}`;
 const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
@@ -273,11 +276,32 @@ const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
     ".github/workflows/changeplane.yml": "cc4d3bb7fc810227b46e9bd4a5b69bd44d7466c6f9160a941ff41bb637a45a66",
     ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
   }),
+  11: Object.freeze({
+    "changeplane/action.yml": "5a0cde8e0977c921ddbc89dd02a2aa1ce910da1c29a85fc8700a06787c249ef5",
+    "changeplane/action/index.js": "f7eb0eaf24364cdff855ac552bf3c4e48b865034738d4ae4131dd04e7ac07cf0",
+    "changeplane/src/lib/changeplane.js": "4578704217c2c5d3eac50ade6a40ee588ab75d1de736aeb0041fbfe8ce5536e6",
+    "changeplane/src/lib/harness.js": "0eb54fec0d65c7668d3b81be6174e8474ebcca670b834e5186e17b4efd6a1ac8",
+    "changeplane/src/lib/review.js": "77b6e85321827a18a305bf4a952d6493d831374e8208eeca0e0987d1fd95023d",
+    "changeplane/src/lib/runtime.js": "26cff8ddc82756d16577c938fb567c0a13cdd0ee3cf3a94f4f1a4bdd93293b3d",
+    "changeplane/server/github-repair-controller.js": "3b8f7055c74621c52a585550b2a4e96d8968d393202cacf5123e0aba32dcf8a9",
+    "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+    "changeplane/examples/changeplane-claim.js": "e74f6ba36c273f775380035fd74a91f59ebc43878f4700d01a834af1adf6322d",
+    "changeplane/examples/changeplane-grant.js": "427fd013ecd49e5ccf7fd714ac20b7b4f9526dae30835a532d57cff6e8ec5af5",
+    "changeplane/examples/changeplane-evidence-policy.js": "cc8521368126ccf23a31564633ac80cc393ff270c0e6e5f4588b9cb3c0a1fd7e",
+    "changeplane/examples/changeplane-proposal.js": "23fab0694682ee7a775c8771bb34bb98316edd50cdef25fb382ccab6d51eaba2",
+    "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
+    "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
+    "changeplane/examples/changeplane-review-run.js": "15416ebc602a1981f171c75471d3a28cc18c1da69473a7ed36ed35991bebf9f5",
+    "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+    ".github/workflows/changeplane.yml": "cc4d3bb7fc810227b46e9bd4a5b69bd44d7466c6f9160a941ff41bb637a45a66",
+    ".github/workflows/changeplane-repair.yml": "ae8955658bdea4e7be8241e286fd1d43a28b9ef5a8af4107771809a520e54113",
+  }),
 });
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
 const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
 const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
+  administration: "read",
   contents: "write",
   pull_requests: "write",
   workflows: "write",
@@ -324,6 +348,21 @@ const ROUTE_METHODS = new Map([
   ["repair-push-token", ["POST"]],
   ["repair-validate", ["POST"]],
   ["logout", ["POST"]],
+]);
+const EXTERNAL_ACCESS_ACTIONS = new Set([
+  "login",
+  "authorize",
+  "installation",
+  "callback",
+  "repos",
+  "preflight",
+  "runtime",
+  "byok",
+  "install",
+  "repair",
+  "repair-claim",
+  "repair-push-token",
+  "repair-validate",
 ]);
 
 class HttpError extends Error {
@@ -440,9 +479,12 @@ function repairControllerConfiguration() {
       && process.env.CHANGEPLANE_CONTROLLER_SECRET.length >= 32,
     generation: Number.isSafeInteger(generation) && generation > 0,
   };
+  const provisioningConfigured = Boolean(githubAppSlug())
+    && Object.entries(checks).every(([name, value]) => name === "enabled" || value);
   return {
     enabled,
-    configured: enabled && Boolean(githubAppSlug()) && Object.values(checks).every(Boolean),
+    configured: enabled && provisioningConfigured,
+    provisioningConfigured,
     checks,
     generation,
     repository: selfServe ? null : repository,
@@ -480,9 +522,9 @@ function readiness() {
   };
 }
 
-function assertMutationSourceProvenance() {
+function assertExternalAccessSourceProvenance() {
   if (!hasSourceProvenance()) {
-    throw new HttpError(503, "GitHub writes are disabled until this deployment is bound to a verified source commit.");
+    throw new HttpError(503, "GitHub and OpenAI access is disabled until this deployment is bound to a verified source commit.");
   }
 }
 
@@ -860,6 +902,151 @@ async function requireWritableRepository(repository, session) {
   };
 }
 
+async function requireRepositoryAdmin(repository, session) {
+  const target = await requireWritableRepository(repository, session);
+  const live = await github(`/repos/${target.encodedRepository}`, session.token);
+  if (live?.full_name?.toLowerCase() !== repository.toLowerCase()) {
+    throw new HttpError(404, "Repository not found.");
+  }
+  if (live.permissions?.admin !== true) {
+    throw new HttpError(403, "Repository admin access is required before ChangePlane can manage Actions Secrets.");
+  }
+  return { ...target, repo: { ...target.repo, ...live } };
+}
+
+async function revalidateRepositoryAdmin(target, repository, session) {
+  const live = await github(`/repos/${target.encodedRepository}`, session.token);
+  if (live?.full_name?.toLowerCase() !== repository.toLowerCase()
+    || !Number.isSafeInteger(live?.id)
+    || live.id < 1
+    || (Number.isSafeInteger(target.repo?.id) && live.id !== target.repo.id)
+    || live.permissions?.admin !== true) {
+    throw new HttpError(403, "Repository admin access changed before the protected operation. Nothing was changed; reconnect as an administrator and retry.");
+  }
+  return { ...target, repo: { ...target.repo, ...live } };
+}
+
+export function validateAutonomousBranchProtection(requiredStatusChecks) {
+  if (requiredStatusChecks?.strict !== true) {
+    throw new HttpError(
+      409,
+      "Autonomous repair requires the default branch to require pull requests to be up to date before merging. Enable strict required status checks in GitHub branch protection, then retry. Observe mode remains available.",
+    );
+  }
+  return true;
+}
+
+export function guardEnforcementState(requiredStatusChecks, publisherAppId = null) {
+  const strict = requiredStatusChecks?.strict === true;
+  const checks = Array.isArray(requiredStatusChecks?.checks) ? requiredStatusChecks.checks : [];
+  const contexts = Array.isArray(requiredStatusChecks?.contexts) ? requiredStatusChecks.contexts : [];
+  const guardChecks = checks.filter((check) => check?.context === GUARD_CHECK_NAME);
+  const guardRequired = guardChecks.length > 0 || contexts.includes(GUARD_CHECK_NAME);
+  const validPublisherAppId = Number.isSafeInteger(publisherAppId) && publisherAppId > 0
+    ? publisherAppId
+    : null;
+  const publisherBound = validPublisherAppId !== null
+    && guardChecks.some((check) => check?.app_id === validPublisherAppId);
+  const active = strict && publisherBound;
+  return {
+    state: active
+      ? "active"
+      : !strict
+        ? "strict_required"
+        : !guardRequired
+          ? "guard_required"
+          : validPublisherAppId === null
+            ? "guard_run_required"
+            : "publisher_binding_required",
+    active,
+    strict,
+    guardRequired,
+    publisherBound,
+  };
+}
+
+async function guardPublisherAppId(encodedRepository, repo, token) {
+  const pulls = await github(
+    `/repos/${encodedRepository}/pulls?state=open&base=${encodeURIComponent(repo.default_branch)}&sort=updated&direction=desc&per_page=3`,
+    token,
+  );
+  if (!Array.isArray(pulls)) throw new Error("GitHub returned an invalid pull request list.");
+  const candidateHeads = [...new Set(pulls
+    .filter((pull) => pull?.head?.repo?.full_name === repo.full_name && /^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? ""))
+    .map((pull) => pull.head.sha))].slice(0, 3);
+  const payloads = await Promise.all(candidateHeads.map((headSha) => github(
+    `/repos/${encodedRepository}/commits/${headSha}/check-runs?filter=latest&per_page=100`,
+    token,
+  )));
+  for (const payload of payloads) {
+    if (!Array.isArray(payload?.check_runs)) throw new Error("GitHub returned an invalid Check Run list.");
+    const run = payload.check_runs.find((check) => check?.name === GUARD_CHECK_NAME
+      && check?.app?.slug === "github-actions"
+      && Number.isSafeInteger(check?.app?.id)
+      && check.app.id > 0);
+    if (run) return run.app.id;
+  }
+  return null;
+}
+
+async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin }) {
+  if (!isAdmin) {
+    return {
+      state: "admin_required",
+      active: false,
+      strict: false,
+      guardRequired: false,
+      publisherBound: false,
+    };
+  }
+  let requiredStatusChecks;
+  try {
+    requiredStatusChecks = await github(
+      `/repos/${encodedRepository}/branches/${encodeRef(repo.default_branch)}/protection/required_status_checks`,
+      token,
+    );
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 404) {
+      return {
+        state: "protection_required",
+        active: false,
+        strict: false,
+        guardRequired: false,
+        publisherBound: false,
+      };
+    }
+    throw error;
+  }
+  const initial = guardEnforcementState(requiredStatusChecks);
+  if (!initial.strict || !initial.guardRequired) return initial;
+  return guardEnforcementState(
+    requiredStatusChecks,
+    await guardPublisherAppId(encodedRepository, repo, token),
+  );
+}
+
+async function requireAutonomousBranchProtection(encodedRepository, repo, token) {
+  if (typeof repo?.default_branch !== "string" || !repo.default_branch) {
+    throw new HttpError(409, "Repository has no default branch.");
+  }
+  let requiredStatusChecks;
+  try {
+    requiredStatusChecks = await github(
+      `/repos/${encodedRepository}/branches/${encodeRef(repo.default_branch)}/protection/required_status_checks`,
+      token,
+    );
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 404) {
+      throw new HttpError(
+        409,
+        "Autonomous repair requires strict required status checks on the default branch. Configure branch protection and require pull requests to be up to date before merging, then retry. Observe mode remains available.",
+      );
+    }
+    throw error;
+  }
+  validateAutonomousBranchProtection(requiredStatusChecks);
+}
+
 async function inspectInstallTarget(repository, session) {
   const { encodedRepository, repo } = await requireWritableRepository(repository, session);
   if (typeof repo.default_branch !== "string" || !repo.default_branch) {
@@ -904,6 +1091,12 @@ function validateRequiredCheck(value) {
   return { name, appSlug };
 }
 
+function harnessModeLabel(mode) {
+  return mode === HARNESS_MODE.VERIFY
+    ? "Verify only"
+    : mode === HARNESS_MODE.AUTONOMOUS ? "Autonomous" : "Observe";
+}
+
 function contentDigest(content) {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -927,7 +1120,7 @@ function buildManagedFiles() {
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
   pull_request_review:
     types: [submitted, dismissed]
   merge_group:
@@ -962,30 +1155,51 @@ jobs:
         # actions/checkout v4.2.2; keep the trusted checkout immutable.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.repository.default_branch }}
+          ref: \${{ github.event.merge_group.base_sha || (github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.base.sha) || github.event.repository.default_branch }}
           persist-credentials: false
+      - name: Bind the trusted controller revision
+        id: controller
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Read the trusted harness policy
         id: harness
         env:
           CHANGEPLANE_TRUSTED_POLICY: .changeplane.json
         run: node changeplane/src/lib/harness.js
       - name: Observe the exact revision
-        if: steps.harness.outputs.mode == 'observe'
+        if: github.event_name != 'merge_group' && steps.harness.outputs.mode == 'observe'
         uses: ./changeplane
         with:
           token: \${{ github.token }}
           mode: observe
-      - name: Run the autonomous exact-revision harness
-        if: steps.harness.outputs.mode == 'enforce'
+          trusted_controller_sha: \${{ steps.controller.outputs.sha }}
+      - name: Verify the exact revision without repair authority
+        if: github.event_name != 'merge_group' && steps.harness.outputs.mode == 'enforce' && steps.harness.outputs.dispatch == 'none'
         uses: ./changeplane
         with:
           token: \${{ github.token }}
           mode: enforce
+          trusted_controller_sha: \${{ steps.controller.outputs.sha }}
+          agent_dispatch: none
+      - name: Run the autonomous exact-revision harness
+        if: github.event_name != 'merge_group' && steps.harness.outputs.mode == 'enforce' && steps.harness.outputs.dispatch == 'webhook'
+        uses: ./changeplane
+        with:
+          token: \${{ github.token }}
+          mode: enforce
+          trusted_controller_sha: \${{ steps.controller.outputs.sha }}
           agent_dispatch: \${{ steps.harness.outputs.dispatch }}
           agent_webhook_url: https://changeplane.vercel.app/api/github?action=repair
-          agent_webhook_token: \${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          agent_webhook_token: \${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
           controller_installation_id: \${{ secrets.CHANGEPLANE_CONTROLLER_INSTALLATION_ID }}
           max_remediation_attempts: \${{ steps.harness.outputs.max_attempts }}
+      - name: Evaluate the merge queue without repair authority
+        if: github.event_name == 'merge_group'
+        uses: ./changeplane
+        with:
+          token: \${{ github.token }}
+          mode: \${{ steps.harness.outputs.mode }}
+          trusted_controller_sha: \${{ steps.controller.outputs.sha }}
+          agent_dispatch: none
 
   review_propose:
     name: Independent review proposal
@@ -1007,12 +1221,22 @@ jobs:
         # actions/checkout v4.2.2; never execute pull-request code here.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: \${{ github.event.pull_request.base.sha }}
+          ref: \${{ (github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.base.sha) || github.event.repository.default_branch }}
           persist-credentials: false
-      - name: Propose changed-line findings
-        id: propose
+      - name: Bind the trusted review controller revision
+        id: controller
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Read the trusted review profile
+        id: harness
         env:
           CHANGEPLANE_TRUSTED_POLICY: .changeplane.json
+        run: node changeplane/src/lib/harness.js
+      - name: Propose changed-line findings
+        id: propose
+        if: steps.harness.outputs.mode != 'enforce' || steps.harness.outputs.dispatch == 'webhook'
+        env:
+          CHANGEPLANE_TRUSTED_POLICY: .changeplane.json
+          CHANGEPLANE_TRUSTED_CONTROLLER_SHA: \${{ steps.controller.outputs.sha }}
           GITHUB_TOKEN: \${{ github.token }}
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
         run: node changeplane/examples/changeplane-review-run.js propose
@@ -1020,7 +1244,7 @@ jobs:
   review_publish:
     name: Independent review receipt
     needs: review_propose
-    if: always() && github.event_name == 'pull_request_target' && needs.review_propose.result == 'success'
+    if: always() && github.event_name == 'pull_request_target' && needs.review_propose.result == 'success' && needs.review_propose.outputs.review_job != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -1037,12 +1261,16 @@ jobs:
         # actions/checkout v4.2.2; this job receives no model credential.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: \${{ github.event.pull_request.base.sha }}
+          ref: \${{ (github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.base.sha) || github.event.repository.default_branch }}
           persist-credentials: false
+      - name: Bind the trusted review publisher revision
+        id: controller
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Revalidate and publish the advisory Check
         id: publish
         env:
           CHANGEPLANE_REVIEW_JOB: \${{ needs.review_propose.outputs.review_job }}
+          CHANGEPLANE_TRUSTED_CONTROLLER_SHA: \${{ steps.controller.outputs.sha }}
           GITHUB_TOKEN: \${{ github.token }}
         run: node changeplane/examples/changeplane-review-run.js publish
 `;
@@ -1072,8 +1300,8 @@ jobs:
 export function buildSetupFiles(requiredCheck = null, harnessMode = HARNESS_MODE.OBSERVE) {
   const managedFiles = buildManagedFiles();
   const harness = harnessPolicy({ mode: harnessMode });
-  if (harness.mode === HARNESS_MODE.AUTONOMOUS && !requiredCheck) {
-    throw new HttpError(400, "Autonomous mode requires one exact behavioral check and publisher.");
+  if ([HARNESS_MODE.VERIFY, HARNESS_MODE.AUTONOMOUS].includes(harness.mode) && !requiredCheck) {
+    throw new HttpError(400, `${harness.mode === HARNESS_MODE.VERIFY ? "Verify only" : "Autonomous mode"} requires one exact behavioral check and publisher.`);
   }
   const policy = {
     version: 1,
@@ -1128,11 +1356,11 @@ export function buildRuntimePolicy(value, model, harnessMode) {
     maxAttempts: policy?.harness?.maxAttempts,
     budgetMinutes: policy?.harness?.budgetMinutes,
   });
-  if (selectedHarness.mode === HARNESS_MODE.AUTONOMOUS) {
+  if ([HARNESS_MODE.VERIFY, HARNESS_MODE.AUTONOMOUS].includes(selectedHarness.mode)) {
     const requiredChecks = policy?.evidence?.requiredChecks;
     if (!Array.isArray(requiredChecks) || requiredChecks.length === 0
       || requiredChecks.some((check) => !check || typeof check !== "object" || !check.name || !check.appSlug)) {
-      throw new HttpError(409, "Autonomous repair requires at least one exact behavioral check and publisher.");
+      throw new HttpError(409, `${selectedHarness.mode === HARNESS_MODE.VERIFY ? "Verify only" : "Autonomous repair"} requires at least one exact behavioral check and publisher.`);
     }
   }
   return `${JSON.stringify({
@@ -1166,14 +1394,30 @@ function parsedManagedManifest(value) {
   }
 }
 
-export function classifyManagedInstallation({ files, reservedEntries = [] }) {
-  if (!files || typeof files !== "object" || Array.isArray(files) || !Array.isArray(reservedEntries)) {
-    throw new TypeError("Managed installation inspection is invalid.");
-  }
+export function managedVersionSnapshot(managedVersion) {
   const desiredManagedFiles = buildManagedFiles();
   const desiredHashes = Object.fromEntries(desiredManagedFiles.map(({ path: filePath, content }) => (
     [filePath, contentDigest(content)]
   )));
+  const managedHashes = managedVersion === MANAGED_VERSION
+    ? desiredHashes
+    : KNOWN_MANAGED_VERSION_HASHES[managedVersion];
+  return managedHashes
+    ? { managedVersion, manifest: managedManifestFromHashes(managedVersion, managedHashes), managedHashes: { ...managedHashes } }
+    : null;
+}
+
+export function classifyManagedInstallationDigests({
+  digests,
+  manifest,
+  policyPresent,
+  reservedEntries = [],
+}) {
+  if (!digests || typeof digests !== "object" || Array.isArray(digests)
+    || typeof policyPresent !== "boolean" || !Array.isArray(reservedEntries)) {
+    throw new TypeError("Managed installation digest inspection is invalid.");
+  }
+  const desiredHashes = managedVersionSnapshot(MANAGED_VERSION).managedHashes;
   const allowedChangePlaneFiles = new Set([
     ...MANAGED_PATHS.filter((filePath) => filePath.startsWith("changeplane/")),
     MANAGED_MANIFEST_PATH,
@@ -1181,25 +1425,23 @@ export function classifyManagedInstallation({ files, reservedEntries = [] }) {
   const conflicts = reservedEntries
     .filter((entry) => typeof entry === "string" && entry.startsWith("changeplane/") && !allowedChangePlaneFiles.has(entry));
 
-  if (typeof files[POLICY_PATH] !== "string") conflicts.push(POLICY_PATH);
+  if (!policyPresent) conflicts.push(POLICY_PATH);
 
-  const manifest = files[MANAGED_MANIFEST_PATH];
   if (manifest == null) {
     const matchesCatalog = (catalog, { allowMissingOutsideCatalog = false } = {}) => (
       Object.entries(catalog).every(([filePath, digest]) => (
-        typeof files[filePath] === "string" && contentDigest(files[filePath]) === digest
+        digests[filePath] === digest
       ))
       && (allowMissingOutsideCatalog || MANAGED_PATHS.every((filePath) => (
-        Object.hasOwn(catalog, filePath) || files[filePath] == null
+        Object.hasOwn(catalog, filePath) || digests[filePath] == null
       )))
     );
     const matchesLegacy = matchesCatalog(LEGACY_MANAGED_HASHES);
     const matchesCurrentWithoutManifest = matchesCatalog(desiredHashes, { allowMissingOutsideCatalog: true });
     if (!matchesLegacy && !matchesCurrentWithoutManifest) {
       for (const filePath of MANAGED_PATHS) {
-        const content = files[filePath];
-        if (content == null) continue;
-        const digest = contentDigest(content);
+        const digest = digests[filePath];
+        if (digest == null) continue;
         if (digest !== LEGACY_MANAGED_HASHES[filePath] && digest !== desiredHashes[filePath]) conflicts.push(filePath);
       }
       if (conflicts.length === 0) conflicts.push(MANAGED_MANIFEST_PATH);
@@ -1211,18 +1453,14 @@ export function classifyManagedInstallation({ files, reservedEntries = [] }) {
   }
 
   const parsedManifest = parsedManagedManifest(manifest);
-  const catalogHashes = parsedManifest?.managedVersion === MANAGED_VERSION
-    ? desiredHashes
-    : KNOWN_MANAGED_VERSION_HASHES[parsedManifest?.managedVersion];
-  const expectedManifest = catalogHashes
-    ? managedManifestFromHashes(parsedManifest.managedVersion, catalogHashes)
-    : null;
+  const snapshot = managedVersionSnapshot(parsedManifest?.managedVersion);
+  const catalogHashes = snapshot?.managedHashes;
+  const expectedManifest = snapshot?.manifest ?? null;
   if (!parsedManifest || parsedManifest.managedVersion > MANAGED_VERSION || manifest !== expectedManifest) {
     conflicts.push(MANAGED_MANIFEST_PATH);
   }
   for (const filePath of Object.keys(catalogHashes ?? {})) {
-    const content = files[filePath];
-    if (typeof content !== "string" || contentDigest(content) !== catalogHashes[filePath]) {
+    if (digests[filePath] !== catalogHashes[filePath]) {
       conflicts.push(filePath);
     }
   }
@@ -1233,6 +1471,20 @@ export function classifyManagedInstallation({ files, reservedEntries = [] }) {
   return parsedManifest.managedVersion === MANAGED_VERSION
     ? { state: "current", currentVersion: MANAGED_VERSION, targetVersion: MANAGED_VERSION, conflicts: [] }
     : { state: "outdated", currentVersion: parsedManifest.managedVersion, targetVersion: MANAGED_VERSION, conflicts: [] };
+}
+
+export function classifyManagedInstallation({ files, reservedEntries = [] }) {
+  if (!files || typeof files !== "object" || Array.isArray(files) || !Array.isArray(reservedEntries)) {
+    throw new TypeError("Managed installation inspection is invalid.");
+  }
+  return classifyManagedInstallationDigests({
+    digests: Object.fromEntries(Object.entries(files)
+      .filter(([, content]) => typeof content === "string")
+      .map(([filePath, content]) => [filePath, contentDigest(content)])),
+    manifest: files[MANAGED_MANIFEST_PATH],
+    policyPresent: typeof files[POLICY_PATH] === "string",
+    reservedEntries,
+  });
 }
 
 async function readRepositoryFile(encodedRepository, filePath, ref, token) {
@@ -1719,11 +1971,13 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
         base: repo.default_branch,
         body: [
           `<!-- changeplane ${JSON.stringify(plan)} -->`,
-          `## ChangePlane ${selectedHarness.mode} setup`,
+          `## ChangePlane ${harnessModeLabel(selectedHarness.mode)} setup`,
           "",
           selectedHarness.mode === HARNESS_MODE.AUTONOMOUS
             ? "This installs the exact-revision harness. Fixable failed evidence may receive at most two bounded repair attempts within 15 minutes; protected, ambiguous, stale, or exhausted changes stop for a human."
-            : "This adds reporting only. It cannot block merges, run repair, or execute pull-request code with a write token.",
+            : selectedHarness.mode === HARNESS_MODE.VERIFY
+              ? "This installs a blocking-capable exact-revision guard with no repair authority. Your coding agent owns any fix; ChangePlane rechecks the new commit and never claims that GitHub enforcement is active."
+              : "This adds reporting only. It cannot block merges, run repair, or execute pull-request code with a write token.",
           "",
           `**Next:** review the ${files.length} added files, then merge to activate ChangePlane on future pull-request updates.`,
           "",
@@ -1739,7 +1993,9 @@ async function createObservePullRequest(repository, session, requiredCheck = nul
           "",
           selectedHarness.mode === HARNESS_MODE.AUTONOMOUS
             ? "The proposal job receives no forge credentials. A clean harness validates the candidate patch, an App-signed one-time grant authorizes a separate apply job, and only a fresh exact-head check may publish PASS. GitHub remains the merge authority."
-            : "ChangePlane binds each receipt to the pull request's exact head revision. Repair stays disabled until repository policy, provider funding, and the trusted controller are configured.",
+            : selectedHarness.mode === HARNESS_MODE.VERIFY
+              ? "Verify only receives no provider key, repair webhook, controller HMAC, or installation credential. It publishes from exact deterministic evidence; repository branch policy remains the sole source of merge enforcement."
+              : "ChangePlane binds each receipt to the pull request's exact head revision. Repair stays disabled until repository policy, provider funding, and the trusted controller are configured.",
           "",
           "</details>",
         ].join("\n"),
@@ -2344,7 +2600,9 @@ async function createRuntimePullRequest(repository, session, model, harnessMode)
           "",
           selectedHarness.mode === HARNESS_MODE.AUTONOMOUS
             ? "Fixable failed evidence may receive at most two attempts within 15 minutes. The model still receives no forge write, Check, approval, or merge authority."
-            : "Observe mode publishes a neutral exact-revision receipt and does not dispatch repair.",
+            : selectedHarness.mode === HARNESS_MODE.VERIFY
+              ? "Verify only publishes a blocking-capable exact-revision guard without dispatching repair. Your coding agent owns the fix; GitHub branch policy remains the merge authority."
+              : "Observe mode publishes a neutral exact-revision receipt and does not dispatch repair.",
           "",
           "Closing this pull request keeps the current runtime unchanged.",
         ].join("\n"),
@@ -2377,10 +2635,32 @@ async function runtimeStatus(req, res) {
   const repository = validateRepository(queryValue(req, "repository"));
   const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
   const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
-  const canWriteSecrets = await installationCanWriteSecrets(session, installationId);
-  const byok = !canWriteSecrets
-    ? { configured: false, state: "permission_required", secretName: BYOK_SECRET_NAME, updatedAt: null }
-    : await readByokStatus(repository, await repositoryByokToken(session, repo, installationId));
+  const live = await github(`/repos/${encodedRepository}`, session.token);
+  const isAdmin = live?.full_name?.toLowerCase() === repository.toLowerCase()
+    && live.permissions?.admin === true;
+  const branchEnforcement = runtime.content == null
+    ? {
+      state: "not_installed",
+      active: false,
+      strict: false,
+      guardRequired: false,
+      publisherBound: false,
+    }
+    : await readGuardEnforcement(
+      encodedRepository,
+      { ...repo, ...live },
+      session.token,
+      { isAdmin },
+    );
+  const enforcement = runtime.harness.mode === HARNESS_MODE.OBSERVE && branchEnforcement.active
+    ? { ...branchEnforcement, state: "verify_mode_required", active: false }
+    : branchEnforcement;
+  const canWriteSecrets = isAdmin && await installationCanWriteSecrets(session, installationId);
+  const byok = !isAdmin
+    ? { configured: false, state: "admin_required", secretName: BYOK_SECRET_NAME, updatedAt: null }
+    : !canWriteSecrets
+      ? { configured: false, state: "permission_required", secretName: BYOK_SECRET_NAME, updatedAt: null }
+      : await readByokStatus(repository, await repositoryByokToken(session, { ...repo, ...live }, installationId));
   const controller = repairControllerConfiguration();
   let managed = {
     state: "reserved",
@@ -2416,8 +2696,10 @@ async function runtimeStatus(req, res) {
     effort: PROPOSAL_REASONING_EFFORT,
     harness: {
       mode: runtime.harness.mode,
-      autonomousAvailable: controller.configured && session.authMode === "github_app" && canWriteSecrets,
-      ready: runtime.harness.mode === HARNESS_MODE.AUTONOMOUS && byok.configured && controller.configured,
+      verifyAvailable: true,
+      autonomousAvailable: isAdmin && controller.provisioningConfigured && session.authMode === "github_app" && canWriteSecrets,
+      ready: isAdmin && runtime.harness.mode === HARNESS_MODE.AUTONOMOUS && byok.configured && controller.configured,
+      enforcement,
       maxAttempts: HARNESS_MAX_ATTEMPTS,
       budgetMinutes: HARNESS_BUDGET_MINUTES,
     },
@@ -2486,13 +2768,15 @@ async function configureByok(req, res) {
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
   const apiKey = validateByokKey(body.apiKey);
-  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  let target = await requireRepositoryAdmin(repository, session);
+  const { encodedRepository, installationId } = target;
   if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before BYOK can be configured. No provider request was made.");
   }
-  const runtime = await readRepositoryRuntime(encodedRepository, repo, session.token);
+  const runtime = await readRepositoryRuntime(encodedRepository, target.repo, session.token);
   await verifyOpenAIKey(apiKey, { model: runtime.model });
-  const byokToken = await repositoryByokToken(session, repo, installationId);
+  target = await revalidateRepositoryAdmin(target, repository, session);
+  const byokToken = await repositoryByokToken(session, target.repo, installationId);
   const publicKey = await repositoryActionsPublicKey(encodedRepository, byokToken);
   await putRepositoryActionsSecret(encodedRepository, byokToken, publicKey, BYOK_SECRET_NAME, apiKey);
 
@@ -2514,7 +2798,7 @@ async function disconnectByok(req, res) {
   assertJsonRequest(req);
   const body = await readJson(req);
   const repository = validateRepository(body.repository);
-  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
+  const { encodedRepository, repo, installationId } = await requireRepositoryAdmin(repository, session);
   if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before BYOK can be disconnected.");
   }
@@ -2680,7 +2964,8 @@ async function preflight(req, res) {
     evidenceOptions,
     evidenceDiscovery,
     harness: {
-      autonomousAvailable: repairControllerConfiguration().configured,
+      verifyAvailable: true,
+      autonomousAvailable: repairControllerConfiguration().provisioningConfigured,
       maxAttempts: HARNESS_MAX_ATTEMPTS,
       budgetMinutes: HARNESS_BUDGET_MINUTES,
     },
@@ -2702,20 +2987,22 @@ async function preflight(req, res) {
   });
 }
 
-async function prepareAutonomousHarness(repository, session) {
+export async function prepareAutonomousHarness(repository, session) {
   const configuration = repairControllerConfiguration();
-  if (!configuration.configured) {
+  if (!configuration.provisioningConfigured) {
     throw new HttpError(503, "Autonomous repair is temporarily unavailable. Observe mode remains available.");
   }
-  const { encodedRepository, repo, installationId } = await requireWritableRepository(repository, session);
-  if (session.authMode !== "github_app" || !Number.isSafeInteger(repo?.id) || repo.id < 1
+  let target = await requireRepositoryAdmin(repository, session);
+  const { encodedRepository, installationId } = target;
+  if (session.authMode !== "github_app" || !Number.isSafeInteger(target.repo?.id) || target.repo.id < 1
     || !/^[1-9][0-9]{0,19}$/u.test(String(installationId ?? ""))) {
     throw new HttpError(409, "Autonomous repair requires the repository-scoped ChangePlane GitHub App.");
   }
+  await requireAutonomousBranchProtection(encodedRepository, target.repo, session.token);
   if (!await installationCanWriteSecrets(session, installationId)) {
     throw new HttpError(403, "The GitHub App installation needs Actions Secrets write permission before autonomous repair can be enabled.");
   }
-  const token = await repositoryByokToken(session, repo, installationId);
+  const token = await repositoryByokToken(session, target.repo, installationId);
   const byok = await readByokStatus(repository, token);
   if (!byok.configured) {
     throw new HttpError(409, "Add an OpenAI key before enabling autonomous repair.");
@@ -2732,7 +3019,7 @@ async function prepareAutonomousHarness(repository, session) {
     controllerSecret = deriveControllerSecret({
       masterSecret: process.env.CHANGEPLANE_CONTROLLER_SECRET,
       installationId: Number(installationId),
-      repositoryId: repo.id,
+      repositoryId: target.repo.id,
       repository,
     });
   } catch {
@@ -2748,6 +3035,16 @@ async function prepareAutonomousHarness(repository, session) {
     HARNESS_SECRETS.enabled,
     "false",
   );
+  // V11 and earlier workflows reference only the legacy name. Replace it before
+  // provisioning the v12-domain credential so an old trusted-base bug cannot
+  // leak a credential that the v12 controller will accept after upgrade.
+  await putRepositoryActionsSecret(
+    encodedRepository,
+    token,
+    publicKey,
+    HARNESS_SECRETS.legacyController,
+    LEGACY_CONTROLLER_TOMBSTONE,
+  );
   for (const [name, value] of [
     [HARNESS_SECRETS.controller, controllerSecret],
     [HARNESS_SECRETS.installation, String(installationId)],
@@ -2756,12 +3053,14 @@ async function prepareAutonomousHarness(repository, session) {
   ]) {
     await putRepositoryActionsSecret(encodedRepository, token, publicKey, name, value);
   }
+  target = await revalidateRepositoryAdmin(target, repository, session);
+  await requireAutonomousBranchProtection(encodedRepository, target.repo, session.token);
   await putRepositoryActionsSecret(
     encodedRepository,
     token,
     publicKey,
     HARNESS_SECRETS.enabled,
-    "true",
+    MANAGED_REPAIR_ACTIVATION,
   );
 }
 
@@ -2777,6 +3076,9 @@ async function install(req, res) {
   }
   const requiredCheck = validateRequiredCheck(body.requiredCheck);
   const harnessMode = harnessPolicy({ mode: body.harnessMode }).mode;
+  if (harnessMode === HARNESS_MODE.VERIFY && !requiredCheck) {
+    throw new HttpError(400, "Verify only requires one exact behavioral check and publisher.");
+  }
   if (harnessMode === HARNESS_MODE.AUTONOMOUS) {
     if (!requiredCheck) throw new HttpError(400, "Autonomous repair requires one exact behavioral check and publisher.");
     await prepareAutonomousHarness(repository, session);
@@ -2960,10 +3262,7 @@ export default async function handler(req, res) {
       res.setHeader("allow", allowedMethods.join(", "));
       throw new HttpError(405, "Method not allowed for this API action.");
     }
-    if ((action === "install" || action === "runtime" || action === "byok" || action === "repair" || action === "repair-claim"
-      || action === "repair-push-token" || action === "repair-validate") && (method === "POST" || method === "DELETE")) {
-      assertMutationSourceProvenance();
-    }
+    if (EXTERNAL_ACCESS_ACTIONS.has(action)) assertExternalAccessSourceProvenance();
     if (method === "GET" && action === "readiness") {
       const state = readiness();
       sendJson(res, state.ready ? 200 : 503, {

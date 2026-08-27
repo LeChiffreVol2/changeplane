@@ -6,6 +6,8 @@ import {
   verifyRepairLedgerEnvelope,
 } from "../server/repair-ledger.js";
 
+export const REPAIR_ACTIVATION_MARKER = "managed-v12";
+
 function requiredInteger(value, name) {
   const result = Number(value);
   if (!Number.isSafeInteger(result) || result < 1) throw new Error(name + " is unavailable.");
@@ -38,7 +40,7 @@ export function verifyRepairGrantEnvironment({
   expectedDigest,
   now = Date.now(),
 }) {
-  if (enabled !== "true") throw new Error("ChangePlane repair is disabled.");
+  if (enabled !== REPAIR_ACTIVATION_MARKER) throw new Error("ChangePlane repair is disabled or the managed controller is outdated.");
   const expectedGeneration = requiredInteger(generation, "ChangePlane repair generation");
   const entry = verifyRepairLedgerEnvelope(event?.client_payload, publicKeyRing(publicKeys), {
     now,

@@ -13,16 +13,18 @@ The RouteThai example uses synthetic data and makes no request to GitHub, OpenAI
 - Session state is encrypted and authenticated in a secure, same-site, HTTP-only cookie with a bounded lifetime. ChangePlane has no product database.
 - Setup and configuration changes are proposed through protected pull requests. The installer does not write directly to the default branch.
 - GitHub stores the installed workflows, policy, receipts, Checks, comments, artifacts, refs, and repository secrets.
+- The machine-readable Assurance Passport contains only repository/revision identifiers, policy and input digests, evaluator metadata, bounded Check names and GitHub App publishers, status/conclusion values, a decision, and fixed authority declarations. Legacy commit-status creators are normalized to `LEGACY_COMMIT_STATUS`; actor usernames beyond an owner login inherent in the repository identifier are excluded, together with diagnostics, source text, prompts, patches, preview URLs, provider responses, and credentials. Its digest is an integrity check, not an offline authenticity claim; verify the exact marker, head, conclusion, and policy-pinned App ID and slug against the live GitHub Check.
+- Repository-admin access is required before ChangePlane reads secret metadata or creates, rotates, or deletes BYOK and autonomous-controller secrets. Write collaborators receive a redacted `admin_required` state and no secret-backed readiness signal.
 
 ## Repository BYOK
 
-The browser sends an OpenAI key once to the authenticated same-origin API. ChangePlane verifies access to the selected allowlisted model, encrypts the key with GitHub's repository public key, stores only `OPENAI_API_KEY` as a GitHub Actions Secret, and clears the browser field after the request.
+The browser sends an OpenAI key once to the authenticated same-origin API. ChangePlane checks repository-admin authority, verifies access to the selected allowlisted model, rechecks that same repository and admin authority, encrypts the key with GitHub's repository public key, stores only `OPENAI_API_KEY` as a GitHub Actions Secret, and clears the browser field after the request.
 
 Plaintext provider keys are not stored in localStorage, cookies, logs, API responses, screenshots, artifacts, source control, or a ChangePlane database. Deleting BYOK removes the GitHub Actions Secret; runtime policy remains and model-backed work fails closed.
 
 ## Model requests
 
-Observe mode and the public example send no repository content to OpenAI.
+Observe mode, Verify only, and the public example send no repository content to OpenAI. Verify only also receives no repair webhook, controller HMAC, or controller installation credential.
 
 When repository BYOK enables advisory review or autonomous repair, the trusted workflow sends bounded inputs to the repository owner's OpenAI project:
 

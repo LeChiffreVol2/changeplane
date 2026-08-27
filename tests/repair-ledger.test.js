@@ -306,7 +306,7 @@ test("inactive workflow verifier accepts only the pinned signed grant and curren
   });
   const verified = verifyRepairGrantEnvironment({
     event,
-    enabled: "true",
+    enabled: "managed-v12",
     generation: "9",
     publicKeys,
     repository: "acme/payments",
@@ -321,6 +321,7 @@ test("inactive workflow verifier accepts only the pinned signed grant and curren
 
   for (const overrides of [
     { enabled: "false" },
+    { enabled: "true" },
     { generation: "10" },
     { repository: "acme/other" },
     { baseRef: "release" },
@@ -331,7 +332,7 @@ test("inactive workflow verifier accepts only the pinned signed grant and curren
   ]) {
     assert.throws(() => verifyRepairGrantEnvironment({
       event,
-      enabled: "true",
+      enabled: "managed-v12",
       generation: "9",
       publicKeys,
       repository: "acme/payments",

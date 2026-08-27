@@ -1,15 +1,15 @@
 name: ChangePlane Guard
-description: Run the revision-bound assurance harness in observe or autonomous mode.
+description: Run the revision-bound assurance harness in Observe, Verify only, or Autonomous profile.
 inputs:
   token:
     description: GitHub token used to read pull requests, deployments, and reviewer permissions.
     required: true
   mode:
-    description: Observe publishes a neutral receipt. Enforce enables the bounded repair controller.
+    description: Observe publishes a neutral receipt. Enforce publishes a blocking-capable exact-head guard and either handoff or bounded repair.
     required: false
     default: observe
   agent_dispatch:
-    description: Repair dispatch boundary. Must remain none unless the trusted harness selects webhook.
+    description: Repair dispatch boundary. none emits a proposal-only coding-agent handback; webhook invokes the separately credentialed repair controller.
     required: false
     default: none
   agent_webhook_url:
@@ -26,9 +26,12 @@ inputs:
     required: false
     default: "2"
   policy_path:
-    description: Policy file read from the trusted default-branch base revision.
+    description: Repository-relative policy file path (maximum 300 characters) read from the trusted default-branch base revision.
     required: false
     default: .changeplane.json
+  trusted_controller_sha:
+    description: Exact checked-out default-branch controller revision.
+    required: true
 outputs:
   mode:
     description: Active harness mode.
@@ -36,6 +39,10 @@ outputs:
     description: Exact-head harness result.
   receipt:
     description: Canonical one-line JSON receipt bound to the exact revision and policy digest.
+  assurance_passport:
+    description: Machine-readable exact-head assurance passport, emitted only after the live GitHub Check is published. Its digest proves local integrity; consumers must still verify that Check and publisher.
+  assurance_passport_digest:
+    description: Domain-separated SHA-256 digest emitted only after the live exact-head GitHub Check is published.
   actual_files:
     description: Number of changed files evaluated.
   finding_count:

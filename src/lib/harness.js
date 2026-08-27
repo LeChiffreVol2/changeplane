@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 
 export const HARNESS_MODE = Object.freeze({
   OBSERVE: "observe",
+  VERIFY: "verify",
   AUTONOMOUS: "autonomous",
 });
 
@@ -15,7 +16,7 @@ export function harnessPolicy(value = {}) {
   }
   const mode = value.mode ?? HARNESS_MODE.OBSERVE;
   if (!Object.values(HARNESS_MODE).includes(mode)) {
-    throw new TypeError("The harness mode must be observe or autonomous.");
+    throw new TypeError("The harness mode must be observe, verify, or autonomous.");
   }
   const maxAttempts = value.maxAttempts ?? HARNESS_MAX_ATTEMPTS;
   const budgetMinutes = value.budgetMinutes ?? HARNESS_BUDGET_MINUTES;
@@ -28,7 +29,7 @@ export function harnessPolicy(value = {}) {
 export function actionHarnessConfig(policy) {
   const harness = harnessPolicy(policy?.harness);
   return {
-    mode: harness.mode === HARNESS_MODE.AUTONOMOUS ? "enforce" : "observe",
+    mode: harness.mode === HARNESS_MODE.OBSERVE ? "observe" : "enforce",
     dispatch: harness.mode === HARNESS_MODE.AUTONOMOUS ? "webhook" : "none",
     maxAttempts: harness.maxAttempts,
   };

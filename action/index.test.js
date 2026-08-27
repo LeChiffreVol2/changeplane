@@ -3,9 +3,13 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH,
   canonicalJson,
+  assertTrustedPullRequestBase,
+  assurancePassportOutputs,
   bindPreview,
   buildAgentHandback,
+  buildAssurancePassport,
   buildMergeGroupReceipt,
   buildReceipt,
   checkDiagnostic,
@@ -19,6 +23,7 @@ import {
   githubRetryDelayMs,
   findCurrentRemediationRequest,
   parseBoundReceipt,
+  parseAssurancePassportIntegrity,
   parseAgentDispatch,
   parseMode,
   parsePlan,
@@ -29,8 +34,34 @@ import {
   resolveMergeGroup,
   resolvePullRequestNumber,
   sanitizePreviewUrl,
+  shouldDispatchAgentWebhook,
+  shouldFailDecision,
   validateAgentWebhookUrl,
+  verifyAssurancePassportAgainstCheck,
+  verifyAssurancePassportIntegrity,
 } from "./index.js";
+
+function passportReceipt(overrides = {}) {
+  const baseSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  return {
+    repository: "acme/payments",
+    repositoryId: 4242,
+    pullRequestNumber: 42,
+    baseSha,
+    headSha,
+    inputDigest: "c".repeat(64),
+    boundContractDigest: "d".repeat(64),
+    policy: { path: ".changeplane.json", digest: "e".repeat(64), sourceRevision: baseSha },
+    approvalDigest: "f".repeat(64),
+    evaluatorVersion: "0.4.0",
+    mode: "observe",
+    decision: "PASS",
+    reason: "ELIGIBLE",
+    evidence: [],
+    ...overrides,
+  };
+}
 
 test("GitHub Actions test imports do not execute the Action entrypoint", () => {
   const result = spawnSync(process.execPath, [
@@ -56,7 +87,14 @@ test("pinned guard workflows request merge-group checks on exact queue revisions
     assert.match(workflow, /github\.event\.merge_group\.head_sha/u);
   }
   const observe = readFileSync(new URL("../examples/changeplane-observe.yml", import.meta.url), "utf8");
-  assert.match(observe, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \|\| github\.event\.repository\.default_branch \}\}/u);
+  assert.match(observe, /types: \[opened, synchronize, reopened, edited\]/u);
+  assert.match(observe, /ref: \$\{\{ github\.event\.merge_group\.base_sha \|\| \(github\.event\.pull_request\.base\.ref == github\.event\.repository\.default_branch && github\.event\.pull_request\.base\.sha\) \|\| github\.event\.repository\.default_branch \}\}/u);
+  assert.match(observe, /trusted_controller_sha: \$\{\{ steps\.controller\.outputs\.sha \}\}/u);
+  const repair = readFileSync(new URL("../examples/changeplane-repair-guard.yml", import.meta.url), "utf8");
+  assert.match(repair, /INPUT_TRUSTED_CONTROLLER_SHA: \$\{\{ steps\.trusted\.outputs\.sha \}\}/u);
+  const mergeQueueStep = repair.match(/- name: Evaluate the merge queue without repair authority\n([\s\S]*)$/u)?.[1] ?? "";
+  assert.match(mergeQueueStep, /INPUT_AGENT_DISPATCH: none/u);
+  assert.doesNotMatch(mergeQueueStep, /CONTROLLER_HMAC|CONTROLLER_INSTALLATION_ID|WEBHOOK/u);
 });
 
 test("builds bounded exact-check diagnostics from output and annotations", () => {
@@ -100,6 +138,49 @@ test("enforce evidence excludes legacy commit statuses without querying them", a
   }
 });
 
+test("retains the exact Check Run and publisher identities for portable assurance", async () => {
+  const originalFetch = globalThis.fetch;
+  const headSha = "a".repeat(40);
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        check_runs: [{
+          id: 808,
+          name: "validate",
+          status: "completed",
+          conclusion: "success",
+          head_sha: headSha,
+          started_at: "2026-08-20T00:00:00Z",
+          completed_at: "2026-08-20T00:01:00Z",
+          app: { id: 15368, slug: "github-actions" },
+        }],
+      };
+    },
+  });
+  try {
+    assert.deepEqual(await evidenceSnapshot(
+      "acme/payments",
+      headSha,
+      { evidence: { requiredChecks: [{ name: "validate", appSlug: "github-actions" }] } },
+      "token",
+      { includeCommitStatuses: false },
+    ), [{
+      name: "validate",
+      status: "completed",
+      conclusion: "success",
+      createdAt: "2026-08-20T00:00:00Z",
+      completedAt: "2026-08-20T00:01:00Z",
+      source: "github-actions",
+      checkRunId: 808,
+      publisherAppId: 15368,
+    }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("observe evidence keeps legacy commit statuses during migration", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
@@ -135,14 +216,101 @@ test("observe evidence keeps legacy commit statuses during migration", async () 
       conclusion: "success",
       createdAt: undefined,
       completedAt: undefined,
-      source: "ci-user",
+      source: "LEGACY_COMMIT_STATUS",
     }]);
+    assert.doesNotMatch(canonicalJson(checks), /ci-user/u);
     assert.equal(requested.length, 2);
     assert.match(requested[0], /\/check-runs$/u);
     assert.match(requested[1], /\/status$/u);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("round-trips a maximum-bound assurance passport within the shared encoded limit", () => {
+  const appSlug = "a".repeat(100);
+  const passport = buildAssurancePassport(passportReceipt({
+    repository: "r".repeat(200),
+    evaluatorVersion: "v".repeat(50),
+    reason: "R".repeat(200),
+    policy: {
+      path: "p".repeat(300),
+      digest: "e".repeat(64),
+      sourceRevision: "a".repeat(40),
+    },
+    evidence: Array.from({ length: 20 }, (_, index) => ({
+      name: `${String(index).padStart(2, "0")}${"n".repeat(98)}`,
+      expectedSource: appSlug,
+      source: appSlug,
+      checkRunId: index + 1,
+      publisherAppId: index + 101,
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      completedAt: "2026-08-20T00:01:00Z",
+    })),
+  }));
+  const payload = Buffer.from(canonicalJson(passport)).toString("base64url");
+  assert.equal(payload.length <= MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH, true);
+  const marker = `<!-- changeplane-assurance-passport:v1 digest=${passport.digest} payload=${payload} -->`;
+  assert.deepEqual(parseAssurancePassportIntegrity(marker), passport);
+  assert.deepEqual(assurancePassportOutputs(passport, false), {});
+  assert.deepEqual(assurancePassportOutputs(passport, true), {
+    assurance_passport: canonicalJson(passport),
+    assurance_passport_digest: passport.digest,
+  });
+});
+
+test("rejects policy paths and evidence states that cannot round-trip through the passport schema", () => {
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({
+      policy: {
+        path: "p".repeat(301),
+        digest: "e".repeat(64),
+        sourceRevision: "a".repeat(40),
+      },
+    })),
+    /policy_path.*300/u,
+  );
+
+  const validEvidence = {
+    name: "validate",
+    expectedSource: "github-actions",
+    source: "github-actions",
+    checkRunId: 808,
+    publisherAppId: 15368,
+    status: "COMPLETED",
+    conclusion: "SUCCESS",
+    completedAt: "2026-08-20T00:01:00Z",
+  };
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({ evidence: [{ ...validEvidence, status: "COMPLETE" }] })),
+    /assurance passport is invalid/u,
+  );
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({ evidence: [{ ...validEvidence, completedAt: "yesterday" }] })),
+    /assurance passport is invalid/u,
+  );
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({ evidence: [{ ...validEvidence, publisherAppId: undefined }] })),
+    /assurance passport is invalid/u,
+  );
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({ evidence: [{ ...validEvidence, source: "another-app" }] })),
+    /assurance passport is invalid/u,
+  );
+
+  const sourceMismatch = buildAssurancePassport(passportReceipt({
+    evidence: [{
+      name: "validate",
+      expectedSource: "github-actions",
+      source: null,
+      status: "MISSING",
+      conclusion: null,
+    }],
+  }));
+  assert.equal(sourceMismatch.evidence[0].actualPublisher, "Unknown");
+  assert.equal(sourceMismatch.decision.behavioralEvidencePassed, false);
+  assert.deepEqual(verifyAssurancePassportIntegrity(sourceMismatch), sourceMismatch);
 });
 
 test("accepts observe and enforce modes and defaults to observe", () => {
@@ -325,6 +493,41 @@ test("standard pull-request events keep their direct number without lookup", asy
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("trusted pull-request bases require the checked-out current default revision", () => {
+  const defaultSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const pullRequest = {
+    base: { ref: "main", sha: defaultSha },
+    head: { sha: headSha },
+  };
+  assert.doesNotThrow(() => assertTrustedPullRequestBase({
+    pullRequest,
+    eventPullRequest: structuredClone(pullRequest),
+    defaultBranch: "main",
+    defaultSha,
+    controllerSha: defaultSha,
+  }));
+  assert.throws(() => assertTrustedPullRequestBase({
+    pullRequest: { ...pullRequest, base: { ...pullRequest.base, ref: "release" } },
+    defaultBranch: "main",
+    defaultSha,
+    controllerSha: defaultSha,
+  }), /current trusted default branch/u);
+  assert.throws(() => assertTrustedPullRequestBase({
+    pullRequest,
+    defaultBranch: "main",
+    defaultSha,
+    controllerSha: "c".repeat(40),
+  }), /current trusted default branch/u);
+  assert.throws(() => assertTrustedPullRequestBase({
+    pullRequest,
+    eventPullRequest: { ...pullRequest, head: { sha: "d".repeat(40) } },
+    defaultBranch: "main",
+    defaultSha,
+    controllerSha: defaultSha,
+  }), /triggering pull-request revision is stale/u);
 });
 
 test("resolves a merge group as an exact default-branch revision", async () => {
@@ -645,9 +848,77 @@ test("builds a vendor-neutral proposal-only handback for fixable findings", () =
     proposalOnly: true,
     gitWrite: false,
     checkWrite: false,
+    pass: false,
     merge: false,
   });
   assert.match(handback.digest, /^[a-f0-9]{64}$/u);
+});
+
+test("renders enforce verify-only changes as an actionable, blocking-capable handback without webhook dispatch", () => {
+  const baseSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const plan = { goal: "Keep retry docs in scope", scope: ["src/payments/**"] };
+  const finding = {
+    code: "OUTSIDE_PLANNED_SCOPE",
+    path: "docs/retries.md",
+    pathKind: "current",
+    resolved: false,
+  };
+  const autonomousPlan = {
+    decision: "CHANGES_REQUIRED",
+    reason: "FIXABLE_SCOPE_DRIFT",
+    humanRequired: false,
+    findings: [finding],
+  };
+  const agentHandback = buildAgentHandback({
+    repository: "acme/payments",
+    pullRequest: { number: 42, base: { sha: baseSha }, head: { sha: headSha } },
+    plan,
+    policyDigest: "c".repeat(64),
+    contractDigest: "d".repeat(64),
+    inputDigest: "e".repeat(64),
+    autonomousPlan,
+    maxAttempts: 2,
+  });
+  assert.equal(agentHandback.proposal.requestedAttempt, null);
+
+  const receipt = buildReceipt({
+    repository: "acme/payments",
+    repositoryId: 4242,
+    pullRequest: { number: 42, base: { sha: baseSha }, head: { sha: headSha } },
+    plan,
+    policyPath: ".changeplane.json",
+    policyDigest: "c".repeat(64),
+    inputDigest: "e".repeat(64),
+    contractDigest: "d".repeat(64),
+    approvalDigest: "f".repeat(64),
+    result: { approval: { status: "MISSING" }, reasons: [finding] },
+    autonomousPlan,
+    mode: "enforce",
+    actualFiles: [{ path: "docs/retries.md" }],
+    maxAttempts: 2,
+    agentHandback,
+  });
+  const markdown = renderReceiptComment(receipt);
+  assert.match(markdown, /Changes are required before this revision can pass/);
+  assert.match(markdown, /Who acts:.*PR author or coding agent.*Next action:.*proposal-only agent handback.*push a new commit/su);
+  assert.match(markdown, /Blocking-capable guard.*blocks this exact-head result only when.*required by branch protection or a ruleset/su);
+  assert.match(markdown, /Fixable finding.*OUTSIDE_PLANNED_SCOPE.*docs\/retries\.md.*PROPOSE_REVERT_OR_MOVE_INTO_CONTRACT/su);
+  assert.doesNotMatch(markdown, /> \*\*Enforced\.\*\*/u);
+
+  assert.equal(headCheckPayload(receipt, markdown).conclusion, "action_required");
+  assert.equal(shouldFailDecision("enforce", autonomousPlan.decision), true);
+  assert.equal(shouldFailDecision("observe", autonomousPlan.decision), false);
+  assert.equal(shouldDispatchAgentWebhook({
+    mode: "enforce",
+    decision: autonomousPlan.decision,
+    agentDispatch: "none",
+  }), false);
+  assert.equal(shouldDispatchAgentWebhook({
+    mode: "enforce",
+    decision: "REMEDIATION_REQUIRED",
+    agentDispatch: "webhook",
+  }), true);
 });
 
 test("renders an exact revision-bound observe receipt with one next actor", () => {
@@ -668,6 +939,7 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   });
   const receipt = buildReceipt({
     repository: "acme/payments",
+    repositoryId: 4242,
     pullRequest: {
       number: 42,
       base: { sha: "a".repeat(40) },
@@ -685,7 +957,16 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
       approval: { status: "MISSING" },
       reasons: [{ code: "OUTSIDE_PLANNED_SCOPE", path: "docs/retries.md", resolved: false }],
     },
-    evidence: [{ name: "validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+    evidence: [{
+      name: "validate",
+      expectedSource: "github-actions",
+      source: "github-actions",
+      checkRunId: 808,
+      publisherAppId: 15368,
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      completedAt: "2026-08-20T00:00:00Z",
+    }],
     preview: {
       status: "READY",
       headSha,
@@ -717,6 +998,7 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   });
   const markdown = renderReceiptComment(receipt);
   assert.match(markdown, /changeplane-receipt:v2/);
+  assert.match(markdown, /changeplane-assurance-passport:v1/);
   assert.match(markdown, /changeplane-contract:v1 source=first-head/);
   assert.match(markdown, /First observed head · automatic/);
   assert.match(markdown, new RegExp(`contract=${"9".repeat(64)}`));
@@ -731,6 +1013,7 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   assert.match(markdown, /https:\/\/preview\.example\/pr\/42.*Preview.*bound to.*bbbbbbbbbbbb/);
   assert.match(markdown, /Preview provenance.*revision.*bbbbbbbbbbbb.*deployment.*11.*status.*101.*deploy-bot.*deploy:preview.*environment override.*Pull request 42.*informational only/s);
   assert.match(markdown, /changeplane-agent-handback:v1.*Agent handback.*Proposal only.*docs\/retries\.md.*cannot push, merge, publish a Check, or issue PASS/su);
+  assert.match(markdown, /Independent authority.*Assurance passport.*authenticity still requires the live.*Authoring agent.*Deterministic harness.*Trusted controller.*GitHub/su);
   assert.match(markdown, /Concurrent change risk.*#43.*Retry worker.*src\/payments\/retry\.js.*Advisory only/s);
   assert.equal(receipt.preview.deploymentId, 11);
 
@@ -740,6 +1023,91 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   assert.equal(check.name, "ChangePlane / guard");
   assert.match(check.output.summary, /https:\/\/preview\.example\/pr\/42/);
   assert.match(renderReceiptComment({ ...receipt, preview: { status: "MISSING" } }), /Not published for this revision \(advisory\)/);
+
+  const passport = parseAssurancePassportIntegrity(markdown);
+  assert.equal(passport.type, "changeplane.assurance-passport");
+  assert.equal(passport.target.repositoryId, 4242);
+  assert.equal(passport.target.headSha, headSha);
+  assert.equal(passport.binding.policySourceRevision, "a".repeat(40));
+  assert.equal(passport.decision.assuranceLevel, "BEHAVIORAL");
+  assert.equal(passport.decision.behavioralEvidencePassed, true);
+  assert.equal(passport.evidence[0].checkRunId, 808);
+  assert.equal(passport.evidence[0].publisherAppId, 15368);
+  assert.equal(passport.evidence[0].headSha, headSha);
+  assert.equal(passport.verification.authenticity, "REQUIRES_LIVE_GITHUB_CHECK");
+  assert.equal(passport.verification.agentIdentityUsedForDecision, false);
+  assert.equal(passport.authority.proposalModel.decide, false);
+  assert.equal(passport.authority.deterministicHarness.decide, true);
+  assert.equal(passport.authority.trustedController.apply, true);
+  assert.equal(passport.authority.github.merge, true);
+  const portableJson = canonicalJson(passport);
+  assert.doesNotMatch(portableJson, /preview\.example|diagnostic|prompt|provider|token|docs\/retries\.md/u);
+
+  const liveCheck = {
+    id: 909,
+    ...check,
+    app: { id: 15368, slug: "github-actions" },
+  };
+  assert.deepEqual(
+    verifyAssurancePassportAgainstCheck(passport, liveCheck, { appId: 15368, appSlug: "github-actions" }),
+    {
+      authenticity: "VERIFIED_LIVE_GITHUB_CHECK",
+      passport,
+      checkRunId: 909,
+      publisherAppId: 15368,
+      publisherAppSlug: "github-actions",
+    },
+  );
+  for (const invalidCheck of [
+    { ...liveCheck, head_sha: "7".repeat(40) },
+    { ...liveCheck, name: "ChangePlane / review" },
+    { ...liveCheck, status: "in_progress" },
+    { ...liveCheck, conclusion: "success" },
+    { ...liveCheck, app: { id: 999, slug: "github-actions" } },
+    { ...liveCheck, app: { id: 15368, slug: "another-app" } },
+    {
+      ...liveCheck,
+      output: {
+        ...liveCheck.output,
+        summary: liveCheck.output.summary.replace(passport.digest, "0".repeat(64)),
+      },
+    },
+  ]) {
+    assert.throws(
+      () => verifyAssurancePassportAgainstCheck(passport, invalidCheck, { appId: 15368, appSlug: "github-actions" }),
+      /does not authenticate/u,
+    );
+  }
+  assert.throws(
+    () => verifyAssurancePassportAgainstCheck(passport, liveCheck, { appId: 15368, appSlug: "another-app" }),
+    /does not authenticate/u,
+  );
+
+  const nextHeadPassport = buildAssurancePassport({ ...receipt, headSha: "7".repeat(40) });
+  assert.notEqual(nextHeadPassport.digest, passport.digest);
+  const nextPolicyPassport = buildAssurancePassport({
+    ...receipt,
+    policy: { ...receipt.policy, digest: "6".repeat(64) },
+  });
+  assert.notEqual(nextPolicyPassport.digest, passport.digest);
+  const failedEvidencePassport = buildAssurancePassport({
+    ...receipt,
+    evidence: receipt.evidence.map((item) => ({ ...item, conclusion: "FAILURE" })),
+  });
+  assert.notEqual(failedEvidencePassport.digest, passport.digest);
+  assert.equal(failedEvidencePassport.decision.behavioralEvidencePassed, false);
+  assert.equal(parseAssurancePassportIntegrity("No passport here"), undefined);
+
+  const marker = markdown.match(/<!-- changeplane-assurance-passport:v1 digest=([a-f0-9]{64}) payload=([A-Za-z0-9_-]+) -->/u);
+  const tampered = {
+    ...passport,
+    target: { ...passport.target, headSha: "8".repeat(40) },
+  };
+  const tamperedBody = markdown.replace(marker[2], Buffer.from(canonicalJson(tampered)).toString("base64url"));
+  assert.throws(
+    () => parseAssurancePassportIntegrity(tamperedBody),
+    /assurance passport is invalid/u,
+  );
 });
 
 test("reads only the trusted revision-bound receipt marker", () => {
@@ -757,6 +1125,7 @@ test("reads only the trusted revision-bound receipt marker", () => {
 test("labels an empty-evidence PASS as scope-only assurance", () => {
   const receipt = buildReceipt({
     repository: "acme/payments",
+    repositoryId: 4242,
     pullRequest: {
       number: 42,
       base: { sha: "a".repeat(40) },
@@ -788,6 +1157,9 @@ test("labels an empty-evidence PASS as scope-only assurance", () => {
   assert.match(markdown, /ChangePlane · Revision and scope recorded/u);
   assert.match(markdown, /No automated test was required.*not evidence that the code works/su);
   assert.doesNotMatch(markdown, /All configured guarantees passed/u);
+  const passport = buildAssurancePassport(receipt);
+  assert.equal(passport.decision.assuranceLevel, "SCOPE_ONLY");
+  assert.equal(passport.decision.behavioralEvidencePassed, false);
   assert.equal(headCheckPayload(receipt, markdown).output.title, "Revision and scope recorded · observe");
 });
 
@@ -796,6 +1168,7 @@ test("publishes merge-queue assurance on the merge-group SHA", () => {
   const headSha = "b".repeat(40);
   const receipt = buildMergeGroupReceipt({
     repository: "acme/payments",
+    repositoryId: 4242,
     target: {
       baseRef: "refs/heads/main",
       headRef: "refs/heads/gh-readonly-queue/main/pr-42",
@@ -809,7 +1182,16 @@ test("publishes merge-queue assurance on the merge-group SHA", () => {
     inputDigest: "d".repeat(64),
     contractDigest: "e".repeat(64),
     result: { approval: { status: "MISSING" }, reasons: [] },
-    evidence: [{ name: "test", expectedSource: "github-actions", source: "github-actions", status: "COMPLETED", conclusion: "SUCCESS" }],
+    evidence: [{
+      name: "test",
+      expectedSource: "github-actions",
+      source: "github-actions",
+      checkRunId: 808,
+      publisherAppId: 15368,
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      completedAt: "2026-08-20T00:01:00Z",
+    }],
     autonomousPlan: { decision: "PASS", reason: "ALL_GUARANTEES_SATISFIED", humanRequired: false },
     mode: "enforce",
   });
@@ -821,6 +1203,11 @@ test("publishes merge-queue assurance on the merge-group SHA", () => {
   assert.equal(check.conclusion, "success");
   assert.match(check.external_id, /merge-group/u);
   assert.match(markdown, /Merge queue revision.*bbbbbbbbbbbb.*Trusted default-branch base.*aaaaaaaaaaaa.*No repair|GitHub still owns queue and merge decisions/su);
+  assert.match(markdown, /changeplane-assurance-passport:v1.*Assurance passport.*integrity only until verified against this live GitHub Check/su);
+  const passport = buildAssurancePassport(receipt);
+  assert.equal(passport.target.type, "merge_group");
+  assert.equal(passport.target.pullRequestNumber, null);
+  assert.equal(passport.target.headSha, headSha);
 });
 
 test("round-trips an automatic contract only from the trusted receipt author", () => {

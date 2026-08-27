@@ -1,5 +1,9 @@
 # OpenAI Build Week implementation record
 
+## Outcome
+
+OpenAI announced the results after judging concluded. ChangePlane was not selected for a prize. The submission remains an immutable historical implementation record; product development continued independently as ChangePlane 1.0.0.
+
 This appendix contains competition-specific provenance for ChangePlane. Product installation, architecture, security, and operations remain in the main [README](../README.md) and linked product documentation.
 
 ## Submission identity

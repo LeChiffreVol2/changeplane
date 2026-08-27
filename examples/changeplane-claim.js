@@ -95,7 +95,7 @@ async function runCli() {
     runId: process.env.GITHUB_RUN_ID,
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     endpoint: process.env.CHANGEPLANE_CLAIM_URL,
-    secret: process.env.CHANGEPLANE_CONTROLLER_HMAC,
+    secret: process.env.CHANGEPLANE_CONTROLLER_HMAC_V12,
   });
   if (operation === "push-token") {
     const tokenPath = join(process.env.RUNNER_TEMP, "changeplane-push-token");

@@ -8,11 +8,13 @@ A customer does not need a Vercel account, ChangePlane CLI, database, worker ser
 
 1. Install the repository-scoped ChangePlane GitHub App on a personal account or organization.
 2. Choose one writable repository from an installation visible to the signed-in user.
-3. Review the safety preflight and create one protected setup pull request.
-4. Merge the setup after reviewing the managed files and chosen evidence Check.
+3. Review the safety preflight, choose Observe, Verify only, or Autonomous, and create one protected setup pull request. Repository-admin access is required for BYOK and autonomous setup; a write collaborator receives redacted secret status and cannot mutate it.
+4. Merge the setup after reviewing the managed files and chosen evidence Check. Verify only requires an exact behavioral Check and publisher, but it requires no model key or repair-controller secret.
 5. Add repository BYOK only when model-backed review or autonomous repair is wanted.
 
 GitHub Actions, Checks, comments, artifacts, refs, and repository secrets remain the operational and audit surface. GitHub remains the merge authority.
+
+Verify only publishes a blocking-capable `ChangePlane / guard` from exact deterministic evidence and never dispatches repair or model-backed review. Cursor, Codex, Claude Code, or another customer-selected coding agent owns the fix and pushes a new commit for a fresh evaluation. ChangePlane does not describe this as active enforcement until the repository owner separately makes that exact Check required in GitHub branch policy.
 
 ## Customer Vercel previews
 
@@ -24,7 +26,7 @@ The Vercel project that hosts ChangePlane itself is unrelated to any customer Ve
 
 ## ChangePlane production provenance
 
-GitHub-writing API routes require all of the following in the Vercel runtime:
+Every API route that can contact GitHub or OpenAI requires all of the following in the Vercel runtime:
 
 - environment: `production`;
 - Git provider: `github`;
@@ -33,7 +35,7 @@ GitHub-writing API routes require all of the following in the Vercel runtime:
 - branch: protected `main`; and
 - a full 40-character Git commit SHA supplied by Vercel Git integration.
 
-Fork deployments, preview deployments, CLI uploads, and deployments without this source provenance fail closed before GitHub or OpenAI access. The public example remains readable without granting mutation authority.
+Fork deployments, preview deployments, CLI uploads, and deployments without this source provenance fail closed before an OAuth redirect, credential exchange, repository lookup, provider request, or repository mutation. The public example and readiness endpoint remain readable without granting connector authority.
 
 Production configuration is documented in [`.env.example`](../.env.example). Secret values belong in the hosted environment or the selected repository's GitHub Actions Secrets; they never belong in source control or Preview deployments.
 

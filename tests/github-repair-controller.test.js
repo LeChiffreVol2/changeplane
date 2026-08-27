@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -779,6 +779,15 @@ test("controller and claim HMACs are repository-bound and tamper evident", () =>
   const deliveryId = request.idempotencyKey;
   const signature = signControllerRequest({ secret, deliveryId, request });
   assert.equal(verifyControllerRequest({ secret, deliveryId, signature, request }), request);
+  const legacySecret = createHmac("sha256", "m".repeat(64))
+    .update(`changeplane:repository-controller:v1\0${INSTALLATION_ID}\0${REPOSITORY_ID}\0${REPOSITORY.toLowerCase()}`)
+    .digest("base64url");
+  const legacySignature = signControllerRequest({ secret: legacySecret, deliveryId, request });
+  assert.notEqual(secret, legacySecret);
+  assert.throws(
+    () => verifyControllerRequest({ secret, deliveryId, signature: legacySignature, request }),
+    /signature/u,
+  );
   assert.throws(() => verifyControllerRequest({ secret, deliveryId, signature, request: { ...request, attempt: 2 } }), /signature/u);
 
   const claim = {

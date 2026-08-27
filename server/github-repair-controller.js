@@ -32,6 +32,7 @@ import {
 const REQUEST_DOMAIN = "changeplane:controller-request:v1\0";
 const CLAIM_DOMAIN = "changeplane:controller-claim:v1\0";
 const TRANSITION_DOMAIN = "changeplane:repair-transition:v1\0";
+const REPOSITORY_CONTROLLER_DOMAIN = "changeplane:repository-controller:v12\0";
 const LEDGER_SCHEMA_VERSION = 3;
 const REQUEST_SCHEMA_VERSION = 3;
 const EVALUATOR_VERSION = "0.4.0";
@@ -197,7 +198,7 @@ export function deriveControllerSecret({ masterSecret, installationId, repositor
   }
   validateRepository(repository);
   return createHmac("sha256", masterSecret)
-    .update(`changeplane:repository-controller:v1\0${installationId}\0${repositoryId}\0${repository.toLowerCase()}`)
+    .update(`${REPOSITORY_CONTROLLER_DOMAIN}${installationId}\0${repositoryId}\0${repository.toLowerCase()}`)
     .digest("base64url");
 }
 
