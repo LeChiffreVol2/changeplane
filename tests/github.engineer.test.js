@@ -168,7 +168,7 @@ test("observe onboarding requires Checks read but keeps Actions Secrets optional
             return {
               installations: [{
                 id: 12345,
-                permissions: { contents: "write", pull_requests: "write", workflows: "write", checks: "read" },
+                permissions: { administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "read" },
               }],
             };
           },
@@ -212,7 +212,16 @@ test("GitHub App BYOK fails before provider access when Actions Secrets write is
           ok: true,
           status: 200,
           async json() {
-            return { repositories: [{ full_name: "alice/service", permissions: { push: true } }] };
+            return { repositories: [{ id: 77, full_name: "alice/service", default_branch: "main", permissions: { push: true, admin: true } }] };
+          },
+        };
+      }
+      if (url.pathname === "/repos/alice/service") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { id: 77, full_name: "alice/service", default_branch: "main", permissions: { push: true, admin: true } };
           },
         };
       }

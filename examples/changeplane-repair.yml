@@ -30,7 +30,7 @@ jobs:
       - name: Refuse repair while the repository kill switch is off
         env:
           CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
-        run: test "$CHANGEPLANE_REPAIR_ENABLED" = "true"
+        run: test "$CHANGEPLANE_REPAIR_ENABLED" = "managed-v12"
 
       - name: Check out the trusted default-branch harness
         # actions/checkout v4.2.2
@@ -92,7 +92,7 @@ jobs:
         id: controller-claim
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-claim"
-          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          CHANGEPLANE_CONTROLLER_HMAC_V12: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
         run: node controller/changeplane/examples/changeplane-claim.js claim
 
       - name: Materialize the one-time claim
@@ -163,7 +163,7 @@ jobs:
         if: steps.grant.outputs.repair-kind == 'evidence'
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
-          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          CHANGEPLANE_CONTROLLER_HMAC_V12: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
         run: node controller/changeplane/examples/changeplane-claim.js validate
 
       - name: Re-check the exact pull-request head immediately before OpenAI
@@ -246,7 +246,7 @@ jobs:
       - name: Refuse apply while the repository kill switch is off
         env:
           CHANGEPLANE_REPAIR_ENABLED: ${{ secrets.CHANGEPLANE_REPAIR_ENABLED }}
-        run: test "$CHANGEPLANE_REPAIR_ENABLED" = "true"
+        run: test "$CHANGEPLANE_REPAIR_ENABLED" = "managed-v12"
 
       - name: Check out the trusted default-branch harness
         # actions/checkout v4.2.2
@@ -322,7 +322,7 @@ jobs:
       - name: Revalidate server authority immediately before clean apply
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
-          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          CHANGEPLANE_CONTROLLER_HMAC_V12: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
         run: node controller/changeplane/examples/changeplane-claim.js validate
 
       - name: Apply and independently validate only the granted paths
@@ -333,7 +333,7 @@ jobs:
           CHANGEPLANE_BASE_SHA: ${{ steps.grant.outputs.base-sha }}
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-validate"
           CHANGEPLANE_CONTROLLER_SHA: ${{ github.sha }}
-          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          CHANGEPLANE_CONTROLLER_HMAC_V12: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
           CHANGEPLANE_EXPECTED_GRANT_DIGEST: ${{ needs.repair.outputs.grant-digest }}
           CHANGEPLANE_HEAD_REF: ${{ steps.current.outputs.head-ref }}
           CHANGEPLANE_HEAD_SHA: ${{ steps.grant.outputs.head-sha }}
@@ -378,7 +378,7 @@ jobs:
         id: push-token
         env:
           CHANGEPLANE_CLAIM_URL: "https://changeplane.vercel.app/api/github?action=repair-push-token"
-          CHANGEPLANE_CONTROLLER_HMAC: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC }}
+          CHANGEPLANE_CONTROLLER_HMAC_V12: ${{ secrets.CHANGEPLANE_CONTROLLER_HMAC_V12 }}
         run: node controller/changeplane/examples/changeplane-claim.js push-token
 
       # GITHUB_TOKEN pushes do not start fresh workflow runs. This Contents-only App token

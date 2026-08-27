@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import sodium from "libsodium-wrappers";
 
@@ -8,15 +10,25 @@ import {
   buildSetupFiles,
   buildRuntimePolicy,
   classifyManagedInstallation,
+  classifyManagedInstallationDigests,
   default as handler,
+  guardEnforcementState,
   githubRetryDelayMs,
+  managedVersionSnapshot,
+  prepareAutonomousHarness,
   seal,
   unseal,
+  validateAutonomousBranchProtection,
   validateByokKey,
   validateRepository,
   validateRuntimeModel,
   verifyOpenAIKey,
 } from "../api/github.js";
+import {
+  provisionRepairCanary,
+  validateCanaryBranchProtection,
+  validateRepairGeneration,
+} from "../scripts/provision-repair-canary.mjs";
 
 const SECRET = "test-secret-that-is-longer-than-thirty-two-characters";
 
@@ -190,6 +202,439 @@ test("runtime policy changes only the reserved runtime object and preserves repo
     reasoningEffort: "high",
     managedSubscription: "reserved",
   });
+  assert.deepEqual(JSON.parse(buildRuntimePolicy(original, "gpt-5.6-luna", "verify")).harness, {
+    mode: "verify",
+    maxAttempts: 2,
+    budgetMinutes: 15,
+  });
+  const noEvidence = `${JSON.stringify({ version: 1, evidence: { requiredChecks: [] } })}\n`;
+  assert.throws(
+    () => buildRuntimePolicy(noEvidence, "gpt-5.6-luna", "verify"),
+    /Verify only requires at least one exact behavioral check and publisher/u,
+  );
+});
+
+test("autonomous mode requires strict up-to-date branch protection", () => {
+  assert.equal(validateAutonomousBranchProtection({ strict: true }), true);
+  for (const value of [null, {}, { strict: false }]) {
+    assert.throws(
+      () => validateAutonomousBranchProtection(value),
+      /require pull requests to be up to date before merging/u,
+    );
+  }
+});
+
+test("merge enforcement is active only for a strict guard bound to the live publisher", () => {
+  const guard = { context: "ChangePlane / guard", app_id: 15368 };
+  assert.deepEqual(guardEnforcementState({ strict: true, checks: [guard] }, 15368), {
+    state: "active",
+    active: true,
+    strict: true,
+    guardRequired: true,
+    publisherBound: true,
+  });
+  assert.equal(guardEnforcementState({ strict: false, checks: [guard] }, 15368).state, "strict_required");
+  assert.equal(guardEnforcementState({ strict: true, checks: [] }, 15368).state, "guard_required");
+  assert.equal(guardEnforcementState({ strict: true, contexts: ["ChangePlane / guard"] }, 15368).state, "publisher_binding_required");
+  assert.equal(guardEnforcementState({ strict: true, checks: [guard] }).state, "guard_run_required");
+  assert.equal(guardEnforcementState({ strict: true, checks: [guard] }, 999).state, "publisher_binding_required");
+});
+
+test("the production canary provisioner also requires strict up-to-date branch protection", () => {
+  assert.equal(validateCanaryBranchProtection({ strict: true }), true);
+  for (const value of [null, {}, { strict: false }]) {
+    assert.throws(() => validateCanaryBranchProtection(value), /strict up-to-date required checks/u);
+  }
+});
+
+test("the production canary provisioner requires the active positive generation", () => {
+  assert.equal(validateRepairGeneration("7"), "7");
+  for (const value of [undefined, "", "0", "-1", "1.5", "01", "9007199254740992"]) {
+    assert.throws(() => validateRepairGeneration(value), /must be a positive integer/u);
+  }
+});
+
+test("the production canary provisioner uses its exact repository and stays disabled on final policy drift", async () => {
+  await sodium.ready;
+  const directory = mkdtempSync(join(tmpdir(), "changeplane-canary-provisioner-"));
+  const privateKeyPath = join(directory, "github-app.pem");
+  const adminTokenPath = join(directory, "github-admin-token");
+  const controllerSecretPath = join(directory, "controller-secret");
+  const openAIKeyPath = join(directory, "openai-key");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  writeFileSync(privateKeyPath, privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+  writeFileSync(adminTokenPath, "ghu-admin-token", { mode: 0o600 });
+  writeFileSync(controllerSecretPath, "c".repeat(64), { mode: 0o600 });
+  writeFileSync(openAIKeyPath, "opaque-test-provider-key", { mode: 0o600 });
+
+  const names = [
+    "CHANGEPLANE_GITHUB_APP_ID",
+    "CHANGEPLANE_CANARY_REPOSITORY",
+    "CHANGEPLANE_CANARY_REPOSITORY_ID",
+    "CHANGEPLANE_CANARY_INSTALLATION_ID",
+    "CHANGEPLANE_REPAIR_GENERATION",
+    "CHANGEPLANE_GITHUB_APP_PRIVATE_KEY_PATH",
+    "CHANGEPLANE_GITHUB_ADMIN_TOKEN_PATH",
+    "CHANGEPLANE_CONTROLLER_SECRET_PATH",
+    "CHANGEPLANE_OPENAI_KEY_PATH",
+    "CHANGEPLANE_ENABLE_REPAIR",
+  ];
+  const originalEnvironment = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  Object.assign(process.env, {
+    CHANGEPLANE_GITHUB_APP_ID: "101",
+    CHANGEPLANE_CANARY_REPOSITORY: "acme/canary",
+    CHANGEPLANE_CANARY_REPOSITORY_ID: "77",
+    CHANGEPLANE_CANARY_INSTALLATION_ID: "44",
+    CHANGEPLANE_REPAIR_GENERATION: "7",
+    CHANGEPLANE_GITHUB_APP_PRIVATE_KEY_PATH: privateKeyPath,
+    CHANGEPLANE_GITHUB_ADMIN_TOKEN_PATH: adminTokenPath,
+    CHANGEPLANE_CONTROLLER_SECRET_PATH: controllerSecretPath,
+    CHANGEPLANE_OPENAI_KEY_PATH: openAIKeyPath,
+    CHANGEPLANE_ENABLE_REPAIR: "true",
+  });
+
+  const box = sodium.crypto_box_keypair();
+  const repositoryPublicKey = sodium.to_base64(box.publicKey, sodium.base64_variants.ORIGINAL);
+  const originalFetch = globalThis.fetch;
+  const expectedPrefix = [
+    "CHANGEPLANE_REPAIR_ENABLED",
+    "CHANGEPLANE_CONTROLLER_HMAC",
+    "CHANGEPLANE_CONTROLLER_INSTALLATION_ID",
+    "CHANGEPLANE_REPAIR_GENERATION",
+    "CHANGEPLANE_REPAIR_PUBLIC_KEYS",
+    "CHANGEPLANE_CONTROLLER_HMAC_V12",
+    "OPENAI_API_KEY",
+  ];
+  try {
+    for (const scenario of [
+      { name: "eligible first creation", finalStrict: true, secretStatus: 201 },
+      { name: "strict protection removed before activation update", finalStrict: false, secretStatus: 204 },
+    ]) {
+      const calls = [];
+      const writes = [];
+      let protectionReads = 0;
+      globalThis.fetch = async (url, options = {}) => {
+        const requestUrl = new URL(String(url));
+        const method = options.method ?? "GET";
+        calls.push(`${method} ${requestUrl.pathname}`);
+        if (method === "POST" && requestUrl.pathname === "/app/installations/44/access_tokens") {
+          return new Response(JSON.stringify({
+            token: "ghs-installation-token",
+            repositories: [{ id: 77 }],
+          }), { status: 200 });
+        }
+        if (method === "GET" && requestUrl.pathname === "/repos/acme/canary") {
+          return new Response(JSON.stringify({
+            id: 77,
+            full_name: "acme/canary",
+            default_branch: "main",
+            permissions: { admin: true },
+          }), { status: 200 });
+        }
+        if (method === "GET" && requestUrl.pathname === "/repositories/77") {
+          return new Response(JSON.stringify({
+            id: 77,
+            full_name: "acme/canary",
+            default_branch: "main",
+            archived: false,
+            disabled: false,
+          }), { status: 200 });
+        }
+        if (method === "GET" && requestUrl.pathname === "/repos/acme/canary/branches/main/protection/required_status_checks") {
+          protectionReads += 1;
+          return new Response(JSON.stringify({
+            strict: protectionReads === 1 || scenario.finalStrict,
+          }), { status: 200 });
+        }
+        if (method === "GET" && requestUrl.pathname === "/repos/acme/canary/actions/secrets/public-key") {
+          return new Response(JSON.stringify({
+            key_id: "repository-key-1",
+            key: repositoryPublicKey,
+          }), { status: 200 });
+        }
+        if (method === "PUT" && requestUrl.pathname.startsWith("/repos/acme/canary/actions/secrets/")) {
+          writes.push(requestUrl.pathname.split("/").at(-1));
+          const body = JSON.parse(String(options.body));
+          assert.equal(body.key_id, "repository-key-1");
+          assert.equal(typeof body.encrypted_value, "string");
+          return new Response(null, { status: scenario.secretStatus });
+        }
+        throw new Error(`Unexpected ${scenario.name} request: ${method} ${requestUrl.pathname}`);
+      };
+
+      let output = "";
+      if (scenario.finalStrict) {
+        await provisionRepairCanary({ writeOutput: (value) => { output += value; } });
+        assert.deepEqual(writes, [...expectedPrefix, "CHANGEPLANE_REPAIR_ENABLED"]);
+        assert.deepEqual(JSON.parse(output), {
+          repository: "acme/canary",
+          installationId: 44,
+          repairGeneration: "7",
+          keyId: JSON.parse(output).keyId,
+          controllerSecretStored: true,
+          openAIStored: true,
+          repairEnabled: true,
+        });
+      } else {
+        await assert.rejects(
+          provisionRepairCanary({ writeOutput: (value) => { output += value; } }),
+          /strict up-to-date required checks/u,
+        );
+        assert.deepEqual(writes, expectedPrefix);
+        assert.equal(output, "");
+      }
+      assert.equal(protectionReads, 2);
+      assert.equal(
+        calls.filter((call) => call.includes("/actions/secrets/")).every(
+          (call) => call.includes("/repos/acme/canary/actions/secrets/"),
+        ),
+        true,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const name of names) {
+      if (originalEnvironment[name] === undefined) delete process.env[name];
+      else process.env[name] = originalEnvironment[name];
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("autonomous activation fails closed before App-token or secret access without admin and strict branch protection", async () => {
+  for (const scenario of [
+    { name: "write collaborator", admin: false, expectedStatus: 403, expectedError: /admin access is required/u },
+    { name: "non-strict protection", admin: true, strict: false, expectedStatus: 409, expectedError: /up to date before merging/u },
+    { name: "missing protection", admin: true, strictStatus: 404, expectedStatus: 409, expectedError: /strict required status checks/u },
+    { name: "strict protection", admin: true, strict: true, expectedStatus: 403, expectedError: /Actions Secrets write permission/u },
+  ]) {
+    await withGitHubAppEnvironment(async () => {
+      Object.assign(process.env, {
+        CHANGEPLANE_SELF_SERVE_ENABLED: "true",
+        CHANGEPLANE_REPAIR_ENABLED: "true",
+        CHANGEPLANE_REPAIR_GENERATION: "1",
+        CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
+        GITHUB_APP_ID: "101",
+        GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nnot-used-before-secret-access\n-----END PRIVATE KEY-----",
+      });
+      const session = seal({
+        kind: "session",
+        token: "ghu-user-token",
+        login: "alice",
+        csrf: "alice-csrf",
+        authMode: "github_app",
+        installationId: "123",
+        installationIds: ["123"],
+        byokSecretWrite: false,
+      }, SECRET);
+      const calls = [];
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (url, options = {}) => {
+        const requestUrl = new URL(String(url));
+        const method = options.method || "GET";
+        calls.push(`${method} ${requestUrl.pathname}`);
+        if (requestUrl.pathname === "/user/installations/123/repositories") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                repositories: [{
+                  id: 77,
+                  full_name: "alice/private-service",
+                  default_branch: "main",
+                  permissions: { push: true, admin: scenario.admin },
+                }],
+              };
+            },
+          };
+        }
+        if (requestUrl.pathname === "/repos/alice/private-service") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                id: 77,
+                full_name: "alice/private-service",
+                default_branch: "main",
+                permissions: { push: true, admin: scenario.admin },
+              };
+            },
+          };
+        }
+        if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
+          const status = scenario.strictStatus ?? 200;
+          return {
+            ok: status >= 200 && status < 300,
+            status,
+            headers: { get: () => null },
+            async json() { return { strict: scenario.strict }; },
+            async text() { return "not found"; },
+          };
+        }
+        throw new Error(`Unexpected external call in ${scenario.name}: ${method} ${requestUrl}`);
+      };
+      try {
+        const response = responseRecorder();
+        await handler({
+          method: "POST",
+          url: "/api/github?action=install",
+          headers: {
+            origin: "https://changeplane.example",
+            cookie: `__Host-changeplane_session=${session}`,
+            "content-type": "application/json",
+            "x-changeplane-csrf": "alice-csrf",
+          },
+          body: {
+            repository: "alice/private-service",
+            requiredCheck: { name: "CI / verify", appSlug: "github-actions" },
+            harnessMode: "autonomous",
+          },
+        }, response);
+        assert.equal(response.statusCode, scenario.expectedStatus, scenario.name);
+        assert.match(JSON.parse(response.body).error, scenario.expectedError, scenario.name);
+        assert.equal(calls.some((call) => call.includes("/access_tokens")), false, scenario.name);
+        assert.equal(calls.some((call) => call.includes("/actions/secrets")), false, scenario.name);
+        if (!scenario.admin) {
+          assert.equal(calls.some((call) => call.includes("required_status_checks")), false, scenario.name);
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  }
+});
+
+test("autonomous provisioning stays inert across final admin or branch-protection drift", async () => {
+  await sodium.ready;
+  const box = sodium.crypto_box_keypair();
+  const repositoryPublicKey = sodium.to_base64(box.publicKey, sodium.base64_variants.ORIGINAL);
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" });
+  const scenarios = [
+    { name: "admin revoked", finalAdmin: false, finalStrict: true, expected: /admin access changed/u },
+    { name: "strict protection removed", finalAdmin: true, finalStrict: false, expected: /up to date before merging/u },
+    { name: "authorization remains current", finalAdmin: true, finalStrict: true, expected: null },
+  ];
+  try {
+    for (const scenario of scenarios) {
+      await withGitHubAppEnvironment(async () => {
+        Object.assign(process.env, {
+          CHANGEPLANE_SELF_SERVE_ENABLED: "true",
+          CHANGEPLANE_REPAIR_ENABLED: "false",
+          CHANGEPLANE_REPAIR_GENERATION: "7",
+          CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
+          GITHUB_APP_ID: "101",
+          GITHUB_APP_PRIVATE_KEY: privateKeyPem,
+        });
+        const session = {
+          token: "ghu-user-token",
+          authMode: "github_app",
+          installationId: "123",
+          installationIds: ["123"],
+          byokSecretWrite: true,
+        };
+        const writes = [];
+        let liveRepoReads = 0;
+        let protectionReads = 0;
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (url, options = {}) => {
+          const requestUrl = new URL(String(url));
+          const method = options.method || "GET";
+          if (requestUrl.pathname === "/user/installations/123/repositories") {
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return { repositories: [{
+                  id: 77,
+                  full_name: "alice/private-service",
+                  default_branch: "main",
+                  permissions: { push: true, admin: true },
+                }] };
+              },
+            };
+          }
+          if (requestUrl.pathname === "/repos/alice/private-service") {
+            liveRepoReads += 1;
+            const admin = liveRepoReads === 1 ? true : scenario.finalAdmin;
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return { id: 77, full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin } };
+              },
+            };
+          }
+          if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
+            protectionReads += 1;
+            return {
+              ok: true,
+              status: 200,
+              async json() { return { strict: protectionReads === 1 ? true : scenario.finalStrict }; },
+            };
+          }
+          if (requestUrl.pathname === "/app/installations/123/access_tokens" && method === "POST") {
+            return {
+              ok: true,
+              status: 201,
+              async json() {
+                return {
+                  token: "ghs-repository-secrets-token",
+                  expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+                  repositories: [{ id: 77 }],
+                };
+              },
+            };
+          }
+          if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY") && method === "GET") {
+            return { ok: true, status: 200, async json() { return { name: "OPENAI_API_KEY" }; } };
+          }
+          if (requestUrl.pathname.endsWith("/actions/secrets/public-key")) {
+            return { ok: true, status: 200, async json() { return { key_id: "key-1", key: repositoryPublicKey }; } };
+          }
+          if (requestUrl.pathname.includes("/actions/secrets/") && method === "PUT") {
+            const name = decodeURIComponent(requestUrl.pathname.split("/actions/secrets/")[1]);
+            const body = JSON.parse(options.body);
+            const cipher = sodium.from_base64(body.encrypted_value, sodium.base64_variants.ORIGINAL);
+            const plain = sodium.crypto_box_seal_open(cipher, box.publicKey, box.privateKey);
+            writes.push({ name, value: sodium.to_string(plain) });
+            sodium.memzero(cipher);
+            sodium.memzero(plain);
+            return { ok: true, status: 201 };
+          }
+          throw new Error(`Unexpected ${scenario.name} request: ${method} ${requestUrl.pathname}`);
+        };
+        try {
+          const operation = prepareAutonomousHarness("alice/private-service", session);
+          if (scenario.expected) await assert.rejects(operation, scenario.expected, scenario.name);
+          else await operation;
+          assert.equal(writes[0]?.name, "CHANGEPLANE_REPAIR_ENABLED", scenario.name);
+          assert.equal(writes[0]?.value, "false", scenario.name);
+          assert.deepEqual(
+            writes.filter(({ name }) => name === "CHANGEPLANE_CONTROLLER_HMAC").map(({ value }) => value),
+            ["retired-by-managed-v12"],
+            scenario.name,
+          );
+          assert.equal(writes.some(({ name, value }) => name === "CHANGEPLANE_CONTROLLER_HMAC_V12" && value.length >= 32), true, scenario.name);
+          const activationValues = writes
+            .filter(({ name }) => name === "CHANGEPLANE_REPAIR_ENABLED")
+            .map(({ value }) => value);
+          assert.deepEqual(
+            activationValues,
+            scenario.expected ? ["false"] : ["false", "managed-v12"],
+            scenario.name,
+          );
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+    }
+  } finally {
+    sodium.memzero(box.publicKey);
+    sodium.memzero(box.privateKey);
+  }
 });
 
 test("runtime API rejects an unsupported model before GitHub access", async () => {
@@ -252,7 +697,7 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 11);
+  assert.equal(manifest.managedVersion, 12);
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
     ".github/workflows/changeplane-repair.yml",
@@ -277,15 +722,16 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
 
   const workflow = files.get(".github/workflows/changeplane.yml");
   assert.match(workflow, /pull_request_target:/u);
-  assert.match(workflow, /types: \[opened, synchronize, reopened\]/u);
-  assert.doesNotMatch(workflow, /\bedited\b/u);
+  assert.match(workflow, /types: \[opened, synchronize, reopened, edited\]/u);
+  assert.doesNotMatch(workflow, /\n  push:/u);
   assert.match(workflow, /deployment_status:/u);
   assert.match(workflow, /merge_group:\n    types: \[checks_requested\]/u);
   assert.match(workflow, /repository_dispatch:\n    types: \[changeplane_recheck\]/u);
   assert.match(workflow, /uses: \.\/changeplane/u);
   assert.match(workflow, /Read the trusted harness policy/u);
-  assert.match(workflow, /if: steps\.harness\.outputs\.mode == 'observe'/u);
-  assert.match(workflow, /if: steps\.harness\.outputs\.mode == 'enforce'/u);
+  assert.match(workflow, /if: github\.event_name != 'merge_group' && steps\.harness\.outputs\.mode == 'observe'/u);
+  assert.match(workflow, /if: github\.event_name != 'merge_group' && steps\.harness\.outputs\.mode == 'enforce' && steps\.harness\.outputs\.dispatch == 'none'/u);
+  assert.match(workflow, /if: github\.event_name != 'merge_group' && steps\.harness\.outputs\.mode == 'enforce' && steps\.harness\.outputs\.dispatch == 'webhook'/u);
   assert.match(workflow, /agent_dispatch: \$\{\{ steps\.harness\.outputs\.dispatch \}\}/u);
   assert.match(workflow, /max_remediation_attempts: \$\{\{ steps\.harness\.outputs\.max_attempts \}\}/u);
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/u);
@@ -296,30 +742,56 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   assert.match(workflow, /statuses: read/u);
   assert.match(workflow, /group: changeplane-pr-\$\{\{ github\.event\.pull_request\.number \|\| github\.event\.client_payload\.pullRequestNumber \|\| github\.event\.merge_group\.head_sha \|\| github\.event\.deployment\.sha \|\| github\.run_id \}\}/u);
   assert.match(workflow, /actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683/u);
-  assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \|\| github\.event\.repository\.default_branch \}\}/u);
+  assert.match(workflow, /ref: \$\{\{ github\.event\.merge_group\.base_sha \|\| \(github\.event\.pull_request\.base\.ref == github\.event\.repository\.default_branch && github\.event\.pull_request\.base\.sha\) \|\| github\.event\.repository\.default_branch \}\}/u);
+  assert.match(workflow, /Bind the trusted controller revision/u);
+  assert.match(workflow, /trusted_controller_sha: \$\{\{ steps\.controller\.outputs\.sha \}\}/u);
+  const guardJob = workflow.match(/  guard:\n([\s\S]*?)\n  review_propose:/u)?.[1] ?? "";
+  assert.doesNotMatch(guardJob, /\n    concurrency:/u);
+  const verifyStep = guardJob.match(/- name: Verify the exact revision without repair authority\n([\s\S]*?)(?=\n      - name: Run the autonomous exact-revision harness)/u)?.[1] ?? "";
+  assert.match(verifyStep, /agent_dispatch: none/u);
+  assert.match(verifyStep, /mode: enforce/u);
+  assert.doesNotMatch(verifyStep, /OPENAI_API_KEY|CONTROLLER_HMAC|CONTROLLER_INSTALLATION_ID|agent_webhook/u);
+  const autonomousStep = guardJob.match(/- name: Run the autonomous exact-revision harness\n([\s\S]*?)(?=\n      - name: Evaluate the merge queue without repair authority)/u)?.[1] ?? "";
+  assert.match(autonomousStep, /agent_dispatch: \$\{\{ steps\.harness\.outputs\.dispatch \}\}/u);
+  assert.match(autonomousStep, /CHANGEPLANE_CONTROLLER_HMAC_V12/u);
+  assert.match(autonomousStep, /CHANGEPLANE_CONTROLLER_INSTALLATION_ID/u);
+  const mergeQueueStep = guardJob.match(/- name: Evaluate the merge queue without repair authority\n([\s\S]*)$/u)?.[1] ?? "";
+  assert.match(mergeQueueStep, /if: github\.event_name == 'merge_group'/u);
+  assert.match(mergeQueueStep, /mode: \$\{\{ steps\.harness\.outputs\.mode \}\}/u);
+  assert.match(mergeQueueStep, /agent_dispatch: none/u);
+  assert.doesNotMatch(mergeQueueStep, /OPENAI_API_KEY|CONTROLLER_HMAC|CONTROLLER_INSTALLATION_ID|agent_webhook/u);
   const reviewProposalJob = workflow.match(/  review_propose:\n([\s\S]*?)\n  review_publish:/u)?.[1] ?? "";
   const reviewPublisherJob = workflow.match(/  review_publish:\n([\s\S]*)$/u)?.[1] ?? "";
   assert.match(reviewProposalJob, /Independent review proposal/u);
+  assert.match(reviewProposalJob, /Read the trusted review profile/u);
+  assert.match(reviewProposalJob, /if: steps\.harness\.outputs\.mode != 'enforce' \|\| steps\.harness\.outputs\.dispatch == 'webhook'/u);
   assert.match(reviewProposalJob, /OPENAI_API_KEY: \$\{\{ secrets\.OPENAI_API_KEY \}\}/u);
+  assert.match(reviewProposalJob, /CHANGEPLANE_TRUSTED_CONTROLLER_SHA: \$\{\{ steps\.controller\.outputs\.sha \}\}/u);
   assert.match(reviewProposalJob, /pull-requests: read/u);
   assert.doesNotMatch(reviewProposalJob, /checks: write/u);
   assert.match(reviewPublisherJob, /Independent review receipt/u);
+  assert.match(reviewPublisherJob, /needs\.review_propose\.outputs\.review_job != ''/u);
   assert.match(reviewPublisherJob, /checks: write/u);
   assert.match(reviewPublisherJob, /CHANGEPLANE_REVIEW_JOB: \$\{\{ needs\.review_propose\.outputs\.review_job \}\}/u);
+  assert.match(reviewPublisherJob, /CHANGEPLANE_TRUSTED_CONTROLLER_SHA: \$\{\{ steps\.controller\.outputs\.sha \}\}/u);
   assert.doesNotMatch(reviewPublisherJob, /OPENAI_API_KEY/u);
   const actionMetadata = files.get("changeplane/action.yml");
   const actionInputs = actionMetadata.match(/inputs:\n([\s\S]*?)outputs:/u)?.[1] ?? "";
   assert.match(actionMetadata, /name: ChangePlane Guard/u);
-  assert.match(actionMetadata, /revision-bound assurance harness in observe or autonomous mode/u);
+  assert.match(actionMetadata, /revision-bound assurance harness in Observe, Verify only, or Autonomous profile/u);
   assert.match(actionInputs, /^  mode:/mu);
   assert.match(actionInputs, /^  agent_dispatch:/mu);
   assert.match(actionInputs, /^  controller_installation_id:/mu);
   assert.match(actionInputs, /^  max_remediation_attempts:/mu);
+  assert.match(actionInputs, /^  trusted_controller_sha:/mu);
   assert.match(actionMetadata, /^  agent_handback:/mu);
+  assert.match(actionMetadata, /^  assurance_passport:/mu);
+  assert.match(actionMetadata, /^  assurance_passport_digest:/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.match(appSource, /Assurance for agent-written code/u);
-  assert.match(appSource, /verifies every agent pull request against the exact commit before GitHub decides what ships/u);
+  assert.match(appSource, /Any coding agent can own the change\. None can own the proof/u);
+  assert.match(appSource, /Portable evidence, never portable authority/u);
   assert.match(installerSource, /\*\*Done when:\*\* open or update one normal pull request/u);
   assert.match(installerSource, /\*\*Neutral\*\* means ChangePlane reported findings without changing merge rules/u);
   assert.match(installerSource, /\*\*Scope only\*\* means the exact commit and files were checked/u);
@@ -381,6 +853,16 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
     maxAttempts: 2,
     budgetMinutes: 15,
   });
+  const verifyFiles = new Map(buildSetupFiles({
+    name: "CI / test",
+    appSlug: "github-actions",
+  }, "verify").map((file) => [file.path, file.content]));
+  assert.deepEqual(JSON.parse(verifyFiles.get(".changeplane.json")).harness, {
+    mode: "verify",
+    maxAttempts: 2,
+    budgetMinutes: 15,
+  });
+  assert.throws(() => buildSetupFiles(null, "verify"), /Verify only requires one exact behavioral check/u);
   assert.throws(() => buildSetupFiles(null, "autonomous"), /exact behavioral check/u);
   for (const appSlug of ["not a valid slug", "bad.slug", "bad_slug", "bad-"]) {
     assert.throws(
@@ -404,8 +886,8 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 11,
-    targetVersion: 11,
+    currentVersion: 12,
+    targetVersion: 12,
     conflicts: [],
   });
 
@@ -425,7 +907,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "outdated",
     currentVersion: 0,
-    targetVersion: 11,
+    targetVersion: 12,
     conflicts: [],
   });
 
@@ -442,7 +924,50 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
 });
 
-test("pristine manifestless install creates one manifest-only v11 upgrade PR from the base commit tree", async () => {
+test("pristine v11 is safely classified for a policy-preserving v12 upgrade", () => {
+  const v11 = managedVersionSnapshot(11);
+  const v12 = managedVersionSnapshot(12);
+  assert.equal(v11.managedVersion, 11);
+  assert.equal(Object.keys(v11.managedHashes).length, 18);
+  assert.equal(v11.manifest.includes('"managedVersion": 11'), true);
+  const reservedEntries = Object.keys(v11.managedHashes)
+    .filter((filePath) => filePath.startsWith("changeplane/"));
+  assert.deepEqual(classifyManagedInstallationDigests({
+    digests: { ...v11.managedHashes },
+    manifest: v11.manifest,
+    policyPresent: true,
+    reservedEntries,
+  }), {
+    state: "outdated",
+    currentVersion: 11,
+    targetVersion: 12,
+    conflicts: [],
+  });
+
+  const changedManagedPaths = Object.keys(v12.managedHashes)
+    .filter((filePath) => v11.managedHashes[filePath] !== v12.managedHashes[filePath]);
+  assert.equal(changedManagedPaths.length > 0, true);
+  assert.equal(changedManagedPaths.includes(".github/workflows/changeplane.yml"), true);
+  assert.equal(changedManagedPaths.includes("changeplane/action/index.js"), true);
+  assert.equal(changedManagedPaths.includes("changeplane/server/github-repair-controller.js"), true);
+  assert.equal(changedManagedPaths.includes(".changeplane.json"), false);
+  assert.equal(changedManagedPaths.includes(".changeplane/assurance.md"), false);
+
+  const modifiedDigests = { ...v11.managedHashes, "changeplane/action/index.js": "f".repeat(64) };
+  assert.deepEqual(classifyManagedInstallationDigests({
+    digests: modifiedDigests,
+    manifest: v11.manifest,
+    policyPresent: true,
+    reservedEntries,
+  }), {
+    state: "conflict",
+    currentVersion: null,
+    targetVersion: 12,
+    conflicts: ["changeplane/action/index.js"],
+  });
+});
+
+test("pristine manifestless install creates one manifest-only v12 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -512,7 +1037,7 @@ test("pristine manifestless install creates one manifest-only v11 upgrade PR fro
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v11") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v12") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -866,7 +1391,7 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_ENABLED/u);
   assert.doesNotMatch(workflow, /^\s+if:\s+secrets\./mu);
-  assert.equal((workflow.match(/run: test "\$CHANGEPLANE_REPAIR_ENABLED" = "true"/gu) ?? []).length, 2);
+  assert.equal((workflow.match(/run: test "\$CHANGEPLANE_REPAIR_ENABLED" = "managed-v12"/gu) ?? []).length, 2);
   assert.match(workflow, /CHANGEPLANE_REPAIR_GENERATION/u);
   assert.match(workflow, /CHANGEPLANE_REPAIR_PUBLIC_KEYS/u);
   assert.match(workflow, /CHANGEPLANE_CONTROLLER_SHA: \$\{\{ github\.sha \}\}/u);
@@ -952,16 +1477,33 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
   assert.match(guardWorkflow, /ref: __CHANGEPLANE_RELEASE_SHA__/u);
   assert.doesNotMatch(guardWorkflow, /statuses: read/u);
-  assert.match(provisioner, /repository_ids: \[REPOSITORY_ID\][\s\S]*?secrets: "write"/u);
+  assert.match(provisioner, /repository_ids: \[repositoryId\][\s\S]*?administration: "read"[\s\S]*?secrets: "write"/u);
+  assert.match(provisioner, /requiredRepository\(\)/u);
+  assert.match(provisioner, /CHANGEPLANE_CANARY_REPOSITORY_ID/u);
+  assert.match(provisioner, /CHANGEPLANE_CANARY_INSTALLATION_ID/u);
+  assert.match(provisioner, /CHANGEPLANE_GITHUB_ADMIN_TOKEN_PATH/u);
+  assert.match(provisioner, /adminRepository\.permissions\?\.admin !== true/u);
+  const eligibilityCall = "await requireEligibleCanary({ repository, repositoryId, adminToken, installationToken: installation.token })";
+  const firstEligibilityCheck = provisioner.indexOf(eligibilityCall);
+  const firstSecretWrite = provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: "false"');
+  const secondEligibilityCheck = provisioner.indexOf(
+    eligibilityCall,
+    firstEligibilityCheck + 1,
+  );
+  const activationWrite = provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: MANAGED_REPAIR_ACTIVATION');
+  assert.ok(firstEligibilityCheck > 0 && firstEligibilityCheck < firstSecretWrite, "canary eligibility must be proven before any secret write");
+  assert.ok(secondEligibilityCheck > firstSecretWrite && secondEligibilityCheck < activationWrite, "canary eligibility must be revalidated before activation");
   assert.doesNotMatch(provisioner, /variables: "write"|upsertVariable/u);
   assert.ok(
     provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: "false"')
-      < provisioner.indexOf('putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC"'),
+      < provisioner.indexOf('name: "CHANGEPLANE_CONTROLLER_HMAC", value: "retired-by-managed-v12"')
+      && provisioner.indexOf('name: "CHANGEPLANE_CONTROLLER_HMAC", value: "retired-by-managed-v12"')
+      < provisioner.indexOf('putEncryptedSecret({ name: "CHANGEPLANE_CONTROLLER_HMAC_V12"'),
     "a partial provisioning run must be disabled before any secret is written",
   );
   assert.ok(
     provisioner.indexOf('putEncryptedSecret({ name: "OPENAI_API_KEY"')
-      < provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: "true"'),
+      < provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: MANAGED_REPAIR_ACTIVATION'),
     "repair may be enabled only after the provider secret is stored",
   );
   const autonomousStart = installerApi.indexOf("async function prepareAutonomousHarness");
@@ -970,10 +1512,11 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
     ? installerApi.slice(autonomousStart, autonomousEnd)
     : "";
   const disableIndex = autonomousProvisioning.indexOf('HARNESS_SECRETS.enabled,\n    "false"');
+  const retireLegacyIndex = autonomousProvisioning.indexOf("HARNESS_SECRETS.legacyController");
   const controllerIndex = autonomousProvisioning.indexOf("[HARNESS_SECRETS.controller, controllerSecret]");
-  const enableIndex = autonomousProvisioning.indexOf('HARNESS_SECRETS.enabled,\n    "true"');
+  const enableIndex = autonomousProvisioning.indexOf("HARNESS_SECRETS.enabled,\n    MANAGED_REPAIR_ACTIVATION");
   assert.ok(
-    disableIndex > 0 && controllerIndex > disableIndex && enableIndex > controllerIndex,
+    disableIndex > 0 && retireLegacyIndex > disableIndex && controllerIndex > retireLegacyIndex && enableIndex > controllerIndex,
     "self-serve harness provisioning must disable repair before rotation and enable it last",
   );
   const includedFiles = vercelConfig.functions["api/github.js"].includeFiles;
@@ -1377,14 +1920,32 @@ test("Vercel provenance rejects CLI, preview, branch, and wrong-repository relea
   });
 });
 
-test("unattributed Vercel deployments reject repository mutations before external access", async () => {
+test("unattributed Vercel deployments reject every connector and provider route before external access", async () => {
   await withOAuthEnvironment(async () => {
     process.env.VERCEL = "1";
     let calls = 0;
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => { calls += 1; throw new Error("External access must not occur"); };
     try {
-      for (const [method, action] of [["POST", "install"], ["POST", "byok"], ["DELETE", "byok"]]) {
+      const externalRoutes = [
+        ["GET", "login"],
+        ["GET", "authorize"],
+        ["GET", "installation"],
+        ["GET", "callback"],
+        ["GET", "repos"],
+        ["GET", "preflight"],
+        ["GET", "runtime"],
+        ["POST", "runtime"],
+        ["GET", "byok"],
+        ["POST", "byok"],
+        ["DELETE", "byok"],
+        ["POST", "install"],
+        ["POST", "repair"],
+        ["POST", "repair-claim"],
+        ["POST", "repair-push-token"],
+        ["POST", "repair-validate"],
+      ];
+      for (const [method, action] of externalRoutes) {
         const response = responseRecorder();
         await handler({ method, url: `/api/github?action=${action}`, headers: {} }, response);
         assert.equal(response.statusCode, 503);
@@ -1809,7 +2370,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 11,
+        targetVersion: 12,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
@@ -1828,6 +2389,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
         providerSecretAccess: false,
       });
       assert.deepEqual(payload.harness, {
+        verifyAvailable: true,
         autonomousAvailable: false,
         maxAttempts: 2,
         budgetMinutes: 15,
@@ -1915,7 +2477,7 @@ test("safe GitHub reads retry one transient upstream failure", async () => {
   });
 });
 
-test("managed execution verifies the server-side OpenAI key without exposing or enabling execution", async () => {
+test("runtime status redacts secret metadata from a non-admin writer", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -1961,14 +2523,6 @@ test("managed execution verifies the server-side OpenAI key without exposing or 
         })).toString("base64");
         return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
       }
-      if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY")) {
-        return {
-          ok: false,
-          status: 404,
-          headers: { get: () => "github-request-runtime" },
-          async text() { return "not found"; },
-        };
-      }
       throw new Error(`Unexpected request: ${requestUrl}`);
     };
 
@@ -1987,12 +2541,255 @@ test("managed execution verifies the server-side OpenAI key without exposing or 
         providerVerified: true,
         executionReady: false,
       });
+      assert.deepEqual(payload.byok, {
+        configured: false,
+        state: "admin_required",
+        secretName: "OPENAI_API_KEY",
+        updatedAt: null,
+      });
+      assert.equal(payload.harness.autonomousAvailable, false);
+      assert.equal(payload.harness.verifyAvailable, true);
+      assert.equal(payload.harness.ready, false);
       assert.equal(payload.model, "gpt-5.6-luna");
       assert.equal(response.body.includes(managedKey), false);
     } finally {
       globalThis.fetch = originalFetch;
       if (originalManagedKey === undefined) delete process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY;
       else process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY = originalManagedKey;
+    }
+  });
+});
+
+test("runtime status proves active merge blocking from strict protection and the live guard publisher", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    const headSha = "a".repeat(40);
+    const pullHeadSha = "b".repeat(40);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      calls.push(`${requestUrl.pathname}${requestUrl.search}`);
+      if (requestUrl.pathname === "/repos/alice/private-service") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              id: 77,
+              full_name: "alice/private-service",
+              default_branch: "main",
+              permissions: { push: true, admin: true },
+            };
+          },
+        };
+      }
+      if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+        return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+        const content = Buffer.from(JSON.stringify({
+          harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
+          runtime: {
+            funding: "byok",
+            provider: "openai",
+            secretName: "OPENAI_API_KEY",
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            managedSubscription: "reserved",
+          },
+        })).toString("base64");
+        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+      }
+      if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { strict: true, checks: [{ context: "ChangePlane / guard", app_id: 15368 }] };
+          },
+        };
+      }
+      if (requestUrl.pathname.endsWith("/pulls")) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return [{ head: { sha: pullHeadSha, repo: { full_name: "alice/private-service" } } }];
+          },
+        };
+      }
+      if (requestUrl.pathname === `/repos/alice/private-service/commits/${pullHeadSha}/check-runs`) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { check_runs: [{ name: "ChangePlane / guard", app: { id: 15368, slug: "github-actions" } }] };
+          },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/actions/secrets/OPENAI_API_KEY") {
+        return {
+          ok: false,
+          status: 404,
+          headers: { get: () => "github-request-secret" },
+          async text() { return "not found"; },
+        };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=runtime&repository=alice%2Fprivate-service",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+      assert.equal(response.statusCode, 200, `${response.body}\n${calls.join("\n")}`);
+      assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
+        state: "active",
+        active: true,
+        strict: true,
+        guardRequired: true,
+        publisherBound: true,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("write collaborators cannot create or delete repository BYOK", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      const requestUrl = new URL(String(url));
+      calls.push(`${options.method || "GET"} ${requestUrl.origin}${requestUrl.pathname}`);
+      if (requestUrl.pathname === "/repos/alice/private-service") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              full_name: "alice/private-service",
+              default_branch: "main",
+              permissions: { push: true, admin: false },
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected external call: ${requestUrl}`);
+    };
+    try {
+      for (const [method, body] of [
+        ["POST", { repository: "alice/private-service", apiKey: `provider-${"x".repeat(40)}` }],
+        ["DELETE", { repository: "alice/private-service" }],
+      ]) {
+        const response = responseRecorder();
+        await handler({
+          method,
+          url: "/api/github?action=byok",
+          headers: {
+            origin: "https://changeplane.example",
+            cookie: `__Host-changeplane_session=${session}`,
+            "content-type": "application/json",
+            "x-changeplane-csrf": "alice-csrf",
+          },
+          body,
+        }, response);
+        assert.equal(response.statusCode, 403);
+        assert.match(JSON.parse(response.body).error, /admin access is required/u);
+      }
+      assert.equal(calls.length, 4);
+      assert.equal(calls.some((call) => call.includes("api.openai.com")), false);
+      assert.equal(calls.some((call) => call.includes("/actions/secrets")), false);
+      assert.equal(calls.some((call) => call.includes("/access_tokens")), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("BYOK save rechecks admin after provider verification and performs no secret write after revocation", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({ kind: "session", token: "alice-token", login: "alice", csrf: "alice-csrf" }, SECRET);
+    const apiKey = `provider-${"r".repeat(40)}`;
+    const calls = [];
+    let repoReads = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      const requestUrl = new URL(String(url));
+      const method = options.method || "GET";
+      calls.push(`${method} ${requestUrl.origin}${requestUrl.pathname}`);
+      if (requestUrl.origin === "https://api.openai.com") {
+        return { ok: true, status: 200, async json() { return { id: "gpt-5.6-luna" }; } };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service") {
+        repoReads += 1;
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              id: 77,
+              full_name: "alice/private-service",
+              default_branch: "main",
+              permissions: { push: true, admin: repoReads < 3 },
+            };
+          },
+        };
+      }
+      if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+        return { ok: true, status: 200, async json() { return { object: { sha: "a".repeat(40) } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+        const content = Buffer.from(JSON.stringify({
+          version: 1,
+          runtime: {
+            funding: "byok",
+            provider: "openai",
+            secretName: "OPENAI_API_KEY",
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            managedSubscription: "reserved",
+          },
+        })).toString("base64");
+        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+      }
+      throw new Error(`Unexpected external call: ${method} ${requestUrl}`);
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=byok",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/private-service", apiKey },
+      }, response);
+      assert.equal(response.statusCode, 403);
+      assert.match(JSON.parse(response.body).error, /admin access changed/u);
+      assert.equal(calls.some((call) => call.includes("api.openai.com")), true);
+      assert.equal(calls.some((call) => call.includes("/access_tokens")), false);
+      assert.equal(calls.some((call) => call.includes("/actions/secrets")), false);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });
@@ -2028,7 +2825,7 @@ test("repository BYOK encrypts and rotates directly in GitHub Actions without ec
           ok: true,
           status: 200,
           async json() {
-            return { full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin: false } };
+            return { id: 77, full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin: true } };
           },
         };
       }
@@ -2133,7 +2930,7 @@ test("repository BYOK deletion removes only the OpenAI Actions Secret", async ()
       const method = options.method || "GET";
       calls.push(`${method} ${requestUrl.pathname}`);
       if (requestUrl.pathname === "/repos/alice/private-service") {
-        return { ok: true, status: 200, async json() { return { full_name: "alice/private-service", permissions: { push: true } }; } };
+        return { ok: true, status: 200, async json() { return { full_name: "alice/private-service", permissions: { push: true, admin: true } }; } };
       }
       if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY") && method === "DELETE") {
         return { ok: true, status: 204 };
@@ -2155,6 +2952,7 @@ test("repository BYOK deletion removes only the OpenAI Actions Secret", async ()
       }, response);
       assert.equal(response.statusCode, 200);
       assert.deepEqual(calls, [
+        "GET /repos/alice/private-service",
         "GET /repos/alice/private-service",
         "DELETE /repos/alice/private-service/actions/secrets/OPENAI_API_KEY",
       ]);
@@ -2332,6 +3130,7 @@ test("GitHub App onboarding installs first, then verifies the installation throu
               installations: [{
                 id: 12345,
                 permissions: {
+                  administration: "read",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
@@ -2411,6 +3210,7 @@ test("returning GitHub App users authorize without reopening installation settin
                 id: 98765,
                 app_slug: "changeplane-test",
                 permissions: {
+                  administration: "read",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
@@ -2526,12 +3326,12 @@ test("returning authorization keeps every eligible personal and organization ins
                 {
                   id: 1,
                   app_slug: "changeplane-test",
-                  permissions: { contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
+                  permissions: { administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
                 },
                 {
                   id: 2,
                   app_slug: "changeplane-test",
-                  permissions: { contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
+                  permissions: { administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
                 },
               ],
             };

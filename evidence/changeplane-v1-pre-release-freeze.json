@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-27T14:22:53Z",
+  "purpose": "Disable the legacy autonomous controller and close new self-serve installs before the product 1.0.0 / managed v12 rollout.",
+  "production": {
+    "sourceCommit": "88f67ab65a3f24ae3a828738fb49c6c6285f2ab0",
+    "release": "88f67ab65a3f",
+    "deploymentId": "dpl_93uz3WkoXNYF5zQ3idJbZkssyZa8",
+    "intermediateKillSwitchDeploymentId": "dpl_4W9sCgL46pc7KgVN3rLNGrTofE8D",
+    "originalDeploymentId": "dpl_6rhb3k3HqBAF3WzurgKkpomTUnz8",
+    "deploymentOperation": "redeploy_attributed_git_release_with_updated_production_environment",
+    "canonicalUrl": "https://changeplane.vercel.app/",
+    "readinessStatus": 200,
+    "readinessRequestId": "c5b7cdb217e04fb888a2ba13",
+    "rolloutMode": "controlled_canary"
+  },
+  "repairController": {
+    "enabled": false,
+    "configured": false,
+    "checks": {
+      "enabled": false,
+      "repositoryScope": true,
+      "installationBound": true,
+      "appId": true,
+      "appPrivateKey": true,
+      "controllerSecret": true,
+      "generation": true
+    }
+  },
+  "boundary": "The signed-out product replay and existing installed workflows remain available. New self-serve installs are closed, and autonomous controller endpoints fail closed until a reviewed v12 release and live canary authorize staged reactivation.",
+  "secretsRecorded": false
+}

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const APP_ORIGIN = "http://127.0.0.1:4173";
+const APP_ORIGIN = "http://127.0.0.1:43117";
 
 function json(route, payload, status = 200) {
   return route.fulfill({
@@ -43,6 +43,7 @@ test("controlled-canary public root replays RouteThai assurance from failed head
   await page.goto("/?github=authorization_cancelled");
 
   await expect(page.getByRole("heading", { name: "See how assurance works." })).toBeVisible();
+  await expect(page.getByText("Any coding agent can own the change. None can own the proof.")).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   await expect(page.getByText("RouteThai production case · sanitized replay")).toHaveCount(1);
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
@@ -56,8 +57,47 @@ test("controlled-canary public root replays RouteThai assurance from failed head
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Keep every stop inside its service window" })).toBeFocused();
   await expect(page.locator(".preview-boundary-banner")).toHaveText("RouteThai production-tested · sanitized public replay · synthetic data · no production systems accessed");
+  await expect(page.getByRole("heading", { name: "Independent roles" })).toBeVisible();
+  await expect(page.locator(".authority-map")).toContainText("Coding agent");
+  await expect(page.locator(".authority-map")).toContainText("Deterministic harness");
+  await expect(page.locator(".authority-map")).toContainText("GitHub");
+  await expect(page.locator(".authority-map")).toContainText("Portable evidence, never portable authority.");
+  await expect(page.getByLabel("Exact head 71b04c2")).toBeVisible();
+  await expect(page.locator(".decision-pill")).toHaveText("Ready to check");
+  const verifyButton = page.getByRole("button", { name: "Replay exact-head assurance" });
+  await expect(verifyButton).toBeVisible();
+  let buttonBox = await verifyButton.boundingBox();
+  expect(buttonBox).not.toBeNull();
+  expect(buttonBox.y).toBeGreaterThanOrEqual(0);
+  expect(buttonBox.y + buttonBox.height).toBeLessThanOrEqual(844);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  buttonBox = await verifyButton.boundingBox();
+  expect(buttonBox).not.toBeNull();
+  expect(buttonBox.y).toBeGreaterThanOrEqual(0);
+  expect(buttonBox.y + buttonBox.height).toBeLessThanOrEqual(900);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  await page.getByRole("button", { name: "Inspect agent handback" }).click();
+  await expect(page.getByRole("dialog", { name: "Any coding agent can take the next turn." })).toBeVisible();
+  await expect(page.locator(".handback-facts")).toContainText("71b04c2");
+  await expect(page.locator(".handback-facts")).toContainText("src/routing/**");
+  await expect(page.locator(".handback-authority")).toContainText("pushfalse");
+  await expect(page.locator(".handback-authority")).toContainText("checkfalse");
+  await expect(page.locator(".handback-authority")).toContainText("mergefalse");
+  await expect(page.locator(".handback-authority")).toContainText("passfalse");
+  await page.getByText("Inspect machine-readable payload").click();
+  await expect(page.locator(".handback-payload pre")).toContainText("BEHAVIORAL_EVIDENCE_FAILED");
+  await page.getByRole("button", { name: "Back to change" }).click();
+
+  await page.waitForTimeout(600);
+  await expect(page.locator(".decision-pill")).toHaveText("Ready to check");
+  await verifyButton.click();
+  await expect(page.locator(".decision-pill")).toHaveText("Checking");
   await expect(page.getByText("GPT-5.6 Luna · recorded canary evidence")).toBeVisible();
   await expect(page.locator(".decision-pill")).toHaveText("Check passed");
+  await expect(page.getByLabel("Exact head 9fc82a1")).toBeVisible();
   await expect(page.getByRole("button", { name: "Replay autonomous run" })).toBeVisible();
   await expect(page.getByText("Verified on 9fc82a1")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Independent review" })).toBeVisible();
@@ -93,7 +133,335 @@ test("self-serve root explains organization approval recovery without changing a
   expect(externalRequests).toEqual([]);
 });
 
+test("production preview query cannot bypass server session resolution", async ({ page }) => {
+  let sessionRequests = 0;
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      sessionRequests += 1;
+      return json(route, {
+        configured: true,
+        authenticated: true,
+        login: "connected-owner",
+        csrf: "local-csrf",
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "repos") return json(route, { repositories: [] });
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("changeplane.preview-session.v3", JSON.stringify({
+      name: "Synthetic user",
+      handle: "synthetic",
+      initials: "SY",
+      isPreview: true,
+    }));
+  });
+
+  await page.goto("/?preview=1");
+
+  await expect(page.getByRole("heading", { name: "One repository. One setup PR." })).toBeVisible();
+  await expect(page.locator(".app-stage")).toHaveCount(0);
+  await expect(page.getByText("RouteThai production case · sanitized replay")).toHaveCount(0);
+  expect(sessionRequests).toBe(1);
+  expect(externalRequests).toEqual([]);
+});
+
+test("write collaborators get an admin-only BYOK boundary without a secret mutation", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let connected = false;
+  let byokMutations = 0;
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "writer" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, { repositories: [{
+        fullName: "acme/writer-api",
+        private: true,
+        defaultBranch: "main",
+        permissions: { push: true, admin: false },
+      }] });
+    }
+    if (action === "preflight") {
+      return json(route, {
+        repositoryState: "active",
+        installation: { state: "current", currentVersion: 12, targetVersion: 12, conflicts: [] },
+        installable: false,
+        conflicts: [],
+        setupFiles: 0,
+        setup: { state: "current", managedVersion: 12 },
+        evidenceOptions: [],
+        capabilities: {
+          independentReview: true,
+          agentHandback: true,
+          assuranceMemory: true,
+          exactHeadPreview: true,
+          mergeQueue: true,
+        },
+        boundary: {
+          defaultBranchWrite: false,
+          pullRequestOnly: true,
+          mergeBlocking: false,
+          agentRepairDuringSetup: false,
+          untrustedCodeExecution: false,
+          providerSecretAccess: false,
+        },
+      });
+    }
+    if (action === "runtime" || action === "byok" && route.request().method() === "GET") {
+      return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
+        harness: { mode: "observe", autonomousAvailable: false, ready: false, maxAttempts: 2, budgetMinutes: 15 },
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: false, state: "admin_required", secretName: "OPENAI_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "byok") {
+      byokMutations += 1;
+      return json(route, { error: "unexpected secret mutation" }, 500);
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("radio", { name: /acme\/writer-api/u }).click();
+
+  await expect(page.locator(".app-stage")).toHaveCount(0);
+  await expect(page.getByText("RouteThai production case · sanitized replay")).toHaveCount(0);
+  await expect(page.getByText("Admin needed")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("A repository administrator must manage provider keys and autonomous repair");
+  await expect(page.getByRole("alert")).toContainText("Nothing changed; ask an owner to continue");
+  await expect(page.getByLabel("OpenAI API key")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Save to GitHub" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open project pull requests" })).toBeVisible();
+  expect(byokMutations).toBe(0);
+  expect(externalRequests).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("non-strict branch protection blocks autonomy and leaves observe setup available", async ({ page }) => {
+  let connected = false;
+  let installRequests = 0;
+  let byokMutations = 0;
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "admin" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, { repositories: [{
+        fullName: "acme/non-strict-api",
+        private: true,
+        defaultBranch: "main",
+        permissions: { push: true, admin: true },
+      }] });
+    }
+    if (action === "preflight") {
+      return json(route, {
+        repositoryState: "active",
+        installation: { state: "fresh", currentVersion: null, targetVersion: 12, conflicts: [] },
+        installable: true,
+        conflicts: [],
+        setupFiles: 19,
+        setup: { state: "none" },
+        evidenceOptions: [{ name: "CI / test", appSlug: "github-actions", suggested: true }],
+        harness: { autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
+        capabilities: {
+          independentReview: true,
+          agentHandback: true,
+          assuranceMemory: true,
+          exactHeadPreview: true,
+          mergeQueue: true,
+        },
+        boundary: {
+          defaultBranchWrite: false,
+          pullRequestOnly: true,
+          mergeBlocking: false,
+          agentRepairDuringSetup: false,
+          untrustedCodeExecution: false,
+          providerSecretAccess: false,
+        },
+      });
+    }
+    if (action === "runtime") {
+      return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
+        harness: { mode: "observe", autonomousAvailable: true, ready: false, maxAttempts: 2, budgetMinutes: 15 },
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: true, state: "connected", secretName: "OPENAI_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "byok") {
+      byokMutations += 1;
+      return json(route, { error: "unexpected provider mutation" }, 500);
+    }
+    if (action === "install") {
+      installRequests += 1;
+      expect(route.request().postDataJSON().harnessMode).toBe("autonomous");
+      return json(route, {
+        error: "Autonomous repair requires the default branch to require pull requests to be up to date before merging. Enable strict required status checks in GitHub branch protection, then retry. Observe mode remains available.",
+      }, 409);
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("radio", { name: /acme\/non-strict-api/u }).click();
+  await page.getByRole("checkbox", { name: "This check fails when important code behavior breaks." }).check();
+  await page.getByRole("radio", { name: /Autonomous repair · normal path/u }).check();
+  await page.getByRole("button", { name: "Enable autonomous harness" }).click();
+
+  await expect(page.getByRole("alert")).toContainText("require pull requests to be up to date before merging");
+  await expect(page.getByRole("alert")).toContainText("Observe mode remains available");
+  await expect(page.getByText("Setup PR created")).toHaveCount(0);
+  await page.getByRole("radio", { name: /Commit and file scope only/u }).click();
+  await expect(page.locator(".install-summary").getByText("Observe", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create observe setup PR" })).toBeEnabled();
+  expect(installRequests).toBe(1);
+  expect(byokMutations).toBe(0);
+  expect(externalRequests).toEqual([]);
+});
+
+test("Verify only installs with exact behavioral evidence and no provider-key interaction", async ({ page }) => {
+  let connected = false;
+  let byokMutations = 0;
+  let installPayload = null;
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "admin" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, { repositories: [{
+        fullName: "acme/agent-api",
+        private: true,
+        defaultBranch: "main",
+        permissions: { push: true, admin: true },
+      }] });
+    }
+    if (action === "preflight") {
+      return json(route, {
+        repositoryState: "active",
+        installation: { state: "fresh", currentVersion: null, targetVersion: 12, conflicts: [] },
+        installable: true,
+        conflicts: [],
+        setupFiles: 19,
+        setup: { state: "none" },
+        evidenceOptions: [{ name: "CI / test", appSlug: "github-actions", suggested: true }],
+        evidenceDiscovery: { state: "ready" },
+        harness: { verifyAvailable: true, autonomousAvailable: false, maxAttempts: 2, budgetMinutes: 15 },
+        capabilities: {
+          independentReview: true,
+          agentHandback: true,
+          assuranceMemory: true,
+          exactHeadPreview: true,
+          mergeQueue: true,
+        },
+        boundary: {
+          defaultBranchWrite: false,
+          pullRequestOnly: true,
+          mergeBlocking: false,
+          agentRepairDuringSetup: false,
+          untrustedCodeExecution: false,
+          providerSecretAccess: false,
+        },
+      });
+    }
+    if (action === "runtime") {
+      return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
+        harness: { mode: "observe", verifyAvailable: true, autonomousAvailable: false, ready: false, maxAttempts: 2, budgetMinutes: 15 },
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: false, state: "not_connected", secretName: "OPENAI_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "byok") {
+      byokMutations += 1;
+      return json(route, { error: "unexpected provider-key mutation" }, 500);
+    }
+    if (action === "install") {
+      installPayload = route.request().postDataJSON();
+      return json(route, {
+        repository: "acme/agent-api",
+        branch: "changeplane/observe-setup",
+        operation: "install",
+        harnessMode: "verify",
+        pullRequest: { number: 91, url: "https://github.com/acme/agent-api/pull/91", state: "open" },
+      }, 201);
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("radio", { name: /acme\/agent-api/u }).click();
+  await expect(page.locator(".install-summary").getByText("Verify only", { exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Verify only/u })).toBeChecked();
+  await page.getByRole("checkbox", { name: "This check fails when important code behavior breaks." }).check();
+  const installButton = page.getByRole("button", { name: "Create Verify-only setup PR" });
+  await expect(installButton).toBeEnabled();
+  await installButton.click();
+
+  await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toBeVisible();
+  await expect(page.locator(".install-result-facts")).toContainText("Verify only");
+  await expect(page.locator(".activation-checklist")).toContainText("your coding agent");
+  await expect(page.locator(".activation-checklist")).toContainText("require that publisher's ChangePlane / guard");
+  expect(installPayload).toEqual({
+    repository: "acme/agent-api",
+    requiredCheck: { name: "CI / test", appSlug: "github-actions" },
+    harnessMode: "verify",
+  });
+  expect(byokMutations).toBe(0);
+  expect(externalRequests).toEqual([]);
+});
+
 test("mocked self-serve onboarding reaches a setup pull request with keyboard navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   let connected = false;
   let byokConnected = false;
   let installPayload = null;
@@ -122,7 +490,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
           fullName: "acme/payments-api",
           private: true,
           defaultBranch: "main",
-          permissions: { push: true, admin: false },
+          permissions: { push: true, admin: true },
         }],
       });
     }
@@ -133,11 +501,11 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 11, targetVersion: 11, conflicts: [] },
+          installation: { state: "current", currentVersion: 12, targetVersion: 12, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
-          setup: { state: "current", managedVersion: 2 },
+          setup: { state: "current", managedVersion: 12 },
           evidenceOptions: [],
           capabilities: {
             independentReview: true,
@@ -161,7 +529,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
         installation: {
           state: "fresh",
           currentVersion: null,
-          targetVersion: 11,
+          targetVersion: 12,
           conflicts: [],
         },
         installable: true,
@@ -262,6 +630,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   await evidenceConfirmation.focus();
   await page.keyboard.press("Space");
   await expect(evidenceConfirmation).toBeChecked();
+  await page.getByRole("radio", { name: /Autonomous repair · normal path/u }).check();
 
   const apiKey = page.getByLabel("OpenAI API key");
   await apiKey.fill(`sk-test-${"x".repeat(32)}`);
@@ -292,6 +661,7 @@ test("mocked self-serve onboarding reaches a setup pull request with keyboard na
   expect(preflightRequests).toBe(2);
   expect(apiActions).toEqual(expect.arrayContaining(["session", "login", "repos", "preflight", "runtime", "byok", "install"]));
   expect(externalRequests).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("a pristine legacy install offers one policy-preserving upgrade pull request", async ({ page }) => {
@@ -330,11 +700,11 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         await new Promise((resolve) => setTimeout(resolve, 150));
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 11, targetVersion: 11, conflicts: [] },
+          installation: { state: "current", currentVersion: 12, targetVersion: 12, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
-          setup: { state: "current", managedVersion: 2 },
+          setup: { state: "current", managedVersion: 12 },
           evidenceOptions: [],
           boundary: {
             defaultBranchWrite: false,
@@ -351,7 +721,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         installation: {
           state: "outdated",
           currentVersion: 0,
-          targetVersion: 11,
+          targetVersion: 12,
           conflicts: [],
         },
         installable: true,
@@ -375,6 +745,21 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
         provider: "openai",
         activeModel: "gpt-5.6-luna",
         modelConfigured: true,
+        harness: {
+          mode: "verify",
+          verifyAvailable: true,
+          autonomousAvailable: false,
+          ready: false,
+          enforcement: {
+            state: "active",
+            active: true,
+            strict: true,
+            guardRequired: true,
+            publisherBound: true,
+          },
+          maxAttempts: 2,
+          budgetMinutes: 15,
+        },
         managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
         byok: { configured: false, state: "not_connected", secretName: "OPENAI_API_KEY", updatedAt: null },
       });
@@ -383,7 +768,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
       installPayload = route.request().postDataJSON();
       return json(route, {
         repository: "acme/payments-api",
-        branch: "changeplane/observe-upgrade-v11",
+        branch: "changeplane/observe-upgrade-v12",
         operation: "upgrade",
         pullRequest: {
           number: 43,
@@ -400,7 +785,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
   await expect(page.getByText("Upgrade ready")).toBeVisible();
-  await expect(page.getByText("Update managed files to version 11 without changing your policy.")).toBeVisible();
+  await expect(page.getByText("Update managed files to version 12 without changing your policy.")).toBeVisible();
   await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
   const capabilities = page.locator(".repository-capabilities");
   await expect(capabilities).toContainText("0 of 5 available");
@@ -425,6 +810,8 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await expect(page.getByText("Setup is merged. ChangePlane is ready.")).toBeVisible();
   await expect(page.getByText("Setup complete")).toBeVisible();
   await expect(page.getByText("No repository change is needed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Merge blocking active", { exact: true })).toBeVisible();
+  await expect(page.getByText(/strict branch protection requires this guard/u)).toBeVisible();
   await expect(page.getByText(/No test PR is required/u)).toBeVisible();
   await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open project pull requests" })).toHaveAttribute(
@@ -481,7 +868,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         pendingPreflightRequests += 1;
         return json(route, {
           repositoryState: "active",
-          installation: { state: "outdated", currentVersion: 0, targetVersion: 11, conflicts: [] },
+          installation: { state: "outdated", currentVersion: 0, targetVersion: 12, conflicts: [] },
           installable: true,
           conflicts: [],
           setupFiles: 1,
@@ -497,11 +884,11 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
       if (repository === "acme/current-api") {
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 11, targetVersion: 11, conflicts: [] },
+          installation: { state: "current", currentVersion: 12, targetVersion: 12, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
-          setup: { state: "current", managedVersion: 2 },
+          setup: { state: "current", managedVersion: 12 },
           evidenceOptions: [],
           boundary,
         });
@@ -513,11 +900,11 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
         }
         return json(route, {
           repositoryState: "active",
-          installation: { state: "current", currentVersion: 11, targetVersion: 11, conflicts: [] },
+          installation: { state: "current", currentVersion: 12, targetVersion: 12, conflicts: [] },
           installable: false,
           conflicts: [],
           setupFiles: 0,
-          setup: { state: "current", managedVersion: 2 },
+          setup: { state: "current", managedVersion: 12 },
           evidenceOptions: [],
           boundary,
         });
@@ -528,7 +915,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
           installation: {
             state: "conflict",
             currentVersion: null,
-            targetVersion: 11,
+            targetVersion: 12,
             conflicts: ["changeplane/action/index.js"],
           },
           installable: false,

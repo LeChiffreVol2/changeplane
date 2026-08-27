@@ -17,6 +17,38 @@ import { effectiveProtectedPaths } from "../examples/changeplane-evidence-policy
 const API_VERSION = "2022-11-28";
 export const EVALUATOR_VERSION = "0.4.0";
 const CHECK_NAME = "ChangePlane / guard";
+export const MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH = 20_000;
+const MAX_ASSURANCE_EVIDENCE = 20;
+const MAX_ASSURANCE_CHECK_NAME_LENGTH = 100;
+const MAX_ASSURANCE_PUBLISHER_LENGTH = 100;
+const MAX_ASSURANCE_POLICY_PATH_LENGTH = 300;
+const MAX_ASSURANCE_TIMESTAMP_LENGTH = 40;
+const LEGACY_COMMIT_STATUS = "LEGACY_COMMIT_STATUS";
+const UNKNOWN_ASSURANCE_VALUE = "Unknown";
+const ANY_ASSURANCE_PUBLISHER = "Any";
+const ASSURANCE_EVIDENCE_STATUSES = new Set([
+  "MISSING",
+  "QUEUED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "WAITING",
+  "PENDING",
+  "REQUESTED",
+]);
+const ASSURANCE_EVIDENCE_CONCLUSIONS = new Set([
+  UNKNOWN_ASSURANCE_VALUE,
+  "ACTION_REQUIRED",
+  "CANCELLED",
+  "ERROR",
+  "FAILURE",
+  "NEUTRAL",
+  "SKIPPED",
+  "STALE",
+  "STARTUP_FAILURE",
+  "SUCCESS",
+  "TIMED_OUT",
+]);
+const GITHUB_APP_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u;
 const WRITE_PERMISSIONS = new Set(["admin", "maintain", "write"]);
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
 
@@ -41,6 +73,17 @@ export function parseAgentDispatch(value, webhookUrl = "") {
   }
   if (adapter === "webhook") validateAgentWebhookUrl(webhookUrl);
   return adapter;
+}
+
+export function shouldDispatchAgentWebhook({ mode, decision, agentDispatch, requestAlreadyPublished = false }) {
+  return mode === "enforce"
+    && decision === AUTONOMOUS_DECISION.REMEDIATION_REQUIRED
+    && agentDispatch === "webhook"
+    && !requestAlreadyPublished;
+}
+
+export function shouldFailDecision(mode, decision) {
+  return mode === "enforce" && decision !== AUTONOMOUS_DECISION.PASS;
 }
 
 export function validateAgentWebhookUrl(value) {
@@ -276,6 +319,38 @@ async function defaultBranchSha(repository, defaultBranch, token) {
   return ref.object.sha;
 }
 
+async function trustedDefaultBranch(repository, token) {
+  const state = await api(`/repos/${repository}`, token);
+  const defaultBranch = state?.default_branch;
+  if (typeof defaultBranch !== "string" || !defaultBranch
+    || state?.full_name?.toLowerCase() !== repository.toLowerCase()) {
+    throw new Error("GitHub returned an invalid repository default branch.");
+  }
+  return {
+    defaultBranch,
+    defaultSha: await defaultBranchSha(repository, defaultBranch, token),
+  };
+}
+
+export function assertTrustedPullRequestBase({
+  pullRequest,
+  eventPullRequest = null,
+  defaultBranch,
+  defaultSha,
+  controllerSha,
+}) {
+  if (!exactSha(controllerSha)) throw new Error("The trusted controller revision is unavailable.");
+  if (pullRequest?.base?.ref !== defaultBranch || pullRequest?.base?.sha !== defaultSha
+    || controllerSha !== defaultSha) {
+    throw new Error("The pull request is not bound to the current trusted default branch.");
+  }
+  if (eventPullRequest && (eventPullRequest.base?.ref !== defaultBranch
+    || eventPullRequest.base?.sha !== defaultSha
+    || eventPullRequest.head?.sha !== pullRequest.head?.sha)) {
+    throw new Error("The triggering pull-request revision is stale or targets an untrusted branch.");
+  }
+}
+
 export async function resolveMergeGroup(event, repository, token) {
   if (!event.merge_group) return null;
   const group = event.merge_group;
@@ -443,6 +518,8 @@ export async function evidenceSnapshot(repository, headSha, policy, token, { inc
       createdAt: check.started_at,
       completedAt: check.completed_at,
       source,
+      ...(Number.isSafeInteger(check.id) && check.id > 0 ? { checkRunId: check.id } : {}),
+      ...(Number.isSafeInteger(check.app?.id) && check.app.id > 0 ? { publisherAppId: check.app.id } : {}),
       ...(diagnostic ? { diagnostic } : {}),
     };
   })) : [];
@@ -453,7 +530,7 @@ export async function evidenceSnapshot(repository, headSha, policy, token, { inc
       conclusion: status.state === "pending" ? null : status.state,
       createdAt: status.created_at,
       completedAt: status.updated_at,
-      source: status.creator?.login ?? null,
+      source: LEGACY_COMMIT_STATUS,
       ...(status.state !== "success" && evidenceText(status.description)
         ? { diagnostic: evidenceText(status.description) }
         : {}),
@@ -606,7 +683,25 @@ async function publishHeadCheck(repository, token, receipt, markdown) {
   }
 }
 
+function validAssurancePolicyPath(value) {
+  return typeof value === "string"
+    && value.length > 0
+    && value.length <= MAX_ASSURANCE_POLICY_PATH_LENGTH
+    && !value.startsWith("/")
+    && !value.includes("\\")
+    && !/[\u0000-\u001f\u007f]/u.test(value)
+    && value.split("/").every((segment) => segment && segment !== "." && segment !== "..");
+}
+
+function validateAssurancePolicyPath(value) {
+  if (!validAssurancePolicyPath(value)) {
+    throw new Error(`policy_path must be a repository-relative path of at most ${MAX_ASSURANCE_POLICY_PATH_LENGTH} characters.`);
+  }
+  return value;
+}
+
 async function readPolicy(repository, baseSha, path, token) {
+  validateAssurancePolicyPath(path);
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
   const file = await api(`/repos/${repository}/contents/${encodedPath}?ref=${encodeURIComponent(baseSha)}`, token);
   if (file.type !== "file" || file.encoding !== "base64" || typeof file.content !== "string") {
@@ -667,6 +762,88 @@ const REMEDIATION_MARKER = /<!-- changeplane-remediation:v1 input=([a-f0-9]{64})
 const RECEIPT_MARKER = "<!-- changeplane-receipt:v2";
 const RECEIPT_STATE = /<!-- changeplane-receipt:v2 contract=([a-f0-9]{64}) input=([a-f0-9]{64}) head=([a-f0-9]{40}) -->/u;
 const CONTRACT_STATE = /<!-- changeplane-contract:v1 source=(declared|first-head) plan=([A-Za-z0-9_-]+) -->/u;
+const ASSURANCE_PASSPORT_STATE = /<!-- changeplane-assurance-passport:v1 digest=([a-f0-9]{64}) payload=([A-Za-z0-9_-]+) -->/u;
+
+function assuranceAuthorityMap() {
+  return {
+    authoringAgent: {
+      owns: "CHANGE",
+      propose: true,
+      decide: false,
+      apply: false,
+      publishGuard: false,
+      merge: false,
+    },
+    proposalModel: {
+      owns: "PROPOSE",
+      propose: true,
+      decide: false,
+      apply: false,
+      publishGuard: false,
+      merge: false,
+    },
+    deterministicHarness: {
+      owns: "DECIDE",
+      propose: false,
+      decide: true,
+      apply: false,
+      publishGuard: true,
+      merge: false,
+    },
+    trustedController: {
+      owns: "APPLY",
+      propose: false,
+      decide: false,
+      apply: true,
+      publishGuard: false,
+      merge: false,
+    },
+    github: {
+      owns: "MERGE",
+      propose: false,
+      decide: false,
+      apply: false,
+      publishGuard: false,
+      merge: true,
+    },
+  };
+}
+
+function assurancePassportDigest(value) {
+  return createHash("sha256")
+    .update("changeplane:assurance-passport:v1\0")
+    .update(canonicalJson(value))
+    .digest("hex");
+}
+
+function validAssuranceTimestamp(value) {
+  if (value === "") return true;
+  if (typeof value !== "string" || value.length > MAX_ASSURANCE_TIMESTAMP_LENGTH
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value)) return false;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return false;
+  const canonical = parsed.toISOString();
+  return value === canonical || value === canonical.replace(".000Z", "Z");
+}
+
+function validPositiveId(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function assuranceEvidencePassed(evidence) {
+  return evidence.length > 0 && evidence.every((item) => (
+    item.status === "COMPLETED"
+    && item.conclusion === "SUCCESS"
+    && item.actualPublisher !== UNKNOWN_ASSURANCE_VALUE
+    && (item.expectedPublisher === ANY_ASSURANCE_PUBLISHER
+      || item.actualPublisher === item.expectedPublisher)
+  ));
+}
+
+function expectedGuardConclusion(passport) {
+  if (passport.decision.mode === "observe") return "neutral";
+  return passport.decision.outcome === AUTONOMOUS_DECISION.PASS ? "success" : "action_required";
+}
 
 function encodedContract(plan) {
   return Buffer.from(canonicalJson(plan)).toString("base64url");
@@ -697,6 +874,207 @@ export function parseBoundReceipt(comments, trustedLogin = "github-actions[bot]"
     }
   }
   return undefined;
+}
+
+export function verifyAssurancePassportIntegrity(passport, markerDigest = passport?.digest) {
+  if (!passport || typeof passport !== "object" || Array.isArray(passport)) {
+    throw new Error("The ChangePlane assurance passport is invalid.");
+  }
+  const { digest: claimedDigest, ...unsigned } = passport;
+  const target = passport.target;
+  const binding = passport.binding;
+  const decision = passport.decision;
+  const exactKeys = (value, keys) => (
+    value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0")
+  );
+  const validTarget = target
+    && exactKeys(target, ["type", "repository", "repositoryId", "pullRequestNumber", "baseSha", "headSha"])
+    && ["pull_request", "merge_group"].includes(target.type)
+    && typeof target.repository === "string"
+    && target.repository.length > 0
+    && target.repository.length <= 200
+    && Number.isSafeInteger(target.repositoryId)
+    && target.repositoryId > 0
+    && /^[a-f0-9]{40}$/u.test(target.baseSha)
+    && /^[a-f0-9]{40}$/u.test(target.headSha)
+    && (target.type === "merge_group"
+      ? target.pullRequestNumber === null
+      : Number.isInteger(target.pullRequestNumber) && target.pullRequestNumber > 0);
+  const validBinding = binding
+    && exactKeys(binding, [
+      "inputDigest",
+      "contractDigest",
+      "policyPath",
+      "policyDigest",
+      "policySourceRevision",
+      "approvalDigest",
+      "evaluatorVersion",
+      "trustedControllerSha",
+    ])
+    && validSha256(binding.inputDigest)
+    && validSha256(binding.contractDigest)
+    && validAssurancePolicyPath(binding.policyPath)
+    && validSha256(binding.policyDigest)
+    && validSha256(binding.approvalDigest)
+    && /^[a-f0-9]{40}$/u.test(binding.policySourceRevision)
+    && /^[a-f0-9]{40}$/u.test(binding.trustedControllerSha)
+    && binding.policySourceRevision === target?.baseSha
+    && binding.trustedControllerSha === target?.baseSha
+    && typeof binding.evaluatorVersion === "string"
+    && binding.evaluatorVersion.length > 0
+    && binding.evaluatorVersion.length <= 50;
+  const validDecision = decision
+    && exactKeys(decision, ["mode", "outcome", "reason", "evidenceCount", "assuranceLevel", "behavioralEvidencePassed"])
+    && ["observe", "enforce"].includes(decision.mode)
+    && Object.values(AUTONOMOUS_DECISION).includes(decision.outcome)
+    && typeof decision.reason === "string"
+    && decision.reason.length > 0
+    && decision.reason.length <= 200
+    && Number.isInteger(decision.evidenceCount)
+    && decision.evidenceCount >= 0
+    && decision.evidenceCount <= MAX_ASSURANCE_EVIDENCE
+    && decision.assuranceLevel === (decision.evidenceCount > 0 ? "BEHAVIORAL" : "SCOPE_ONLY")
+    && typeof decision.behavioralEvidencePassed === "boolean";
+  const validEvidence = Array.isArray(passport.evidence)
+    && passport.evidence.length === decision?.evidenceCount
+    && passport.evidence.every((item) => (
+      exactKeys(item, [
+        "checkName",
+        "expectedPublisher",
+        "actualPublisher",
+        "checkRunId",
+        "publisherAppId",
+        "status",
+        "conclusion",
+        "completedAt",
+        "headSha",
+      ])
+      && typeof item.checkName === "string"
+      && item.checkName.length > 0
+      && item.checkName.length <= MAX_ASSURANCE_CHECK_NAME_LENGTH
+      && typeof item.expectedPublisher === "string"
+      && item.expectedPublisher.length <= MAX_ASSURANCE_PUBLISHER_LENGTH
+      && (item.expectedPublisher === ANY_ASSURANCE_PUBLISHER || GITHUB_APP_SLUG.test(item.expectedPublisher))
+      && typeof item.actualPublisher === "string"
+      && item.actualPublisher.length <= MAX_ASSURANCE_PUBLISHER_LENGTH
+      && ([UNKNOWN_ASSURANCE_VALUE, LEGACY_COMMIT_STATUS].includes(item.actualPublisher)
+        || GITHUB_APP_SLUG.test(item.actualPublisher))
+      && typeof item.status === "string"
+      && ASSURANCE_EVIDENCE_STATUSES.has(item.status)
+      && typeof item.conclusion === "string"
+      && ASSURANCE_EVIDENCE_CONCLUSIONS.has(item.conclusion)
+      && typeof item.completedAt === "string"
+      && validAssuranceTimestamp(item.completedAt)
+      && ((item.checkRunId === null && item.publisherAppId === null)
+        || (validPositiveId(item.checkRunId) && validPositiveId(item.publisherAppId)))
+      && (item.checkRunId === null
+        ? [UNKNOWN_ASSURANCE_VALUE, LEGACY_COMMIT_STATUS].includes(item.actualPublisher)
+        : GITHUB_APP_SLUG.test(item.actualPublisher))
+      && (item.actualPublisher !== LEGACY_COMMIT_STATUS || item.expectedPublisher === ANY_ASSURANCE_PUBLISHER)
+      && (item.status !== "MISSING" || (
+        item.actualPublisher === UNKNOWN_ASSURANCE_VALUE
+        && item.checkRunId === null
+        && item.conclusion === UNKNOWN_ASSURANCE_VALUE
+      ))
+      && (item.status !== "COMPLETED" || item.conclusion !== "SUCCESS" || (
+        item.actualPublisher !== UNKNOWN_ASSURANCE_VALUE
+        && (item.expectedPublisher === ANY_ASSURANCE_PUBLISHER
+          || item.actualPublisher === item.expectedPublisher)
+      ))
+      && item.headSha === target?.headSha
+    ));
+  const evidencePassed = Array.isArray(passport.evidence)
+    ? assuranceEvidencePassed(passport.evidence)
+    : false;
+  if (
+    !exactKeys(passport, ["schemaVersion", "type", "target", "binding", "decision", "evidence", "authority", "verification", "digest"])
+    || passport.schemaVersion !== 1
+    || passport.type !== "changeplane.assurance-passport"
+    || !validTarget
+    || !validBinding
+    || !validDecision
+    || !validEvidence
+    || decision?.behavioralEvidencePassed !== evidencePassed
+    || canonicalJson(passport.authority) !== canonicalJson(assuranceAuthorityMap())
+    || canonicalJson(passport.verification) !== canonicalJson({
+      localIntegrity: "SHA256_ONLY",
+      authenticity: "REQUIRES_LIVE_GITHUB_CHECK",
+      checkName: CHECK_NAME,
+      agentIdentityUsedForDecision: false,
+    })
+    || !validSha256(claimedDigest)
+    || claimedDigest !== markerDigest
+    || assurancePassportDigest(unsigned) !== claimedDigest
+  ) {
+    throw new Error("The ChangePlane assurance passport is invalid.");
+  }
+  return passport;
+}
+
+export function parseAssurancePassportIntegrity(markdown) {
+  if (typeof markdown !== "string") throw new TypeError("markdown must be a string");
+  const match = markdown.match(ASSURANCE_PASSPORT_STATE);
+  if (!match) return undefined;
+  if (match[2].length > MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH) {
+    throw new Error("The ChangePlane assurance passport is too large.");
+  }
+  let passport;
+  try {
+    passport = JSON.parse(Buffer.from(match[2], "base64url").toString("utf8"));
+  } catch {
+    throw new Error("The ChangePlane assurance passport is invalid.");
+  }
+  return verifyAssurancePassportIntegrity(passport, match[1]);
+}
+
+export function verifyAssurancePassportAgainstCheck(passport, liveCheck, expectedPublisher) {
+  const verifiedPassport = verifyAssurancePassportIntegrity(passport);
+  if (
+    !expectedPublisher
+    || typeof expectedPublisher !== "object"
+    || Array.isArray(expectedPublisher)
+    || Object.keys(expectedPublisher).sort().join("\0") !== ["appId", "appSlug"].sort().join("\0")
+    || !validPositiveId(expectedPublisher.appId)
+    || typeof expectedPublisher.appSlug !== "string"
+    || !GITHUB_APP_SLUG.test(expectedPublisher.appSlug)
+  ) {
+    throw new Error("The expected GitHub Check publisher is invalid.");
+  }
+  const summary = liveCheck?.output?.summary;
+  const expectedMarker = assurancePassportMarker(verifiedPassport);
+  const liveMarker = typeof summary === "string" ? summary.match(ASSURANCE_PASSPORT_STATE)?.[0] : null;
+  if (
+    !validPositiveId(liveCheck?.id)
+    || liveCheck.name !== CHECK_NAME
+    || liveCheck.head_sha !== verifiedPassport.target.headSha
+    || liveCheck.status !== "completed"
+    || liveCheck.conclusion !== expectedGuardConclusion(verifiedPassport)
+    || liveCheck.app?.id !== expectedPublisher.appId
+    || liveCheck.app?.slug !== expectedPublisher.appSlug
+    || typeof summary !== "string"
+    || liveMarker !== expectedMarker
+  ) {
+    throw new Error("The live GitHub Check does not authenticate this assurance passport.");
+  }
+  return {
+    authenticity: "VERIFIED_LIVE_GITHUB_CHECK",
+    passport: verifiedPassport,
+    checkRunId: liveCheck.id,
+    publisherAppId: liveCheck.app.id,
+    publisherAppSlug: liveCheck.app.slug,
+  };
+}
+
+export function assurancePassportOutputs(passport, liveCheckPublished = false) {
+  if (!liveCheckPublished) return {};
+  const verifiedPassport = verifyAssurancePassportIntegrity(passport);
+  return {
+    assurance_passport: canonicalJson(verifiedPassport),
+    assurance_passport_digest: verifiedPassport.digest,
+  };
 }
 
 export function parseRemediationComments(comments, trustedLogin = "github-actions[bot]") {
@@ -790,6 +1168,12 @@ function nextAction(receipt) {
     return {
       owner: "Nobody",
       action: "Merge when the repository's required CI checks pass.",
+    };
+  }
+  if (receipt.decision === AUTONOMOUS_DECISION.CHANGES_REQUIRED) {
+    return {
+      owner: "PR author or coding agent",
+      action: "Use the proposal-only agent handback below, apply the smallest allowed change, then push a new commit for exact-head re-evaluation.",
     };
   }
   if (receipt.decision === AUTONOMOUS_DECISION.REMEDIATION_REQUIRED) {
@@ -903,6 +1287,7 @@ export function buildAgentHandback({
       proposalOnly: true,
       gitWrite: false,
       checkWrite: false,
+      pass: false,
       merge: false,
     },
   };
@@ -913,8 +1298,103 @@ function encodedAgentHandback(handback) {
   return Buffer.from(canonicalJson(handback)).toString("base64url");
 }
 
+function passportEvidence(item, headSha) {
+  const bounded = (value, fallback, maximum, label) => {
+    const result = String(value ?? fallback);
+    if (result.length > maximum) {
+      throw new Error(`Assurance passport ${label} exceeds ${maximum} characters.`);
+    }
+    return result;
+  };
+  const passportId = (value, label) => {
+    if (value == null) return null;
+    if (!validPositiveId(value)) throw new Error(`Assurance passport ${label} must be a positive safe integer.`);
+    return value;
+  };
+  const checkRunId = passportId(item?.checkRunId, "Check Run ID");
+  const publisherAppId = passportId(item?.publisherAppId, "publisher App ID");
+  const actualPublisher = checkRunId === null && publisherAppId === null && item?.source
+    ? LEGACY_COMMIT_STATUS
+    : bounded(item?.source, UNKNOWN_ASSURANCE_VALUE, MAX_ASSURANCE_PUBLISHER_LENGTH, "actual publisher");
+  return {
+    checkName: bounded(item?.name, "", MAX_ASSURANCE_CHECK_NAME_LENGTH, "Check name"),
+    expectedPublisher: bounded(item?.expectedSource, ANY_ASSURANCE_PUBLISHER, MAX_ASSURANCE_PUBLISHER_LENGTH, "expected publisher"),
+    actualPublisher,
+    checkRunId,
+    publisherAppId,
+    status: bounded(item?.status, "", 30, "evidence status"),
+    conclusion: bounded(item?.conclusion, UNKNOWN_ASSURANCE_VALUE, 30, "evidence conclusion"),
+    completedAt: bounded(item?.completedAt, "", MAX_ASSURANCE_TIMESTAMP_LENGTH, "evidence completion time"),
+    headSha,
+  };
+}
+
+export function buildAssurancePassport(receipt) {
+  validateAssurancePolicyPath(receipt?.policy?.path);
+  if (!Array.isArray(receipt.evidence ?? [])) throw new Error("Assurance passport evidence must be an array.");
+  if ((receipt.evidence ?? []).length > MAX_ASSURANCE_EVIDENCE) {
+    throw new Error(`Assurance passports support at most ${MAX_ASSURANCE_EVIDENCE} evidence entries.`);
+  }
+  const evidence = (receipt.evidence ?? []).map((item) => passportEvidence(item, receipt.headSha));
+  const payload = {
+    schemaVersion: 1,
+    type: "changeplane.assurance-passport",
+    target: {
+      type: receipt.targetType ?? "pull_request",
+      repository: receipt.repository,
+      repositoryId: receipt.repositoryId,
+      pullRequestNumber: receipt.targetType === "merge_group" ? null : receipt.pullRequestNumber,
+      baseSha: receipt.baseSha,
+      headSha: receipt.headSha,
+    },
+    binding: {
+      inputDigest: receipt.inputDigest,
+      contractDigest: receipt.boundContractDigest ?? receipt.contractDigest,
+      policyPath: receipt.policy.path,
+      policyDigest: receipt.policy.digest,
+      policySourceRevision: receipt.policy.sourceRevision ?? receipt.baseSha,
+      approvalDigest: receipt.approvalDigest,
+      evaluatorVersion: receipt.evaluatorVersion,
+      trustedControllerSha: receipt.baseSha,
+    },
+    decision: {
+      mode: receipt.mode,
+      outcome: receipt.decision,
+      reason: receipt.reason,
+      evidenceCount: evidence.length,
+      assuranceLevel: evidence.length > 0 ? "BEHAVIORAL" : "SCOPE_ONLY",
+      behavioralEvidencePassed: assuranceEvidencePassed(evidence),
+    },
+    evidence,
+    authority: assuranceAuthorityMap(),
+    verification: {
+      localIntegrity: "SHA256_ONLY",
+      authenticity: "REQUIRES_LIVE_GITHUB_CHECK",
+      checkName: CHECK_NAME,
+      agentIdentityUsedForDecision: false,
+    },
+  };
+  const passport = { ...payload, digest: assurancePassportDigest(payload) };
+  verifyAssurancePassportIntegrity(passport);
+  encodedAssurancePassport(passport);
+  return passport;
+}
+
+function encodedAssurancePassport(passport) {
+  const encoded = Buffer.from(canonicalJson(passport)).toString("base64url");
+  if (encoded.length > MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH) {
+    throw new Error("The ChangePlane assurance passport is too large.");
+  }
+  return encoded;
+}
+
+function assurancePassportMarker(passport) {
+  return `<!-- changeplane-assurance-passport:v1 digest=${passport.digest} payload=${encodedAssurancePassport(passport)} -->`;
+}
+
 export function buildReceipt({
   repository,
+  repositoryId,
   pullRequest,
   plan,
   contractSource = "declared",
@@ -938,6 +1418,7 @@ export function buildReceipt({
   return {
     schemaVersion: 1,
     repository,
+    repositoryId,
     pullRequestNumber: pullRequest.number,
     mode,
     decision: autonomousPlan.decision,
@@ -994,6 +1475,7 @@ function receiptOutcome(receipt) {
   if (receipt.decision === AUTONOMOUS_DECISION.PASS) {
     return receipt.evidence.length === 0 ? "Revision and scope recorded." : "All configured guarantees passed.";
   }
+  if (receipt.decision === AUTONOMOUS_DECISION.CHANGES_REQUIRED) return "Changes are required before this revision can pass.";
   if (receipt.decision === AUTONOMOUS_DECISION.REMEDIATION_REQUIRED) return "A fixable issue is ready for bounded repair.";
   if (receipt.decision === AUTONOMOUS_DECISION.REVIEW_REQUIRED) return "A human decision is required.";
   if (receipt.decision === AUTONOMOUS_DECISION.BLOCKED) return "Repository policy blocks this revision.";
@@ -1003,6 +1485,7 @@ function receiptOutcome(receipt) {
 export function renderReceiptComment(receipt) {
   const next = nextAction(receipt);
   const outcome = receiptOutcome(receipt);
+  const passport = buildAssurancePassport(receipt);
   const boundPlan = {
     scope: receipt.plannedScope,
     ...(receipt.goal ? { goal: receipt.goal } : {}),
@@ -1010,6 +1493,7 @@ export function renderReceiptComment(receipt) {
   const lines = [
     `${RECEIPT_MARKER} contract=${receipt.boundContractDigest} input=${receipt.inputDigest} head=${receipt.headSha} -->`,
     `<!-- changeplane-contract:v1 source=${receipt.contractSource} plan=${encodedContract(boundPlan)} -->`,
+    assurancePassportMarker(passport),
     ...(receipt.agentHandback ? [`<!-- changeplane-agent-handback:v1 digest=${receipt.agentHandback.digest} payload=${encodedAgentHandback(receipt.agentHandback)} -->`] : []),
     `## ChangePlane · ${outcome.replace(/\.$/u, "")}`,
     "",
@@ -1017,18 +1501,30 @@ export function renderReceiptComment(receipt) {
     `**Merge impact:** ${receipt.mode === "observe"
       ? "ChangePlane is observing and does not block this pull request."
       : receipt.decision === AUTONOMOUS_DECISION.PASS
-        ? "ChangePlane allows this revision; GitHub's remaining rules still decide merge."
-        : "ChangePlane keeps its required Check closed."}`,
+        ? "ChangePlane reports PASS for this revision; GitHub's rules still decide merge."
+        : "ChangePlane publishes a non-passing exact-head Check; GitHub blocks only when that Check is required."}`,
     `**Who acts:** ${next.owner}.`,
     `**Next action:** ${next.action}`,
     `**Current revision:** \`${receipt.headSha.slice(0, 12)}\``,
     "",
     receipt.mode === "observe"
       ? "> **Observe only.** No repair is dispatched and this receipt cannot block merge."
-      : "> **Enforced.** This decision is bound to the exact revision below.",
+      : "> **Blocking-capable guard.** GitHub blocks this exact-head result only when `ChangePlane / guard` is required by branch protection or a ruleset.",
     ...(receipt.evidence.length === 0
       ? ["", "> **Behavioral evidence:** No automated test was required for this receipt. This is not evidence that the code works."]
       : []),
+    "",
+    "### Independent authority",
+    "",
+    `Assurance passport \`${passport.digest.slice(0, 12)}\` binds this decision to the exact head. Its SHA-256 detects changes; authenticity still requires the live \`${CHECK_NAME}\` on GitHub. The passport carries no credential or merge authority.`,
+    "",
+    "| Plane | Owns | Cannot do |",
+    "| --- | --- | --- |",
+    "| Authoring agent | Change | Decide PASS, publish guard, or merge |",
+    "| Proposal model | Propose | Write the repository, decide PASS, or merge |",
+    "| Deterministic harness | Decide + publish guard | Apply a patch or merge |",
+    "| Trusted controller | Apply an accepted patch | Decide PASS or merge |",
+    "| GitHub | Merge authority | Delegate merge authority to this passport |",
     "",
     "<details>",
     "<summary>Technical receipt and evidence</summary>",
@@ -1077,6 +1573,10 @@ export function renderReceiptComment(receipt) {
       `Proposal only · exact head \`${receipt.agentHandback.target.headSha.slice(0, 12)}\` · ${receipt.agentHandback.proposal.findings.length} fixable finding${receipt.agentHandback.proposal.findings.length === 1 ? "" : "s"}`,
       "",
       `Allowed proposal paths: ${compactPaths(receipt.agentHandback.proposal.allowedPaths)}`,
+      "",
+      "| Fixable finding | Target | Requested proposal |",
+      "| --- | --- | --- |",
+      ...receipt.agentHandback.proposal.findings.map((finding) => `| ${safeMarkdown(finding.code)} | \`${safeMarkdown(finding.path)}\` | ${safeMarkdown(finding.action)} |`),
       "",
       "The receiving agent may propose a patch. It cannot push, merge, publish a Check, or issue PASS.",
     );
@@ -1159,6 +1659,8 @@ function renderSummary({ pullRequest, plan, policyPath, policyDigest, result, ap
       ? mode === "observe"
         ? `Enforce mode would request agent remediation attempt ${autonomousPlan.nextAttempt}. No request was dispatched.`
         : `Agent remediation attempt ${autonomousPlan.nextAttempt} was requested. The next commit will be evaluated automatically.`
+      : autonomousPlan.decision === AUTONOMOUS_DECISION.CHANGES_REQUIRED
+        ? "A proposal-only coding-agent handback was emitted. Apply an allowed change and push a new commit for exact-head re-evaluation; no webhook or repair controller was invoked."
       : autonomousPlan.decision === AUTONOMOUS_DECISION.REVIEW_REQUIRED
         ? `Human exception required: ${autonomousPlan.reason}.`
         : autonomousPlan.decision === AUTONOMOUS_DECISION.BLOCKED
@@ -1198,6 +1700,7 @@ function workflowCommandValue(value) {
 
 export function buildMergeGroupReceipt({
   repository,
+  repositoryId,
   target,
   plan,
   policyPath,
@@ -1213,6 +1716,7 @@ export function buildMergeGroupReceipt({
     schemaVersion: 1,
     targetType: "merge_group",
     repository,
+    repositoryId,
     pullRequestNumber: null,
     mode,
     decision: autonomousPlan.decision,
@@ -1251,12 +1755,15 @@ export function buildMergeGroupReceipt({
 
 export function renderMergeGroupReceipt(receipt) {
   const outcome = receiptOutcome(receipt);
+  const passport = buildAssurancePassport(receipt);
   const lines = [
+    assurancePassportMarker(passport),
     `# ChangePlane · ${outcome.replace(/\.$/u, "")}`,
     "",
     `**Merge queue revision:** \`${receipt.headSha.slice(0, 12)}\``,
     `**Trusted default-branch base:** \`${receipt.baseSha.slice(0, 12)}\``,
     `**Mode:** ${safeMarkdown(receipt.mode)}`,
+    `**Assurance passport:** \`${passport.digest.slice(0, 12)}\` · integrity only until verified against this live GitHub Check`,
     `**Policy:** \`${safeMarkdown(receipt.policy.path)}\` at \`${receipt.policy.sourceRevision.slice(0, 12)}\` · \`${receipt.policy.digest.slice(0, 12)}\``,
     `**Changed files:** ${receipt.actualFiles.length}`,
     "",
@@ -1287,6 +1794,9 @@ export function renderMergeGroupReceipt(receipt) {
 
 async function runMergeGroup({ event, repository, token, mode }) {
   const target = await resolveMergeGroup(event, repository, token);
+  if (process.env.INPUT_TRUSTED_CONTROLLER_SHA !== target.baseSha) {
+    throw new Error("The merge-group controller is not bound to its trusted default-branch base.");
+  }
   const policyPath = process.env.INPUT_POLICY_PATH || ".changeplane.json";
   const policy = await readPolicy(repository, target.baseSha, policyPath, token);
   if (mode === "enforce" && (policy.evidence?.requiredChecks ?? []).some((requirement) => typeof requirement === "string")) {
@@ -1325,6 +1835,7 @@ async function runMergeGroup({ event, repository, token, mode }) {
   const autonomousPlan = planAutonomousDecision({ result, agentConfigured: false });
   const receipt = buildMergeGroupReceipt({
     repository,
+    repositoryId: Number(event.repository?.id),
     target,
     plan,
     policyPath,
@@ -1336,6 +1847,7 @@ async function runMergeGroup({ event, repository, token, mode }) {
     autonomousPlan,
     mode,
   });
+  const assurancePassport = buildAssurancePassport(receipt);
   const markdown = renderMergeGroupReceipt(receipt);
   if (await defaultBranchSha(repository, target.defaultBranch, token) !== target.baseSha) {
     throw new Error("The trusted default branch changed during merge-group evaluation.");
@@ -1349,29 +1861,37 @@ async function runMergeGroup({ event, repository, token, mode }) {
   writeOutput("mode", mode);
   writeOutput("decision", autonomousPlan.decision);
   writeOutput("receipt", canonicalJson(receipt));
+  for (const [name, value] of Object.entries(assurancePassportOutputs(assurancePassport, true))) {
+    writeOutput(name, value);
+  }
   writeOutput("actual_files", target.actualFiles.length);
   writeOutput("finding_count", result.reasons.length);
   console.log(`ChangePlane ${autonomousPlan.decision} (${mode}) for ${repository} merge group ${target.headSha.slice(0, 7)}`);
-  if (mode === "enforce" && autonomousPlan.decision !== AUTONOMOUS_DECISION.PASS) process.exitCode = 1;
+  if (shouldFailDecision(mode, autonomousPlan.decision)) process.exitCode = 1;
   return { ...result, autonomous: autonomousPlan, mode, targetType: "merge_group" };
 }
 
 export async function run() {
   const mode = parseMode(process.env.INPUT_MODE);
-  if (mode === "enforce" && (
-    process.env.INPUT_AGENT_DISPATCH !== "webhook"
-    || !String(process.env.INPUT_AGENT_WEBHOOK_URL ?? "").trim()
-    || String(process.env.INPUT_AGENT_WEBHOOK_TOKEN ?? "").length < 32
-    || !/^[1-9][0-9]{0,19}$/u.test(String(process.env.INPUT_CONTROLLER_INSTALLATION_ID ?? ""))
-  )) {
-    throw new Error("Enforce mode requires the dedicated ChangePlane App controller.");
-  }
   const token = process.env.INPUT_TOKEN;
   if (!token) throw new Error("The token input is required.");
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) throw new Error("GITHUB_REPOSITORY is required.");
   if (event.merge_group) return runMergeGroup({ event, repository, token, mode });
+  const agentWebhookUrl = String(process.env.INPUT_AGENT_WEBHOOK_URL ?? "").trim();
+  const agentDispatch = parseAgentDispatch(process.env.INPUT_AGENT_DISPATCH, agentWebhookUrl);
+  const agentConfigured = agentDispatch !== "none";
+  const controllerSha = process.env.INPUT_TRUSTED_CONTROLLER_SHA;
+  if (mode === "enforce" && !exactSha(controllerSha)) {
+    throw new Error("Enforce mode requires the dedicated ChangePlane App controller or an exact trusted controller revision.");
+  }
+  if (mode === "enforce" && agentDispatch === "webhook" && (
+    String(process.env.INPUT_AGENT_WEBHOOK_TOKEN ?? "").length < 32
+    || !/^[1-9][0-9]{0,19}$/u.test(String(process.env.INPUT_CONTROLLER_INSTALLATION_ID ?? ""))
+  )) {
+    throw new Error("Enforce mode requires the dedicated ChangePlane App controller.");
+  }
   const resolution = await resolvePullRequestNumber(event, repository, token);
   if (!resolution.number) return skipRun(mode, resolution.headSha, resolution.reason);
   const number = resolution.number;
@@ -1384,6 +1904,13 @@ export async function run() {
   if (pullRequest.head.repo?.full_name !== repository || pullRequest.base.repo?.full_name !== repository) {
     throw new Error("ChangePlane supports same-repository pull requests only.");
   }
+  const trustedBase = await trustedDefaultBranch(repository, token);
+  assertTrustedPullRequestBase({
+    pullRequest,
+    eventPullRequest: event.pull_request,
+    ...trustedBase,
+    controllerSha,
+  });
   if (pullRequest.changed_files > 3000) throw new Error("Pull requests above 3,000 files are indeterminate and fail closed.");
 
   const policyPath = process.env.INPUT_POLICY_PATH || ".changeplane.json";
@@ -1444,12 +1971,6 @@ export async function run() {
     : [];
   const result = mergeEvaluation(pathResult, evidenceResult, contractReasons);
 
-  const agentWebhookUrl = String(process.env.INPUT_AGENT_WEBHOOK_URL ?? "").trim();
-  const agentDispatch = parseAgentDispatch(process.env.INPUT_AGENT_DISPATCH, agentWebhookUrl);
-  const agentConfigured = agentDispatch !== "none";
-  if (mode === "enforce" && agentDispatch === "webhook" && !String(process.env.INPUT_AGENT_WEBHOOK_TOKEN ?? "").trim()) {
-    throw new Error("agent_webhook_token is required when agent_webhook_url is configured.");
-  }
   const maxAttempts = Number.parseInt(process.env.INPUT_MAX_REMEDIATION_ATTEMPTS || "2", 10);
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > REMEDIATION_MAX_ATTEMPTS) {
     throw new Error(`max_remediation_attempts must be an integer between 1 and ${REMEDIATION_MAX_ATTEMPTS}.`);
@@ -1471,6 +1992,7 @@ export async function run() {
   const autonomousPlan = planAutonomousDecision({
     result,
     agentConfigured,
+    agentHandoff: mode === "enforce" && agentDispatch === "none",
     attempt: currentRequest ? Math.max(0, currentRequest.attempt - 1) : priorAttempts,
     maxAttempts,
   });
@@ -1511,11 +2033,23 @@ export async function run() {
       plan: autonomousPlan,
     });
 
-    if (mode === "enforce" && !currentRequest) {
-      const currentBeforeDispatch = await api(`/repos/${repository}/pulls/${number}`, token);
-      if (currentBeforeDispatch.head?.sha !== pullRequest.head.sha) {
-        throw new Error("Pull request head changed before remediation dispatch.");
-      }
+    if (shouldDispatchAgentWebhook({
+      mode,
+      decision: autonomousPlan.decision,
+      agentDispatch,
+      requestAlreadyPublished: Boolean(currentRequest),
+    })) {
+      const [currentBeforeDispatch, currentDefaultSha] = await Promise.all([
+        api(`/repos/${repository}/pulls/${number}`, token),
+        defaultBranchSha(repository, trustedBase.defaultBranch, token),
+      ]);
+      if (currentBeforeDispatch.head?.sha !== pullRequest.head.sha) throw new Error("Pull request head changed before remediation dispatch.");
+      assertTrustedPullRequestBase({
+        pullRequest: currentBeforeDispatch,
+        defaultBranch: trustedBase.defaultBranch,
+        defaultSha: currentDefaultSha,
+        controllerSha,
+      });
       const authorization = await dispatchAgentWebhook(
         agentWebhookUrl,
         process.env.INPUT_AGENT_WEBHOOK_TOKEN,
@@ -1539,6 +2073,7 @@ export async function run() {
 
   const receipt = buildReceipt({
     repository,
+    repositoryId: Number(event.repository?.id),
     pullRequest,
     plan,
     contractSource,
@@ -1559,6 +2094,7 @@ export async function run() {
     maxAttempts,
     agentHandback,
   });
+  const assurancePassport = buildAssurancePassport(receipt);
   const receiptComment = renderReceiptComment(receipt);
   let receiptWarning = "";
   const publicationFailures = [];
@@ -1570,12 +2106,23 @@ export async function run() {
     publicationFailures.push(`receipt comment: ${message}`);
   }
 
-  const current = await api(`/repos/${repository}/pulls/${number}`, token);
+  const [current, currentDefaultSha] = await Promise.all([
+    api(`/repos/${repository}/pulls/${number}`, token),
+    defaultBranchSha(repository, trustedBase.defaultBranch, token),
+  ]);
   if (current.head?.sha !== pullRequest.head.sha) {
     throw new Error(`Pull request head changed from ${pullRequest.head.sha.slice(0, 12)} to ${String(current.head?.sha ?? "unknown").slice(0, 12)} during evaluation.`);
   }
+  assertTrustedPullRequestBase({
+    pullRequest: current,
+    defaultBranch: trustedBase.defaultBranch,
+    defaultSha: currentDefaultSha,
+    controllerSha,
+  });
+  let headCheckPublished = false;
   try {
     await publishHeadCheck(repository, token, receipt, receiptComment);
+    headCheckPublished = true;
   } catch (error) {
     const message = safeMarkdown(error instanceof Error ? error.message : error);
     receiptWarning += `\n> Exact-head Check could not be published: ${message}\n`;
@@ -1586,13 +2133,16 @@ export async function run() {
   writeOutput("mode", mode);
   writeOutput("decision", autonomousPlan.decision);
   writeOutput("receipt", canonicalJson(receipt));
+  for (const [name, value] of Object.entries(assurancePassportOutputs(assurancePassport, headCheckPublished))) {
+    writeOutput(name, value);
+  }
   writeOutput("actual_files", actualFiles.length);
   writeOutput("finding_count", result.reasons.length);
   if (publicationFailures.length > 0) {
     throw new PublicationError(`Exact-head audit publication failed (${publicationFailures.join("; ")}).`);
   }
   console.log(`ChangePlane ${autonomousPlan.decision} (${mode}) for ${repository}#${number}@${pullRequest.head.sha.slice(0, 7)}`);
-  if (mode === "enforce" && autonomousPlan.decision !== AUTONOMOUS_DECISION.PASS) process.exitCode = 1;
+  if (shouldFailDecision(mode, autonomousPlan.decision)) process.exitCode = 1;
   return { ...result, autonomous: autonomousPlan, mode };
 }
 

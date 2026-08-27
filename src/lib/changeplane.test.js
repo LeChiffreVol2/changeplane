@@ -174,7 +174,15 @@ test('binds required evidence to the declared GitHub App identity', () => {
     requiredChecks: [{ name: 'validate', appSlug: 'trusted-ci' }],
     checks: [
       { name: 'validate', source: 'untrusted-ci', status: 'completed', conclusion: 'success' },
-      { name: 'validate', source: 'trusted-ci', status: 'completed', conclusion: 'failure' },
+      {
+        name: 'validate',
+        source: 'trusted-ci',
+        status: 'completed',
+        conclusion: 'failure',
+        checkRunId: 808,
+        publisherAppId: 15368,
+        completedAt: '2026-08-20T00:01:00Z',
+      },
     ],
   });
 
@@ -186,6 +194,9 @@ test('binds required evidence to the declared GitHub App identity', () => {
     expectedSource: 'trusted-ci',
     status: 'COMPLETED',
     conclusion: 'FAILURE',
+    checkRunId: 808,
+    publisherAppId: 15368,
+    completedAt: '2026-08-20T00:01:00Z',
   });
 
   const mismatch = evaluateEvidence({
@@ -240,6 +251,73 @@ test('routes fixable scope drift to an agent without involving a human', () => {
   assert.equal(plan.humanRequired, false);
   assert.equal(plan.nextAttempt, 1);
   assert.deepEqual(plan.findings.map(({ path }) => path), ['docs/release-note.md']);
+});
+
+test('returns proposal-only changes required when verify-only agent handoff is enabled', () => {
+  const scopeResult = evaluateChange({
+    ...revision,
+    plannedPaths: ['src/payments/**'],
+    actualFiles: ['src/payments/service.js', 'docs/release-note.md'],
+    protectedPaths: policy,
+  });
+  const scopePlan = planAutonomousDecision({
+    result: scopeResult,
+    agentConfigured: false,
+    agentHandoff: true,
+  });
+
+  assert.equal(scopePlan.decision, AUTONOMOUS_DECISION.CHANGES_REQUIRED);
+  assert.equal(scopePlan.reason, 'FIXABLE_SCOPE_DRIFT');
+  assert.equal(scopePlan.humanRequired, false);
+  assert.equal(scopePlan.nextAttempt, undefined);
+  assert.deepEqual(scopePlan.findings.map(({ path }) => path), ['docs/release-note.md']);
+
+  const evidenceResult = evaluateEvidence({
+    requiredChecks: [{ name: 'checkout-race', appSlug: 'trusted-ci' }],
+    checks: [{
+      name: 'checkout-race',
+      source: 'trusted-ci',
+      status: 'completed',
+      conclusion: 'failure',
+    }],
+  });
+  const evidencePlan = planAutonomousDecision({
+    result: evidenceResult,
+    agentHandoff: true,
+  });
+  assert.equal(evidencePlan.decision, AUTONOMOUS_DECISION.CHANGES_REQUIRED);
+  assert.equal(evidencePlan.reason, 'FIXABLE_EVIDENCE_FAILURE');
+  assert.equal(evidencePlan.humanRequired, false);
+});
+
+test('keeps verify-only handoff opt-in and limited to one fixable finding kind', () => {
+  const scopeResult = evaluateChange({
+    ...revision,
+    plannedPaths: ['src/payments/**'],
+    actualFiles: ['docs/release-note.md'],
+    protectedPaths: policy,
+  });
+  const defaultPlan = planAutonomousDecision({ result: scopeResult });
+  assert.equal(defaultPlan.decision, AUTONOMOUS_DECISION.REVIEW_REQUIRED);
+  assert.equal(defaultPlan.reason, 'AGENT_ADAPTER_NOT_CONFIGURED');
+  assert.equal(defaultPlan.humanRequired, true);
+
+  const evidenceResult = evaluateEvidence({
+    requiredChecks: ['checkout-race'],
+    checks: [{
+      name: 'checkout-race',
+      status: 'completed',
+      conclusion: 'failure',
+    }],
+  });
+  const mixedResult = {
+    ...scopeResult,
+    reasons: [...scopeResult.reasons, ...evidenceResult.reasons],
+  };
+  const mixedPlan = planAutonomousDecision({ result: mixedResult, agentHandoff: true });
+  assert.equal(mixedPlan.decision, AUTONOMOUS_DECISION.REVIEW_REQUIRED);
+  assert.equal(mixedPlan.reason, 'MIXED_REMEDIATION_UNSUPPORTED');
+  assert.equal(mixedPlan.humanRequired, true);
 });
 
 test('routes a completed failed check into a bounded in-scope repair contract', () => {

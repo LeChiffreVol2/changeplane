@@ -50,7 +50,7 @@ const REVISION = {
 };
 
 const PAGE_QUERY = new URLSearchParams(window.location.search);
-const PREVIEW_MODE = import.meta.env.DEV || PAGE_QUERY.has("preview");
+const PREVIEW_MODE = import.meta.env.DEV;
 const CANARY_OWNER_ENTRY = PAGE_QUERY.get("access") === "canary-owner";
 const GITHUB_ENTRY_ERROR = {
   owner_required: "This owner-controlled canary is not available to that GitHub account.",
@@ -99,18 +99,44 @@ const EMPTY_BYOK = {
 };
 const EMPTY_HARNESS = {
   mode: "observe",
+  verifyAvailable: true,
   autonomousAvailable: false,
   ready: false,
+  enforcement: {
+    state: "not_installed",
+    active: false,
+    strict: false,
+    guardRequired: false,
+    publisherBound: false,
+  },
   maxAttempts: 2,
   budgetMinutes: 15,
 };
+
+function enforcementMessage(enforcement) {
+  if (enforcement?.active) return "Active: strict branch protection requires this guard from its live GitHub Actions publisher.";
+  if (enforcement?.state === "admin_required") return "A repository administrator must verify merge protection. Nothing was changed.";
+  if (enforcement?.state === "strict_required") return "Require pull requests to be up to date before merging, then recheck this repository.";
+  if (enforcement?.state === "guard_required") return "Add ChangePlane / guard as a required Check in classic branch protection, then recheck.";
+  if (enforcement?.state === "guard_run_required") return "Open or update one pull request so GitHub records the guard publisher, then recheck.";
+  if (enforcement?.state === "publisher_binding_required") return "Require ChangePlane / guard from the same GitHub Actions publisher shown on the live Check.";
+  if (enforcement?.state === "verify_mode_required") return "The guard is required, but Observe remains neutral. Switch to Verify only or Autonomous before treating it as enforcement.";
+  if (enforcement?.state === "protection_required") return "Enable classic branch protection with strict required checks, then require ChangePlane / guard.";
+  return "After setup, run one pull request and require ChangePlane / guard in classic branch protection.";
+}
+
+function harnessModeLabel(mode) {
+  if (mode === "verify") return "Verify only";
+  if (mode === "autonomous") return "Autonomous";
+  return "Observe";
+}
 const PREVIEW_PREFLIGHT = {
   repositoryState: "active",
   installable: true,
   conflicts: [],
   setupFiles: 21,
   evidenceOptions: [{ name: "test", appSlug: "github-actions", suggested: true }],
-  harness: { autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
+  harness: { verifyAvailable: true, autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
   capabilities: {
     independentReview: true,
     agentHandback: true,
@@ -271,12 +297,12 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <div className="auth-message">
             <p className="auth-kicker"><span /> Assurance for agent-written code</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>ChangePlane verifies every agent pull request against the exact commit before GitHub decides what ships.</p>
+            <p>Any coding agent can own the change. None can own the proof. ChangePlane verifies the exact commit before GitHub decides what ships.</p>
           </div>
 
           <div className="auth-signal" aria-label="Automatic pull request workflow">
             <div className="auth-signal-heading">
-              <span><i /> Runs on every pull request update</span>
+              <span><i /> Runs on each eligible same-repository PR update</span>
               <time>Inside GitHub</time>
             </div>
             <div className="auth-signal-row">
@@ -296,7 +322,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
         <div className="auth-access">
           <div className="auth-form">
             <p className="auth-eyebrow">{exampleOnly ? "Public example" : "GitHub-native setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "See how assurance works." : "Make every agent PR prove it works."}</h2>
+            <h2 id="sign-in-title">{exampleOnly ? "See how assurance works." : "Give agent PRs independent exact-head assurance."}</h2>
             <p>{exampleOnly
               ? "Replay one synthetic routing failure from failed evidence to a verified new commit. Nothing connects to GitHub."
               : "Connect a repository, bind one real test, and merge one setup pull request. ChangePlane handles the normal path from then on."}</p>
@@ -365,7 +391,12 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
 
           <footer className="auth-footer">
             <span>Exact commit · trusted checks · clear receipt</span>
-            <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+            <span className="auth-footer-links">
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/data-handling.md" target="_blank" rel="noreferrer">Data handling</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
+              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+            </span>
           </footer>
         </div>
       </section>
@@ -488,6 +519,7 @@ function RuntimeFunding({
   runtimeUpdate,
   runtimeConfigurable,
   harness,
+  requestedHarnessMode,
   autonomyReady,
   saving,
   onSave,
@@ -499,7 +531,13 @@ function RuntimeFunding({
   const [replaceOpen, setReplaceOpen] = useState(false);
   const connected = Boolean(byok?.configured);
   const permissionRequired = byok?.state === "permission_required";
-  const showForm = (!connected || replaceOpen) && !permissionRequired;
+  const adminRequired = byok?.state === "admin_required";
+  const showForm = (!connected || replaceOpen) && !permissionRequired && !adminRequired;
+  const selectedHarnessMode = (runtimeConfigurable ? harness?.mode : requestedHarnessMode) ?? "observe";
+  const enforcement = harness?.enforcement ?? EMPTY_HARNESS.enforcement;
+  const branchSettingsUrl = repositorySelected
+    ? `https://github.com/${repositorySelected}/settings/branches`
+    : null;
   useEffect(() => {
     setApiKey("");
     setReplaceOpen(false);
@@ -537,10 +575,47 @@ function RuntimeFunding({
     <section className="runtime-funding" aria-labelledby="runtime-funding-title">
       <div className="runtime-heading">
         <div>
-          <p className="runtime-kicker">Autonomous harness</p>
-          <h3 id="runtime-funding-title">Repair only when proof fails</h3>
+          <p className="runtime-kicker">Independent assurance</p>
+          <h3 id="runtime-funding-title">Verify first. Repair is optional.</h3>
         </div>
         <span className="runtime-model">{activeModel || RUNTIME.modelId}</span>
+      </div>
+
+      <div className={`runtime-option ${selectedHarnessMode !== "observe" ? "is-connected" : ""}`}>
+        <span className="runtime-option-icon"><ShieldCheck size={17} weight="fill" /></span>
+        <div className="runtime-option-copy">
+          <div>
+            <strong>Exact-head guard</strong>
+            <span className={`runtime-badge ${selectedHarnessMode !== "observe" ? "is-connected" : "is-available"}`}>
+              {harnessModeLabel(selectedHarnessMode)}
+            </span>
+          </div>
+          <p>Verify only lets your existing coding agent own the fix while ChangePlane independently checks the new exact commit. No OpenAI key is required.</p>
+          {runtimeConfigurable && selectedHarnessMode === "observe" && harness?.verifyAvailable !== false && (
+            <button className="text-action" type="button" onClick={() => onChangeHarness("verify")} disabled={modelSaving}>
+              Enable Verify only with config PR <ArrowRight size={13} />
+            </button>
+          )}
+          {runtimeConfigurable && selectedHarnessMode === "autonomous" && (
+            <button className="text-action" type="button" onClick={() => onChangeHarness("verify")} disabled={modelSaving}>
+              Switch to Verify only with config PR <ArrowRight size={13} />
+            </button>
+          )}
+          <p className="runtime-inline-note">Blocking-capable Check; merge blocking starts only after a repository owner requires <code>ChangePlane / guard</code> in GitHub.</p>
+          {runtimeConfigurable && (
+            <div className="runtime-enforcement">
+              <span className={`runtime-badge ${enforcement.active ? "is-connected" : "is-available"}`}>
+                {enforcement.active ? "Merge blocking active" : "Owner activation required"}
+              </span>
+              <p>{enforcementMessage(enforcement)}</p>
+              {!enforcement.active && branchSettingsUrl && enforcement.state !== "admin_required" && (
+                <a className="text-action" href={branchSettingsUrl} target="_blank" rel="noreferrer">
+                  Open classic branch protection <ArrowRight size={13} />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className={`runtime-option ${harness?.ready ? "is-connected" : ""}`}>
@@ -553,17 +628,18 @@ function RuntimeFunding({
             </span>
           </div>
           <p>Two attempts within 15 minutes. Protected, ambiguous, stale, or exhausted changes stop for a human.</p>
-          {runtimeConfigurable && harness?.autonomousAvailable && (
+          {runtimeConfigurable && harness?.autonomousAvailable && selectedHarnessMode !== "autonomous" && (
             <button
               className="text-action"
               type="button"
-              onClick={() => onChangeHarness(harness?.mode === "autonomous" ? "observe" : "autonomous")}
-              disabled={modelSaving || (harness?.mode !== "autonomous" && !connected)}
+              onClick={() => onChangeHarness("autonomous")}
+              disabled={modelSaving || !connected}
             >
-              {harness?.mode === "autonomous" ? "Switch to observe with config PR" : "Enable with config PR"} <ArrowRight size={13} />
+              Enable autonomous repair with config PR <ArrowRight size={13} />
             </button>
           )}
-          {!runtimeConfigurable && autonomyReady && <p className="runtime-inline-note">The setup pull request will enable this harness.</p>}
+          {!runtimeConfigurable && requestedHarnessMode === "autonomous" && autonomyReady && <p className="runtime-inline-note">The setup pull request will enable optional autonomous repair.</p>}
+          {!runtimeConfigurable && requestedHarnessMode === "verify" && <p className="runtime-inline-note">Verify-only setup needs no provider key. Add one only if you explicitly choose autonomous repair.</p>}
         </div>
       </div>
 
@@ -598,13 +674,14 @@ function RuntimeFunding({
           <div>
             <strong>Bring your own OpenAI key</strong>
             <span className={`runtime-badge ${connected ? "is-connected" : "is-available"}`}>
-              {connected ? "Connected" : permissionRequired ? "Permission needed" : "Available"}
+              {connected ? "Connected" : adminRequired ? "Admin needed" : permissionRequired ? "Permission needed" : "Available"}
             </span>
           </div>
           <p>Your key is checked once, encrypted with GitHub's repository key, and saved only as <code>{RUNTIME.secretName}</code> in GitHub Actions.</p>
 
           {!repositorySelected && <p className="runtime-inline-note">Select a repository before connecting a provider key.</p>}
           {permissionRequired && <p className="runtime-error" role="alert"><Warning size={14} weight="fill" /> Reconnect the GitHub App with Actions Secrets write permission before adding a key.</p>}
+          {adminRequired && <p className="runtime-error" role="alert"><Warning size={14} weight="fill" /> A repository administrator must manage provider keys and autonomous repair. Nothing changed; ask an owner to continue.</p>}
           {runtimeStatus === "loading" && repositorySelected && (
             <p className="runtime-inline-note"><ArrowsClockwise className="spin" size={13} /> Checking GitHub secret status…</p>
           )}
@@ -645,7 +722,7 @@ function RuntimeFunding({
               </div>
             </form>
           )}
-          <small className="runtime-observe-note">Required for autonomous proposals. Disconnecting it makes repair fail closed.</small>
+          <small className="runtime-observe-note">Optional for Verify only. Required for autonomous proposals; disconnecting it makes repair fail closed.</small>
         </div>
       </div>
     </section>
@@ -688,6 +765,7 @@ function GitHubSetup({
 }) {
   const [query, setQuery] = useState("");
   const [evidenceMode, setEvidenceMode] = useState("behavior");
+  const [behaviorHarnessMode, setBehaviorHarnessMode] = useState("autonomous");
   const [checkName, setCheckName] = useState(session.isPreview ? "test" : "");
   const [checkPublisher, setCheckPublisher] = useState("github-actions");
   const [behaviorConfirmed, setBehaviorConfirmed] = useState(false);
@@ -711,7 +789,7 @@ function GitHubSetup({
   const preflightBlocked = Boolean(selected && preflightStatus === "ready" && !preflightReady && !isCurrent);
   const evidenceReady = isUpgrade || pendingSetup || evidenceMode === "scope"
     || (checkName.trim() && checkPublisher.trim() && behaviorConfirmed);
-  const requestedHarnessMode = evidenceMode === "behavior" ? "autonomous" : "observe";
+  const requestedHarnessMode = evidenceMode === "behavior" ? behaviorHarnessMode : "observe";
   const autonomyReady = session.isPreview || Boolean(
     preflight?.harness?.autonomousAvailable
     && byok?.configured
@@ -725,6 +803,7 @@ function GitHubSetup({
   useEffect(() => {
     if (preflightStatus !== "ready") {
       setEvidenceMode("behavior");
+      setBehaviorHarnessMode("autonomous");
       setCheckName("");
       setCheckPublisher("github-actions");
       setBehaviorConfirmed(false);
@@ -732,6 +811,7 @@ function GitHubSetup({
     }
     const suggested = evidenceOptions.find((option) => option.suggested) ?? evidenceOptions[0];
     setEvidenceMode(suggested ? "behavior" : "scope");
+    setBehaviorHarnessMode(preflight?.harness?.autonomousAvailable === false ? "verify" : "autonomous");
     setCheckName(suggested?.name ?? "");
     setCheckPublisher(suggested?.appSlug ?? "github-actions");
     setBehaviorConfirmed(false);
@@ -845,8 +925,8 @@ function GitHubSetup({
                         <strong>{selected?.fullName || "Choose a repository"}</strong>
                       </div>
                       <div><span>Mode</span><strong>{isCurrent
-                        ? harness?.mode === "autonomous" ? "Autonomous" : "Observe"
-                        : requestedHarnessMode === "autonomous" ? "Autonomous" : "Observe"}</strong></div>
+                        ? harnessModeLabel(harness?.mode)
+                        : harnessModeLabel(requestedHarnessMode)}</strong></div>
                       <div><span>Change</span><strong>{isCurrent
                         ? "None needed"
                         : preflightFailed
@@ -937,14 +1017,15 @@ function GitHubSetup({
                     </div>
 
                     {preflightReady && !pendingSetup && !isUpgrade && (
-                      <fieldset className="evidence-choice">
-                        <legend>Choose what the first receipt proves</legend>
-                        <label className={evidenceMode === "behavior" ? "is-selected" : ""}>
-                          <input type="radio" name="evidence-mode" value="behavior" checked={evidenceMode === "behavior"} onChange={() => setEvidenceMode("behavior")} />
-                          <span><strong>Code behavior</strong><small>{evidenceOptions.length > 0 ? "Suggested from recent GitHub runs" : "Advanced · bind an existing automated test"}</small></span>
-                        </label>
-                        {evidenceMode === "behavior" && (
-                          <div className="evidence-fields">
+                      <>
+                        <fieldset className="evidence-choice">
+                          <legend>Choose what the first receipt proves</legend>
+                          <label className={evidenceMode === "behavior" ? "is-selected" : ""}>
+                            <input type="radio" name="evidence-mode" value="behavior" checked={evidenceMode === "behavior"} onChange={() => setEvidenceMode("behavior")} />
+                            <span><strong>Code behavior</strong><small>{evidenceOptions.length > 0 ? "Suggested from recent GitHub runs" : "Advanced · bind an existing automated test"}</small></span>
+                          </label>
+                          {evidenceMode === "behavior" && (
+                            <div className="evidence-fields">
                             {evidenceOptions.length > 0 && (
                               <label className="evidence-detected">
                                 <span>Use a test from GitHub</span>
@@ -977,13 +1058,36 @@ function GitHubSetup({
                               <input type="checkbox" checked={behaviorConfirmed} onChange={(event) => setBehaviorConfirmed(event.target.checked)} />
                               <span>This check fails when important code behavior breaks.</span>
                             </label>
-                          </div>
+                            </div>
+                          )}
+                          <label className={evidenceMode === "scope" ? "is-selected" : ""}>
+                            <input type="radio" name="evidence-mode" value="scope" checked={evidenceMode === "scope"} onChange={() => setEvidenceMode("scope")} />
+                            <span><strong>Commit and file scope only</strong><small>Does not prove the code works</small></span>
+                          </label>
+                        </fieldset>
+
+                        {evidenceMode === "behavior" && (
+                          <fieldset className="harness-choice">
+                            <legend>Choose who fixes a failed check</legend>
+                            <label className={behaviorHarnessMode === "verify" ? "is-selected" : ""}>
+                              <input type="radio" name="harness-mode" value="verify" checked={behaviorHarnessMode === "verify"} onChange={() => setBehaviorHarnessMode("verify")} />
+                              <span><strong>Verify only · agent-neutral</strong><small>Your coding agent fixes; ChangePlane rechecks the new exact commit. No provider key required.</small></span>
+                            </label>
+                            <label className={behaviorHarnessMode === "autonomous" ? "is-selected" : ""}>
+                              <input
+                                type="radio"
+                                name="harness-mode"
+                                value="autonomous"
+                                checked={behaviorHarnessMode === "autonomous"}
+                                onChange={() => setBehaviorHarnessMode("autonomous")}
+                                disabled={preflight?.harness?.autonomousAvailable === false}
+                              />
+                              <span><strong>Autonomous repair · normal path</strong><small>Luna may propose; a separate controller applies. Requires an owner, strict branch protection, and BYOK.</small></span>
+                            </label>
+                            <p>Verify only publishes a blocking-capable guard. ChangePlane reports merge blocking active only after an owner requires the live publisher's <code>ChangePlane / guard</code> in strict classic branch protection.</p>
+                          </fieldset>
                         )}
-                        <label className={evidenceMode === "scope" ? "is-selected" : ""}>
-                          <input type="radio" name="evidence-mode" value="scope" checked={evidenceMode === "scope"} onChange={() => setEvidenceMode("scope")} />
-                          <span><strong>Commit and file scope only</strong><small>Does not prove the code works</small></span>
-                        </label>
-                      </fieldset>
+                      </>
                     )}
 
                     {selected && runtimeStatus === "ready" && (
@@ -1000,6 +1104,7 @@ function GitHubSetup({
                           runtimeUpdate={runtimeUpdate}
                           runtimeConfigurable={isCurrent}
                           harness={harness}
+                          requestedHarnessMode={requestedHarnessMode}
                           autonomyReady={autonomyReady}
                           saving={byokSaving}
                           onSave={onSaveByok}
@@ -1047,10 +1152,12 @@ function GitHubSetup({
                           : isUpgrade
                             ? "Create upgrade PR"
                             : session.isPreview
-                              ? "Preview autonomous setup"
+                              ? `Preview ${harnessModeLabel(requestedHarnessMode).toLowerCase()} setup`
                               : requestedHarnessMode === "autonomous"
                                 ? "Enable autonomous harness"
-                                : "Create observe setup PR"}
+                                : requestedHarnessMode === "verify"
+                                  ? "Create Verify-only setup PR"
+                                  : "Create observe setup PR"}
                       </button>
                     )}
                     <p className="install-note">{session.isPreview
@@ -1071,7 +1178,9 @@ function GitHubSetup({
                             ? "Creates one upgrade pull request for pristine managed files only. Your policy is never included."
                             : requestedHarnessMode === "autonomous" && !autonomyReady
                               ? "Connect an OpenAI key and confirm one meaningful test. ChangePlane will not enable autonomous repair without both."
-                              : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation."}</p>
+                              : requestedHarnessMode === "verify"
+                                ? "Creates one installation pull request. Your coding agent owns fixes; ChangePlane independently rechecks each new exact commit. No provider key is required."
+                                : "Creates one installation pull request. Nothing runs until you review and merge it; closing the PR stops installation."}</p>
                   </>
                 )}
               </>
@@ -1080,7 +1189,7 @@ function GitHubSetup({
                 <span className="success-mark"><Check size={24} weight="bold" /></span>
                 <p className="auth-eyebrow">{installResult.preview ? "Setup preview ready" : installResult.operation === "upgrade" ? "Upgrade PR created" : "Setup PR created"}</p>
                 <h2 id="setup-title">{installResult.preview
-                  ? "Autonomous setup prepared"
+                  ? `${harnessModeLabel(installResult.harnessMode)} setup prepared`
                   : installResult.operation === "upgrade" ? "Review the managed upgrade" : "One last step in GitHub"}</h2>
                 <p>{installResult.preview
                   ? "In production, the next GitHub pull request update starts ChangePlane automatically. This example did not access or change a repository."
@@ -1091,7 +1200,7 @@ function GitHubSetup({
                 <dl className="install-result-facts">
                   <div><dt>Repository</dt><dd>{installResult.repository}</dd></div>
                   <div><dt>Branch</dt><dd>{installResult.branch}</dd></div>
-                  <div><dt>Mode</dt><dd>{installResult.harnessMode === "autonomous" ? "Autonomous" : "Observe"}</dd></div>
+                  <div><dt>Mode</dt><dd>{harnessModeLabel(installResult.harnessMode)}</dd></div>
                   <div><dt>Repository write</dt><dd>{installResult.operation === "upgrade" ? "Upgrade pull request only" : "Setup pull request only"}</dd></div>
                   {!installResult.preview && <div><dt>Activation</dt><dd>{installResult.operation === "upgrade" ? "Current installation stays active until merge" : "Not active until this PR is merged"}</dd></div>}
                 </dl>
@@ -1114,7 +1223,8 @@ function GitHubSetup({
                   <ol>
                     <li><span>1</span><p>Merge the {installResult.operation === "upgrade" ? "upgrade" : "setup"} pull request.</p></li>
                     <li><span>2</span><p>Open or update one normal pull request, then open its <strong>Checks</strong> tab.</p></li>
-                    <li><span>3</span><p>Choose <code>ChangePlane / guard</code>. <strong>PASS</strong> is published only for the latest exact commit after the bound test succeeds. Fixable failures use the bounded harness automatically.</p></li>
+                    <li><span>3</span><p>Choose <code>ChangePlane / guard</code>. <strong>PASS</strong> is published only for the latest exact commit after the bound test succeeds. {installResult.harnessMode === "autonomous" ? "Fixable failures may use the bounded repair harness." : installResult.harnessMode === "verify" ? "A failed check hands work back to your coding agent; its next commit is evaluated from scratch." : "Observe mode records scope without blocking."}</p></li>
+                    {installResult.harnessMode !== "observe" && <li><span>4</span><p>After its first live Check appears, require that publisher's <code>ChangePlane / guard</code> in strict classic branch protection, then return here to verify merge blocking.</p></li>}
                   </ol>
                 </section>
                 {!installResult.preview && (
@@ -1337,7 +1447,7 @@ function Evidence({ change }) {
   );
 }
 
-function IndependentReview({ change }) {
+function IndependentReview({ change, onInspectHandback }) {
   const stopped = change.status === "blocked";
   const resolved = change.status === "passed";
   return (
@@ -1357,11 +1467,16 @@ function IndependentReview({ change }) {
         <span>{stopped ? "Not run" : resolved ? `Resolved · ${change.head}` : "Handed back"}</span>
       </div>
       <p className="review-boundary"><ShieldCheck size={14} weight="fill" aria-hidden="true" /> <code>ChangePlane / review</code> can advise. Only deterministic evidence on the exact head can let <code>ChangePlane / guard</code> publish PASS.</p>
+      {!stopped && (
+        <button className="handback-inspect" type="button" onClick={onInspectHandback}>
+          Inspect agent handback <ArrowRight size={14} aria-hidden="true" />
+        </button>
+      )}
     </section>
   );
 }
 
-function Workspace({ change, isPreview, onInspect }) {
+function Workspace({ change, isPreview, onInspect, onInspectHandback, onRun }) {
   const { state, label } = displayState(change.status);
   const automationLabel = change.status === "blocked" ? "Exception only" : "Zero-touch eligible";
   const actualFiles = change.files.filter(({ resolved }) => !resolved).length;
@@ -1376,6 +1491,25 @@ function Workspace({ change, isPreview, onInspect }) {
         </div>
         <span className={`decision-pill pill-${state}`}>{label}</span>
       </div>
+
+      {(change.status === "ready" || RUNNING_STATES.has(change.status)) && (
+        <section className="workspace-run-card" aria-label="Recorded assurance action">
+          <div>
+            <strong>{change.status === "ready" ? "Run the exact-head assurance loop" : "Recorded assurance is running"}</strong>
+            <span>Synthetic failure → bounded proposal → fresh-head proof. No live GitHub or model request.</span>
+          </div>
+          <button
+            className="primary-action workspace-run-action"
+            type="button"
+            onClick={() => onRun(change.id)}
+            disabled={change.status !== "ready"}
+          >
+            {change.status === "ready"
+              ? <><Play size={17} weight="fill" /> Replay exact-head assurance</>
+              : <><ArrowsClockwise className="spin" size={17} weight="bold" /> Verifying recorded change</>}
+          </button>
+        </section>
+      )}
 
       <dl className="change-summary">
         <div>
@@ -1426,7 +1560,7 @@ function Workspace({ change, isPreview, onInspect }) {
         )}
       </dl>
 
-      <IndependentReview change={change} />
+      <IndependentReview change={change} onInspectHandback={onInspectHandback} />
       <FileTable files={change.files} onInspect={onInspect} />
       <Evidence change={change} />
     </main>
@@ -1579,8 +1713,8 @@ function backboneStateFor(change) {
   }
   return {
     label: "Assurance ready",
-    detail: "Exact commit · trusted test · bounded fix",
-    summary: "The coding agent supplies the pull request. The model can propose a patch, while the deterministic harness and trusted controller independently own the outcome.",
+    detail: "Exact commit · repository-owned evidence · bounded authority",
+    summary: "The coding agent supplies the pull request. If repair is needed, a model may propose and a separately credentialed controller may apply; neither can decide PASS.",
     tone: "ready",
   };
 }
@@ -1613,8 +1747,7 @@ function MetaRows({ change }) {
   );
 }
 
-function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, onBackbone, onShowSetup }) {
-  const running = RUNNING_STATES.has(change.status);
+function AssuranceRail({ change, isPreview, onReplay, onCopy, onPreview, onBackbone, onShowSetup }) {
   const preview = previewEvidenceFor(change);
   const headPreview = headPreviewFor(change);
   const backbone = backboneStateFor(change);
@@ -1633,6 +1766,24 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
         <span className="mode-live"><i /> {isPreview ? "Synthetic" : "Connected"}</span>
       </div>
       <AssuranceNotice change={change} />
+
+      <section className="authority-map" aria-labelledby="authority-map-title">
+        <div className="authority-map-heading">
+          <div>
+            <p>Assurance passport</p>
+            <h3 id="authority-map-title">Independent roles</h3>
+          </div>
+          <span aria-label={`Exact head ${change.head}`}>{change.head}</span>
+        </div>
+        <ol className="authority-roles">
+          <li><b>Change</b><span><strong>Coding agent</strong><small>{change.origin} · identity is context only</small></span></li>
+          <li><b>Propose</b><span><strong>Proposal model · repair only</strong><small>May propose · no repository or PASS authority</small></span></li>
+          <li><b>Decide</b><span><strong>Deterministic harness</strong><small>Repository-owned behavioral evidence</small></span></li>
+          <li><b>Apply</b><span><strong>Trusted controller</strong><small>May apply an accepted patch · separate credential</small></span></li>
+          <li><b>Merge</b><span><strong>GitHub</strong><small>Final authority stays with your repository</small></span></li>
+        </ol>
+        <p className="authority-integrity"><LockKey size={13} aria-hidden="true" /> Portable evidence, never portable authority.</p>
+      </section>
 
       <div className="assurance-proofs" aria-label="Agentic backbone and receipt evidence">
         <button className={`preview-proof preview-proof-${backbone.tone}`} type="button" onClick={onBackbone}>
@@ -1658,16 +1809,6 @@ function AssuranceRail({ change, isPreview, onRun, onReplay, onCopy, onPreview, 
         </button>
       </div>
 
-      {change.status === "ready" && (
-        <button className="primary-action run-action" type="button" onClick={() => onRun(change.id)}>
-          <Play size={17} weight="fill" /> Start recorded autonomous run
-        </button>
-      )}
-      {running && (
-        <button className="primary-action run-action" type="button" disabled>
-          <ArrowsClockwise className="spin" size={17} weight="bold" /> Verifying change
-        </button>
-      )}
       {change.status === "passed" && change.id === "route" && (
         <div className="result-actions">
           <button className="secondary-action run-action" type="button" onClick={() => onReplay(change.id)}>
@@ -1808,6 +1949,73 @@ function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
   );
 }
 
+function agentHandbackFor(change) {
+  return {
+    mediaType: "application/vnd.changeplane.agent-handback+json;v=1",
+    subject: {
+      repository: change.repo,
+      pullRequest: change.pr,
+      head: change.initialHead,
+    },
+    finding: {
+      code: "BEHAVIORAL_EVIDENCE_FAILED",
+      summary: "Synthetic service-window evidence found one stop outside its allowed window.",
+    },
+    scope: {
+      allowedPaths: [change.scope],
+      attempt: 1,
+      maxAttempts: 2,
+    },
+    authority: {
+      push: false,
+      check: false,
+      merge: false,
+      pass: false,
+    },
+  };
+}
+
+function AgentHandbackDrawer({ change, onClose, onCopy }) {
+  const dialogRef = useDialogFocus(true, onClose);
+  const handback = agentHandbackFor(change);
+  const payload = JSON.stringify(handback, null, 2);
+  return (
+    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="handback-title" aria-describedby="handback-intro">
+      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close agent handback" />
+      <section className="guide-drawer handback-drawer" ref={dialogRef} tabIndex={-1}>
+        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
+        <GitBranch size={28} weight="duotone" aria-hidden="true" />
+        <p className="eyebrow">Agent-neutral handback</p>
+        <h2 id="handback-title">Any coding agent can take the next turn.</h2>
+        <p className="guide-intro" id="handback-intro">This recorded payload gives Cursor, Codex, Claude Code, or another agent the same bounded finding. It conveys work—not repository authority.</p>
+
+        <dl className="handback-facts">
+          <div><dt>Exact failed head</dt><dd className="mono">{handback.subject.head}</dd></div>
+          <div><dt>Allowed paths</dt><dd className="mono">{handback.scope.allowedPaths[0]}</dd></div>
+          <div><dt>Bounded finding</dt><dd>{handback.finding.code}</dd></div>
+          <div><dt>Attempt</dt><dd>{handback.scope.attempt} of {handback.scope.maxAttempts}</dd></div>
+        </dl>
+
+        <div className="handback-authority" aria-label="Handback authority is false">
+          {Object.entries(handback.authority).map(([name, allowed]) => (
+            <span key={name}><b>{name}</b><strong>{String(allowed)}</strong></span>
+          ))}
+        </div>
+
+        <details className="handback-payload">
+          <summary>Inspect machine-readable payload</summary>
+          <pre>{payload}</pre>
+        </details>
+
+        <div className="preview-drawer-actions">
+          <button className="secondary-action" type="button" onClick={() => onCopy(payload)}><Copy size={16} /> Copy handback JSON</button>
+          <button className="primary-action" type="button" onClick={onClose}>Back to change</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function BackboneDrawer({ change, onClose }) {
   const dialogRef = useDialogFocus(true, onClose);
   const backbone = backboneStateFor(change);
@@ -1898,12 +2106,12 @@ export function App() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [previewEvidenceOpen, setPreviewEvidenceOpen] = useState(false);
   const [backboneOpen, setBackboneOpen] = useState(false);
+  const [handbackOpen, setHandbackOpen] = useState(false);
   const timersRef = useRef([]);
-  const autoReplayRef = useRef(false);
 
   useEffect(() => {
     if (!session) return;
-    const targetId = workspaceOpen ? "workspace-main-title" : "setup-main-title";
+    const targetId = workspaceOpen && session.isPreview ? "workspace-main-title" : "setup-main-title";
     window.requestAnimationFrame(() => document.getElementById(targetId)?.focus());
   }, [workspaceOpen, session]);
 
@@ -2015,21 +2223,13 @@ export function App() {
         setRuntimeStatus("error");
       });
     return () => { cancelled = true; };
-  }, [session, selectedRepository]);
+  }, [session, selectedRepository, preflightRefresh]);
 
   useEffect(() => {
     if (session?.isPreview) window.localStorage.setItem(RUNS_KEY, JSON.stringify(runs));
   }, [runs, session]);
 
   useEffect(() => () => timersRef.current.forEach(window.clearTimeout), []);
-
-  useEffect(() => {
-    if (!session?.isPreview || !workspaceOpen || runs.route || autoReplayRef.current) return undefined;
-    autoReplayRef.current = true;
-    const timer = window.setTimeout(() => startRun("route"), 450);
-    timersRef.current.push(timer);
-    return undefined;
-  }, [runs.route, session, workspaceOpen]);
 
   const changes = useMemo(() => CHANGES.map((item) => {
     const record = runs[item.id];
@@ -2076,7 +2276,6 @@ export function App() {
       window.localStorage.setItem(SESSION_KEY, JSON.stringify(PRESENTATION_USER));
       window.localStorage.removeItem(RUNS_KEY);
       setRuns({});
-      autoReplayRef.current = false;
       setSession(PRESENTATION_USER);
       setRepositories(PREVIEW_REPOSITORIES);
       setSelectedRepository("");
@@ -2110,7 +2309,6 @@ export function App() {
     window.localStorage.removeItem(SESSION_KEY);
     window.localStorage.removeItem(RUNS_KEY);
     setRuns({});
-    autoReplayRef.current = false;
     setAccountOpen(false);
     setRepositories([]);
     setRepositoryStatus("idle");
@@ -2130,6 +2328,7 @@ export function App() {
     setWorkspaceOpen(false);
     setPreviewEvidenceOpen(false);
     setBackboneOpen(false);
+    setHandbackOpen(false);
     setSession(null);
   }
 
@@ -2264,7 +2463,7 @@ export function App() {
   }
 
   async function changeHarnessMode(mode) {
-    if (!selectedRepository || modelSaving || !["observe", "autonomous"].includes(mode)) return;
+    if (!selectedRepository || modelSaving || !["observe", "verify", "autonomous"].includes(mode)) return;
     const repository = selectedRepository;
     setModelSaving(true);
     setRuntimeError("");
@@ -2407,6 +2606,15 @@ export function App() {
     }
   }
 
+  async function copyHandback(payload) {
+    try {
+      await navigator.clipboard.writeText(payload);
+      showToast("Agent handback copied");
+    } catch {
+      showToast("Handback ready to copy from the payload panel");
+    }
+  }
+
   if (!session) {
     return (
       <LoginScreen
@@ -2424,7 +2632,7 @@ export function App() {
     );
   }
 
-  if (!workspaceOpen) {
+  if (!workspaceOpen || !session.isPreview) {
     return (
       <GitHubSetup
         session={session}
@@ -2529,12 +2737,18 @@ export function App() {
 
         <div className="app-grid" id="top">
           <Queue changes={changes} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setInspectedFile(null); }} filter={filter} onFilter={setFilter} />
-          <Workspace key={`workspace-${change.id}`} change={change} isPreview={session.isPreview} onInspect={setInspectedFile} />
+          <Workspace
+            key={`workspace-${change.id}`}
+            change={change}
+            isPreview={session.isPreview}
+            onInspect={setInspectedFile}
+            onInspectHandback={() => setHandbackOpen(true)}
+            onRun={startRun}
+          />
           <AssuranceRail
             key={`rail-${change.id}`}
             change={change}
             isPreview={session.isPreview}
-            onRun={startRun}
             onReplay={replayRun}
             onCopy={copyHead}
             onPreview={() => setPreviewEvidenceOpen(true)}
@@ -2548,6 +2762,7 @@ export function App() {
       {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} onStart={() => { setSelectedId("route"); setGuideOpen(false); }} />}
       {previewEvidenceOpen && <PreviewEvidenceDrawer change={change} onClose={() => setPreviewEvidenceOpen(false)} onCopy={copyHead} />}
       {backboneOpen && <BackboneDrawer change={change} onClose={() => setBackboneOpen(false)} />}
+      {handbackOpen && <AgentHandbackDrawer change={change} onClose={() => setHandbackOpen(false)} onCopy={copyHandback} />}
       <div className={`toast ${toast ? "is-visible" : ""}`} role="status" aria-live="polite"><CheckCircle size={18} weight="fill" />{toast}</div>
     </div>
   );

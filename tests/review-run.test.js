@@ -22,10 +22,10 @@ const githubToken = `github-${"g".repeat(32)}`;
 const openaiApiKey = `provider-${"k".repeat(32)}`;
 const event = {
   number: 42,
-  repository: { full_name: "acme/payments" },
+  repository: { full_name: "acme/payments", default_branch: "main" },
   pull_request: {
     number: 42,
-    base: { sha: baseSha, repo: { full_name: "acme/payments" } },
+    base: { sha: baseSha, ref: "main", repo: { full_name: "acme/payments" } },
     head: { sha: headSha, repo: { full_name: "acme/payments" } },
   },
 };
@@ -56,8 +56,14 @@ function json(value, init = {}) {
 function githubReadResponse(url, options, { stale = false, memory = false } = {}) {
   assert.equal(options.method, "GET");
   assert.equal(options.headers.authorization, `Bearer ${githubToken}`);
+  if (url.endsWith("/repos/acme/payments")) {
+    return json({ full_name: "acme/payments", default_branch: "main" });
+  }
+  if (url.endsWith("/repos/acme/payments/git/ref/heads/main")) {
+    return json({ object: { sha: baseSha } });
+  }
   if (url.endsWith("/pulls/42")) {
-    return json({ base: { sha: baseSha }, head: { sha: stale ? "c".repeat(40) : headSha } });
+    return json({ base: { sha: baseSha, ref: "main" }, head: { sha: stale ? "c".repeat(40) : headSha } });
   }
   if (url.includes("/pulls/42/files?per_page=41")) {
     return json([{ filename: "src/payments/retry.js", status: "modified", patch }]);
@@ -96,6 +102,7 @@ test("PROPOSE reads exact-head diff and trusted-base memory before calling OpenA
     githubToken,
     openaiApiKey,
     policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       calls.push({ url: String(url), method: options.method });
       if (String(url).startsWith("https://api.github.com/")) {
@@ -150,6 +157,7 @@ test("trusted policy explicitly gates BYOK review spend", async () => {
       githubToken,
       openaiApiKey,
       policyPath,
+      trustedControllerSha: baseSha,
       fetchImpl: async () => { called = true; },
     });
     assert.equal(job.state, REVIEW_JOB_STATE.DISABLED);
@@ -170,9 +178,61 @@ test("fork pull requests are rejected before GitHub or OpenAI access", async () 
     githubToken,
     openaiApiKey,
     policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+    trustedControllerSha: baseSha,
     fetchImpl: async () => { called = true; },
-  }), /same-repository pull requests only/u);
+  }), /same-repository pull requests targeting the default branch only/u);
   assert.equal(called, false);
+});
+
+test("review rejects non-default targets and stale controllers before provider or Check authority", async () => {
+  let externalCalls = 0;
+  await assert.rejects(proposeReviewJob({
+    event: {
+      ...event,
+      pull_request: {
+        ...event.pull_request,
+        base: { ...event.pull_request.base, ref: "release" },
+      },
+    },
+    githubToken,
+    openaiApiKey,
+    policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+    trustedControllerSha: baseSha,
+    fetchImpl: async () => { externalCalls += 1; },
+  }), /targeting the default branch only/u);
+  assert.equal(externalCalls, 0);
+
+  let providerCalls = 0;
+  await assert.rejects(proposeReviewJob({
+    event,
+    githubToken,
+    openaiApiKey,
+    policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+    trustedControllerSha: "c".repeat(40),
+    fetchImpl: async (url, options) => {
+      if (String(url).startsWith("https://api.openai.com")) providerCalls += 1;
+      return githubReadResponse(String(url), options);
+    },
+  }), /controller is stale/u);
+  assert.equal(providerCalls, 0);
+
+  const notConfigured = await proposeReviewJob({
+    event,
+    openaiApiKey: "",
+    policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+  });
+  let checkWrites = 0;
+  await assert.rejects(publishReviewJob({
+    event,
+    encodedJob: encodeReviewJob(notConfigured),
+    githubToken,
+    trustedControllerSha: "c".repeat(40),
+    fetchImpl: async (url, options) => {
+      if (options.method === "POST") checkWrites += 1;
+      return githubReadResponse(String(url), options);
+    },
+  }), /controller is stale/u);
+  assert.equal(checkWrites, 0);
 });
 
 test("a missing optional trusted-base assurance file does not block advisory review", async () => {
@@ -182,6 +242,7 @@ test("a missing optional trusted-base assurance file does not block advisory rev
     githubToken,
     openaiApiKey,
     policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       const target = String(url);
       if (target.includes("/contents/.changeplane/assurance.md?ref=")) {
@@ -201,6 +262,7 @@ test("a missing optional trusted-base assurance file does not block advisory rev
     githubToken,
     openaiApiKey,
     policyPath: new URL("./fixtures/runtime-review.json", import.meta.url),
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       const target = String(url);
       if (target.includes("/contents/.changeplane/assurance.md?ref=")) {
@@ -238,6 +300,7 @@ test("PUBLISH re-fetches the exact diff and creates only a neutral advisory Chec
     event,
     encodedJob: encodeReviewJob(reviewed),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       const target = String(url);
       assert.equal(target.startsWith("https://api.openai.com"), false);
@@ -275,6 +338,7 @@ test("PUBLISH shows missing OpenAI configuration neutrally", async () => {
     event,
     encodedJob: encodeReviewJob(job),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       if (String(url).endsWith("/check-runs")) {
         checkPayload = JSON.parse(options.body);
@@ -300,9 +364,12 @@ test("neutral publisher states verify the revision without rejecting a diff over
     event,
     encodedJob: encodeReviewJob(job),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       const target = String(url);
-      if (target.endsWith("/pulls/42")) return githubReadResponse(target, options);
+      if (target.endsWith("/repos/acme/payments")
+        || target.endsWith("/git/ref/heads/main")
+        || target.endsWith("/pulls/42")) return githubReadResponse(target, options);
       if (target.includes("/pulls/42/files?per_page=41")) {
         return json(Array.from({ length: 41 }, (_, index) => ({
           filename: `src/file-${index}.js`,
@@ -335,6 +402,7 @@ test("PUBLISH rejects stale heads and off-diff findings before creating a Check"
     event,
     encodedJob: encodeReviewJob(reviewed),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       if (options.method === "POST") posts += 1;
       return githubReadResponse(String(url), options, { stale: true });
@@ -347,6 +415,7 @@ test("PUBLISH rejects stale heads and off-diff findings before creating a Check"
     event,
     encodedJob: encodeReviewJob(offDiff),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async (url, options) => {
       if (options.method === "POST") posts += 1;
       return githubReadResponse(String(url), options);
@@ -361,6 +430,7 @@ test("GitHub failures stay status-only and body-redacted", async () => {
     event,
     encodedJob: encodeReviewJob(job),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async () => ({
       ok: false,
       status: 403,
@@ -372,6 +442,7 @@ test("GitHub failures stay status-only and body-redacted", async () => {
     event,
     encodedJob: encodeReviewJob(job),
     githubToken,
+    trustedControllerSha: baseSha,
     fetchImpl: async () => { throw new Error("network-secret"); },
   }), (error) => /temporarily unavailable/u.test(error.message) && !error.message.includes("network-secret"));
 });
@@ -392,6 +463,7 @@ test("CLI publisher environment excludes OpenAI and writes underscore outputs", 
     GITHUB_OUTPUT: outputPath,
     GITHUB_TOKEN: githubToken,
     CHANGEPLANE_REVIEW_JOB: encodeReviewJob(job),
+    CHANGEPLANE_TRUSTED_CONTROLLER_SHA: baseSha,
   };
   assert.equal("OPENAI_API_KEY" in env, false);
   await runCli({

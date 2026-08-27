@@ -45,13 +45,36 @@ test("GitHub failures never include upstream response bodies", async () => {
 });
 
 test("enforce behavior requires the dedicated App controller", async () => {
-  const originalMode = process.env.INPUT_MODE;
-  process.env.INPUT_MODE = "enforce";
+  const original = {
+    eventPath: process.env.GITHUB_EVENT_PATH,
+    mode: process.env.INPUT_MODE,
+    repository: process.env.GITHUB_REPOSITORY,
+    token: process.env.INPUT_TOKEN,
+    dispatch: process.env.INPUT_AGENT_DISPATCH,
+  };
+  const eventPath = path.join(tmpdir(), `changeplane-controller-${process.pid}.json`);
+  writeFileSync(eventPath, JSON.stringify({ pull_request: { number: 42 } }));
+  Object.assign(process.env, {
+    GITHUB_EVENT_PATH: eventPath,
+    GITHUB_REPOSITORY: "acme/payments",
+    INPUT_MODE: "enforce",
+    INPUT_TOKEN: "token",
+    INPUT_AGENT_DISPATCH: "none",
+  });
   try {
     await assert.rejects(run(), /Enforce mode requires the dedicated ChangePlane App controller/u);
   } finally {
-    if (originalMode === undefined) delete process.env.INPUT_MODE;
-    else process.env.INPUT_MODE = originalMode;
+    unlinkSync(eventPath);
+    for (const [key, value] of Object.entries({
+      GITHUB_EVENT_PATH: original.eventPath,
+      INPUT_MODE: original.mode,
+      GITHUB_REPOSITORY: original.repository,
+      INPUT_TOKEN: original.token,
+      INPUT_AGENT_DISPATCH: original.dispatch,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 

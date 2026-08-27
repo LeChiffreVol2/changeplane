@@ -1,5 +1,31 @@
 # Production release checklist
 
+## Product 1.0.0 / managed v12 release candidate — not yet deployed
+
+- [x] Before beginning the v12 rollout, disable the globally enabled v11 repair controller and close new self-serve onboarding, then redeploy the exact protected source with no code change. Production now reports release `88f67ab65a3f`, `controlled_canary`, repair `enabled: false`, `configured: false`, and every non-switch controller check true. See `evidence/changeplane-v1-pre-release-freeze.json`.
+- [x] Gate every GitHub/OpenAI connector route on verified Vercel Production Git provenance before any external access.
+- [x] Restrict local preview mode to the Vite development build; production ignores `?preview`, resolves the server session first, and never renders the synthetic workspace for a connected account.
+- [x] Execute pull-request controllers from the exact live default-branch revision; reject retargeting, base drift, stale heads, and controller-SHA mismatch before provider, dispatch, or Check authority.
+- [x] Require a fresh repository-admin check for BYOK and autonomous secret operations; redact secret metadata from non-admin writers.
+- [x] Require GitHub App `administration: read` plus strict up-to-date branch protection before autonomous provisioning; Merge Queue remains guard-only and does not replace this gate.
+- [x] Report merge enforcement active only when strict classic branch protection requires `ChangePlane / guard` from the publisher observed on a live Check; keep GitHub ruleset readiness explicitly unsupported rather than inferred.
+- [ ] Exercise Verify only end to end without BYOK: bind one exact behavioral Check and publisher, publish the blocking-capable guard, return a customer-agent handback on failure, and re-evaluate only after a new exact head is pushed.
+- [ ] As a repository administrator, require the observed guard publisher in strict classic branch protection and record `harness.enforcement.active: true`; verify a mismatched publisher and non-strict protection remain inactive.
+- [ ] Confirm the generated Verify-only and `merge_group` steps receive no provider key, repair webhook, controller HMAC, or controller installation credential; do not label the guard active enforcement until GitHub reports it as required branch policy.
+- [x] Provision the repository repair switch as `false`, tombstone legacy `CHANGEPLANE_CONTROLLER_HMAC`, then write only the v12-domain `CHANGEPLANE_CONTROLLER_HMAC_V12` and activate only `managed-v12`; confirm v11 and earlier workflows can use neither the marker nor the credential while an upgrade PR is pending.
+- [x] Preserve the exact managed-v11 hash catalog and require a protected v12 setup/upgrade pull request for changed managed bytes.
+- [x] Emit a strict Assurance Passport for pull-request and merge-group receipts with stable repository identity, exact base/head, trusted policy/controller revisions, Check Run and publisher identities, deterministic outcome, fixed authority roles, and a domain-separated integrity digest. Offline integrity never claims authenticity.
+- [x] Keep merge-group evaluation free of repair credentials in both the managed workflow and controlled-canary template; queue runs remain guard-only even when the repository policy is autonomous.
+- [ ] Capture a live exact-head passport anchor and verify its marker, digest, Check publisher, head SHA, evidence identities, and conclusion directly from GitHub. Do not present an offline passport as authenticated evidence.
+- [ ] Obtain GitHub approval for the App's read-only Administration permission and capture the live installation permission response.
+- [ ] Run exact-candidate `CI / verify`, Preview root/header plus connector fail-closed smoke, and the complete Chromium onboarding suite.
+- [ ] With the Vercel controller switch false, merge and verify the exact v12 managed hashes in a disposable branch-protected repository.
+- [ ] Exercise v12 BYOK create/rotate/disconnect, a default-branch retarget/drift failure, a fresh-head repair canary, and guard-only Merge Queue behavior.
+- [ ] Exercise repository-first kill switch, generation invalidation, disabled-endpoint checks, and Vercel rollback; assign a named launch-window log/usage watcher.
+- [ ] Record the protected source SHA, CI run, Preview and Production deployment IDs, readiness release, canary revisions, and rollback target in a new immutable v12 evidence record.
+
+The v12 candidate is not authorization for broad public autonomous rollout. The production repair switch is now closed; keep it closed until every unchecked v12 activation item has live evidence. The historical v9 and 2026-07-21 Build Week records below remain evidence for those exact releases only.
+
 ## Self-serve product release — 2026-07-21
 
 - [x] Record the protected product release, exact CI job, GitHub deployment, Vercel Production deployment, direct readiness response, and previous rollback candidate in `evidence/build-week-product-release.json`.
@@ -64,12 +90,12 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 
 - [ ] Inventory observe Vercel settings `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `CHANGEPLANE_SELF_SERVE_ENABLED`, `CHANGEPLANE_SESSION_SECRET`, `CHANGEPLANE_APP_ORIGIN`, optional `CHANGEPLANE_MANAGED_OPENAI_API_KEY`, and `CHANGEPLANE_LOG_REQUESTS`; record owners and last-rotation dates outside the repository.
 - [x] Inventory repair Vercel setting names `CHANGEPLANE_REPAIR_REPOSITORY`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `CHANGEPLANE_CONTROLLER_SECRET`; record only active/inactive state, never values. The controlled v9 canary is active; containment restores the switch to false.
-- [x] Inventory repository Actions Secret names `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, `CHANGEPLANE_CONTROLLER_HMAC`, and `OPENAI_API_KEY`; the worker switch was enabled only after complete provisioning. Secret values remain unreadable and absent from evidence.
+- [x] Inventory repository Actions Secret names `CHANGEPLANE_CONTROLLER_INSTALLATION_ID`, `CHANGEPLANE_REPAIR_ENABLED`, `CHANGEPLANE_REPAIR_GENERATION`, `CHANGEPLANE_REPAIR_PUBLIC_KEYS`, versioned `CHANGEPLANE_CONTROLLER_HMAC_V12`, legacy tombstone `CHANGEPLANE_CONTROLLER_HMAC`, and `OPENAI_API_KEY`; the historical worker switch was enabled only after complete provisioning. Secret values remain unreadable and absent from evidence.
 - [x] During a controlled canary, set `CHANGEPLANE_CANARY_REPOSITORY` to the exact disposable target and verify a different repository is hidden and rejected before any GitHub request.
 - [x] With `CHANGEPLANE_SELF_SERVE_ENABLED=true`, verify the signed-out root offers one `Install ChangePlane on GitHub` action, explains that GitHub owns the personal/organization choice, keeps a returning-user authorization path and the RouteThai example, lists only verified-installation repositories, and gates autonomous setup on exact test + BYOK + protected setup PR.
 - [x] Use a 32+ character Production session secret and an exact HTTPS `CHANGEPLANE_APP_ORIGIN` with no path, query, or trailing slash.
-  - The public readiness endpoint validates both without returning either value. Preview environments still require independent credentials before they may be trusted.
-- [ ] Keep production connector credentials and all provider keys out of fork/untrusted Preview deployments. A trusted Preview uses isolated non-production connector credentials.
+  - The public readiness endpoint validates both without returning either value. Preview environments receive neither value and remain connector-disabled.
+- [ ] Keep production connector credentials, session/controller secrets, and all provider keys out of every Preview deployment. Preview proves build and fail-closed behavior only.
 - [ ] Keep `CHANGEPLANE_MANAGED_OPENAI_API_KEY` server-side and absent unless the private canary is explicitly approved.
 - [x] Confirm plaintext provider keys never appear in localStorage, logs, responses, tracked source, `dist`, screenshots, or release records.
   - BYOK response/log redaction tests and the repository data audit pass. Production evidence contains only secret names, booleans, bounded request IDs, and redacted metadata.
@@ -84,8 +110,8 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
   - PR #37 Preview `dpl_4VJhr17yaiRkRFGgByvve7Qnd5nR` is `READY` on exact head `8eca0d5456b2b593baa6277e8bb32fa4d9e62215`.
 - [x] Confirm the required GitHub Check passed on that same SHA.
   - [`CI / verify`](https://github.com/LeChiffreVol2/changeplane/actions/runs/29790687579/job/88511622382) passed on the PR #37 head.
-- [ ] On a trusted Preview, confirm `/api/github?action=readiness` returns `200`, `ready: true`, the expected connector mode, no secret values, and a release matching the Preview source SHA.
-- [ ] Smoke the trusted Preview root and confirm security headers and API `Cache-Control: no-store` are present.
+- [ ] On the exact-head Preview, confirm `/api/github?action=readiness` returns `503`, `configuration_required`, `checks.sourceProvenance: false`, no secret values, `Cache-Control: no-store`, and a request ID.
+- [ ] Smoke the Preview root for security headers and confirm a connector route returns `503` before any GitHub/OpenAI access.
 - [x] Install observe mode into the one disposable repository through a manually reviewed pull request and confirm the read-only preflight reports no direct default-branch write, merge/deploy blocking, repair dispatch, pull-request-head execution, provider-secret access, or reserved-path overwrite. The private GitHub Free canary has no branch protection, so this is controlled evidence rather than a production merge gate.
   - Observe install evidence passed in private disposable repository `LeChiffreVol2/changeplane-disposable-canary-20260719`: setup [PR #1](https://github.com/LeChiffreVol2/changeplane-disposable-canary-20260719/pull/1) changed six reserved files only and merged at `82c0f3f91f8c6f516c55e11c4e69491803430db7`.
 - [x] Confirm the atomic setup pull request exposes observe-only Action metadata, least-privilege permissions, no repair inputs, and no active repair workflow.
@@ -117,7 +143,7 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 - [ ] Provision `CHANGEPLANE_REPAIR_ENABLED=false` before any secret so interruption or permission failure leaves an inert, safely rerunnable repository configuration.
 - [x] Confirm Vercel `CHANGEPLANE_REPAIR_REPOSITORY` exactly equals `CHANGEPLANE_CANARY_REPOSITORY` and both generations are the same positive integer before activation.
   - Direct readiness reports repository scope, installation binding, and generation configured; the live canary passed both repository and generation gates before provider access and clean apply.
-- [x] Derive `CHANGEPLANE_CONTROLLER_HMAC` from the independent Vercel controller secret plus the exact installation ID, repository ID, and repository name; never copy the master secret into GitHub.
+- [x] Derive `CHANGEPLANE_CONTROLLER_HMAC_V12` in the v12 credential domain from the independent Vercel controller secret plus the exact installation ID, repository ID, and repository name; never copy the master secret into GitHub, and never accept a legacy-domain signature.
   - Repository-binding and HMAC tamper tests pass, and the live App-signed ledger was accepted only for the disposable canary identity.
 - [x] Confirm the repository PS256 public-key map validates the App-signed grant while the private key remains Vercel-only.
   - Live grant Check `88504652456` verified successfully; unknown-key, altered-signature, and replay tests fail closed.
@@ -140,7 +166,7 @@ Unchecked items below are explicit rollout-expansion or destructive live-drill e
 - [ ] Pass stale-head, expiry, path-boundary, replay, idempotency, fork, and sandbox escape tests in a disposable repository.
 - [x] Run the managed-v9 RouteThai synthetic service-window canary end to end: expected-App evidence fails on `7b670f3`, Luna proposes only `routethai/route-planning.js`, the clean apply job creates `e053526`, fresh evidence succeeds, and only then does `ChangePlane / guard` pass with zero human repair commits. See `evidence/changeplane-v9-production-release.json`.
 - [x] Exercise the generation and repository kill-switch checks before provider access and again before clean apply in the disposable repair canary. Both gates passed in workflow run `29788370891`.
-- [x] Activate in order: set the repository worker switch true, deploy the reviewed protected-source commit with the Vercel switch true, and stop unless readiness reports repair enabled/configured with every nested check true for the expected release.
+- [x] Historical v9 activation used repository value `true`. For v12, keep Vercel repair false through the managed upgrade, tombstone the legacy HMAC slot, write the repository marker `managed-v12`, verify exact managed hashes, then deploy the reviewed protected-source commit with the Vercel switch true; stop unless readiness reports repair enabled/configured with every nested check true for the expected release.
 - [ ] Run deterministic scope repair before adding or exercising `OPENAI_API_KEY`; never reuse the stale observe pull request as repair evidence.
 - [ ] Exercise rollback in order: repository switch false, cancel runs, Vercel switch false, generation advanced and mirrored, disabled deployment verified, repair endpoints `503`. Do not rely on Instant Rollback alone because an older deployment may carry enabled configuration.
 - [x] Record that GitHub Free provides no branch protection for the private disposable canary. Require manual PR review and no direct pushes by procedure, and treat the run as lab evidence rather than production enforcement.

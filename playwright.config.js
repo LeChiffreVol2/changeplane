@@ -9,7 +9,7 @@ export default defineConfig({
   workers: 1,
   reporter: "line",
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: "http://127.0.0.1:43117",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "off",
@@ -24,9 +24,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run preview -- --host 127.0.0.1",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
+    command: "npm run preview -- --host 127.0.0.1 --port 43117 --strictPort",
+    url: "http://127.0.0.1:43117",
+    reuseExistingServer: false,
     timeout: 30_000,
   },
 });

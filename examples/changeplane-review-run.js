@@ -56,12 +56,18 @@ function repositoryParts(value) {
 export function reviewEventIdentity(event) {
   const repository = event?.repository?.full_name;
   repositoryParts(repository);
+  const defaultBranch = event?.repository?.default_branch;
+  if (typeof defaultBranch !== "string" || !defaultBranch) {
+    throw new Error("The repository default branch is unavailable.");
+  }
   if (event?.pull_request?.base?.repo?.full_name !== repository
-    || event?.pull_request?.head?.repo?.full_name !== repository) {
-    throw new Error("Independent review supports same-repository pull requests only.");
+    || event?.pull_request?.head?.repo?.full_name !== repository
+    || event?.pull_request?.base?.ref !== defaultBranch) {
+    throw new Error("Independent review supports same-repository pull requests targeting the default branch only.");
   }
   return Object.freeze({
     repository,
+    defaultBranch,
     pullRequestNumber: positiveInteger(event?.pull_request?.number ?? event?.number, "The pull request number"),
     baseSha: exactSha(event?.pull_request?.base?.sha, "The pull request base revision"),
     headSha: exactSha(event?.pull_request?.head?.sha, "The pull request head revision"),
@@ -177,18 +183,36 @@ export async function reconstructReviewContext({
   pullRequestNumber,
   expectedBaseSha,
   expectedHeadSha,
+  expectedDefaultBranch,
+  trustedControllerSha,
   githubToken,
   memoryPath,
   requireBoundedDiff = true,
   fetchImpl = fetch,
 }) {
   const [owner, name] = repositoryParts(repository);
-  const pullPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${positiveInteger(pullRequestNumber, "The pull request number")}`;
+  const repositoryPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  const pullPath = `${repositoryPath}/pulls/${positiveInteger(pullRequestNumber, "The pull request number")}`;
+  const repositoryState = await githubJson(repositoryPath, { token: githubToken, fetchImpl });
+  if (repositoryState?.full_name !== repository || repositoryState?.default_branch !== expectedDefaultBranch) {
+    throw new Error("The repository default branch changed during independent review.");
+  }
+  const encodedDefaultBranch = expectedDefaultBranch.split("/").map(encodeURIComponent).join("/");
+  const defaultRef = await githubJson(`${repositoryPath}/git/ref/heads/${encodedDefaultBranch}`, {
+    token: githubToken,
+    fetchImpl,
+  });
+  const defaultSha = exactSha(defaultRef?.object?.sha, "The current default-branch revision");
+  if (defaultSha !== exactSha(trustedControllerSha, "The trusted review controller revision")) {
+    throw new Error("The independent review controller is stale for the current default branch.");
+  }
   const pull = await githubJson(pullPath, { token: githubToken, fetchImpl });
   const headSha = exactSha(pull?.head?.sha, "The current pull request head revision");
   const baseSha = exactSha(pull?.base?.sha, "The current pull request base revision");
   if (headSha !== exactSha(expectedHeadSha, "The expected head revision")
-    || baseSha !== exactSha(expectedBaseSha, "The expected base revision")) {
+    || baseSha !== exactSha(expectedBaseSha, "The expected base revision")
+    || pull?.base?.ref !== expectedDefaultBranch
+    || baseSha !== defaultSha) {
     throw new Error("The review job is stale for the current pull request revision.");
   }
 
@@ -258,6 +282,7 @@ export async function proposeReviewJob({
   githubToken,
   openaiApiKey,
   policyPath,
+  trustedControllerSha,
   fetchImpl = fetch,
 }) {
   const identity = reviewEventIdentity(event);
@@ -269,6 +294,8 @@ export async function proposeReviewJob({
     pullRequestNumber: identity.pullRequestNumber,
     expectedBaseSha: identity.baseSha,
     expectedHeadSha: identity.headSha,
+    expectedDefaultBranch: identity.defaultBranch,
+    trustedControllerSha,
     githubToken,
     memoryPath: policy.memoryPath,
     fetchImpl,
@@ -371,7 +398,7 @@ export function buildNeutralReviewCheck(job, review) {
   };
 }
 
-export async function publishReviewJob({ event, encodedJob, githubToken, fetchImpl = fetch }) {
+export async function publishReviewJob({ event, encodedJob, githubToken, trustedControllerSha, fetchImpl = fetch }) {
   const identity = reviewEventIdentity(event);
   const job = decodeReviewJob(encodedJob);
   if (job.pullRequestNumber !== identity.pullRequestNumber || job.baseSha !== identity.baseSha || job.headSha !== identity.headSha) {
@@ -382,6 +409,8 @@ export async function publishReviewJob({ event, encodedJob, githubToken, fetchIm
     pullRequestNumber: identity.pullRequestNumber,
     expectedBaseSha: job.baseSha,
     expectedHeadSha: job.headSha,
+    expectedDefaultBranch: identity.defaultBranch,
+    trustedControllerSha,
     githubToken,
     requireBoundedDiff: job.state === REVIEW_JOB_STATE.REVIEWED,
     fetchImpl,
@@ -423,6 +452,7 @@ export async function runCli({ env = process.env, argv = process.argv, fetchImpl
       githubToken: env.GITHUB_TOKEN,
       openaiApiKey: env.OPENAI_API_KEY,
       policyPath: env.CHANGEPLANE_TRUSTED_POLICY,
+      trustedControllerSha: env.CHANGEPLANE_TRUSTED_CONTROLLER_SHA,
       fetchImpl,
     });
     appendFileSync(env.GITHUB_OUTPUT, `review_job=${encodeReviewJob(job)}\n`);
@@ -434,6 +464,7 @@ export async function runCli({ env = process.env, argv = process.argv, fetchImpl
       event,
       encodedJob: env.CHANGEPLANE_REVIEW_JOB,
       githubToken: env.GITHUB_TOKEN,
+      trustedControllerSha: env.CHANGEPLANE_TRUSTED_CONTROLLER_SHA,
       fetchImpl,
     });
     appendFileSync(env.GITHUB_OUTPUT, `review_check_id=${result.checkId}\nreview_state=${result.state}\n`);
