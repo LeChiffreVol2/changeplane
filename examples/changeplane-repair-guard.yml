@@ -1,4 +1,6 @@
-# Inactive controlled-canary template. The setup PR pins the exact ChangePlane release.
+# Reviewed source template only; this file is not directly installable or executable.
+# Use the installer, which vendors the release-pinned managed guard entrypoint to
+# .github/workflows/changeplane.yml. This template is not evidence of a live repair canary.
 name: ChangePlane guard (controlled repair canary)
 
 on:
@@ -13,9 +15,11 @@ on:
     types: [changeplane_recheck]
 
 permissions:
-  checks: write
+  actions: read
+  checks: read
   contents: read
   deployments: read
+  id-token: write
   pull-requests: write
 
 concurrency:
@@ -24,6 +28,7 @@ concurrency:
 
 jobs:
   guard:
+    name: ChangePlane guard
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

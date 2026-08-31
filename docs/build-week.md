@@ -61,7 +61,7 @@ There were no repository commits before the competition eligibility window. The 
 | Structured patch hardening | July 20, 2026 | [Raw-diff constraint](https://github.com/LeChiffreVol2/changeplane/pull/34) | Live fail-closed finding converted into a strict structured-output constraint |
 | Production repair evidence | July 20, 2026 | [`changeplane-v9-production-release.json`](../evidence/changeplane-v9-production-release.json) | Provider metadata, clean validation, App-authored repair, synchronize event, new-head PASS |
 | Self-serve GitHub release | July 21, 2026 | [`cfd8aee`](https://github.com/LeChiffreVol2/changeplane/commit/cfd8aeef79e1d612b2fe819b8f77278d8e75845e) · [`build-week-product-release.json`](../evidence/build-week-product-release.json) | Personal and organization onboarding plus exact Vercel source provenance |
-| Production-data boundary | July 21, 2026 | [`019b0a6`](https://github.com/LeChiffreVol2/changeplane/commit/019b0a6) | RouteThai production use separated from the public sanitized workspace |
+| Production-data boundary | July 21, 2026 | [`019b0a6`](https://github.com/LeChiffreVol2/changeplane/commit/019b0a6) | RouteThai production use separated from the public synthetic contract reconstruction |
 | Public repository release | July 21, 2026 | [`4a84443`](https://github.com/LeChiffreVol2/changeplane/commit/4a84443) | Public product documentation and judge-facing evaluation path |
 
 The deployed release SHA is returned by `GET /api/github?action=readiness`. Documentation commits may advance the repository and deployment revision; the evidence files retain the exact runtime source and external request identifiers they verify.
@@ -80,7 +80,8 @@ The public example is synthetic and contacts no RouteThai repository or producti
 
 ## Submission boundaries
 
-- RouteThai is a real production use case; the public workspace is a sanitized replay with synthetic data.
+- RouteThai is a real production use case; the public workspace is a synthetic contract reconstruction and is not a replay of a stored production run.
+- The July 2026 v9 repair and legacy `github-actions` guard records do not prove the current v13 dedicated App/OIDC publisher; its protected live canary remains pending.
 - Repository BYOK is required for model-backed review and autonomous repair. Managed model spend is not available.
 - Scope-only observe mode does not prove behavior and does not block merge or deploy.
 - GitHub remains the merge authority; ChangePlane does not auto-merge.

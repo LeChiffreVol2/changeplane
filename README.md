@@ -2,46 +2,60 @@
 
 > **Keep GitHub. Let agents ship.**
 
-The independent release authority for code written and repaired by AI agents.
+The independent assurance plane for code written and repaired by AI agents.
 
-Current product release: **1.0.0** · managed repository payload: **v12**.
+Current public product release: **1.0.0** · local managed repository payload candidate: **v13 (not deployed)**.
 
-ChangePlane sits between an agent-authored pull request and the GitHub Check that teams trust. A model may propose a bounded patch. A deterministic harness decides whether the patch is valid. A separately credentialed controller applies it. Only fresh evidence on the new exact head may publish `ChangePlane / guard`.
+The local managed-v13 candidate places publisher-bound assurance between an agent-authored pull request and GitHub policy. The GitHub-owned Actions job reports operational liveness as `ChangePlane guard`; it is not merge authority. A separately credentialed GitHub App owns the assurance result `ChangePlane / guard`. A model may propose a bounded patch, the deterministic harness decides, and the controller applies only an accepted patch. Only the same authenticated workflow run and attempt may complete the App-owned guard from the latest workflow-bound evidence on the exact head.
 
 [Install ChangePlane on GitHub](https://changeplane.vercel.app/) or [open the RouteThai example](https://changeplane.vercel.app/) without signing in.
 
 ## What ChangePlane does
 
-The normal path runs without a per-pull-request dashboard or manual handoff:
+The managed-v13 autonomous repair path is implemented to run without a per-pull-request dashboard or manual handoff:
 
-1. Bind the pull request's exact head, changed paths, title, and one meaningful behavioral Check.
-2. Evaluate deterministic evidence from the trusted repository configuration.
-3. Return a fixable failure to GPT-5.6 Luna for a bounded patch proposal.
-4. Reject malformed, stale, protected, expanded, or exhausted work in a clean validation job.
-5. Let a trusted controller apply an accepted patch with one short-lived, exact-repository credential.
-6. Re-run evidence on the new head and publish `ChangePlane / guard` only if it passes.
+1. Start the GitHub-owned `ChangePlane guard` job and ask the dedicated App to open the stable exact-head `ChangePlane / guard` as `in_progress`, superseding any prior App result for that revision before mutable inputs are read.
+2. Bind the pull request's exact head, base, refs, changed paths, title, and one meaningful behavioral Check.
+3. Evaluate deterministic evidence from the trusted repository configuration.
+4. Return a fixable failure to GPT-5.6 Luna for a bounded patch proposal.
+5. Reject malformed, stale, protected, expanded, or exhausted work in a clean validation job.
+6. Let a trusted controller apply an accepted patch with one short-lived, exact-repository credential.
+7. Re-run evidence on the new head. The dedicated App completes `ChangePlane / guard` only for the same OIDC-authenticated run and attempt, after re-fetching the latest eligible exact-head evidence and current GitHub target.
 
 Protected, ambiguous, stale, provider-failed, or exhausted work stops for a human. GitHub remains the forge, branch-policy surface, and merge authority.
 
-ChangePlane now exposes three deliberately different authority profiles:
+ChangePlane exposes three deliberately different authority profiles. Hosted onboarding starts with the smallest useful authority and expands only through another reviewed pull request:
 
-- **Autonomous · normal path.** A bounded proposal model may suggest a repair and a separately credentialed controller may apply it before fresh exact-head evidence is evaluated.
-- **Verify only · agent-neutral.** Cursor, Codex, Claude Code, or another customer-selected agent owns the fix. ChangePlane publishes the same deterministic, blocking-capable guard without receiving a provider key or any repair authority.
+- **Verify Lite · default setup.** Cursor, Codex, Claude Code, or another customer-selected agent owns the fix. The nine-file managed profile runs deterministic exact-head assurance without a provider key, model-backed review job, repair workflow, repair webhook, controller HMAC, or controller installation credential.
+- **Autonomous · controlled beta.** A bounded proposal model may suggest a repair and a separately credentialed controller may apply it before fresh exact-head evidence is evaluated. This uses the 21-file Full profile. Moving from Verify Lite to Autonomous creates a separate protected expansion pull request; it does not silently widen the installed authority.
 - **Observe.** ChangePlane records the exact revision and scope without claiming behavioral proof or blocking merge.
 
-“Blocking-capable” is not the same as active merge enforcement. ChangePlane reports enforcement active only after a repository administrator enables strict classic branch protection and requires the exact `ChangePlane / guard` Check from the publisher observed on a live GitHub run. GitHub ruleset readiness is not verified in this release.
+The manifest is not authority by itself. Runtime and BYOK operations proceed only when its declared profile matches every managed blob and reserved path on the exact default-branch Git tree; an injected repair workflow, forged profile, missing file, or modified byte fails closed.
+
+“Blocking-capable” is not the same as active merge enforcement. The v13 candidate reports enforcement active only after read-only GitHub inspection proves at least one independently complete, active repository or inherited-organization Ruleset targets the default branch, has no bypass actors, requires Merge Queue and strict up-to-date status checks, and binds the dedicated-App `ChangePlane / guard` plus every configured behavioral evidence Check to its expected integration ID. Classic branch protection is insufficient for this readiness claim. Unknown targeting, wildcard ambiguity, bypasses, controls split across Rulesets, missing or misbound Checks, and malformed Rulesets data fail closed. The installer never changes branch policy. `ChangePlane guard` remains operational workflow liveness only.
 
 ```mermaid
 flowchart LR
     A["Agent pull request · exact head"] --> B["Deterministic evidence"]
+    A --> H["GitHub Actions · ChangePlane guard liveness"]
     B -->|"fixable failure"| C["GPT-5.6 Luna proposes patch"]
     C --> D["Clean harness validates"]
     D --> E["Trusted controller applies"]
     E --> F["New head rechecked"]
-    F --> G["ChangePlane / guard"]
+    F --> G["Dedicated App · ChangePlane / guard"]
+    B --> I["GitHub strict no-bypass Ruleset"]
+    G --> I
 ```
 
 The proposal job receives no GitHub token, App private key, controller secret, push credential, approval authority, merge permission, or Check authority. A model cannot return `PASS`.
+
+## Agentic SDLC assurance
+
+ChangePlane now projects its existing exact-revision controls across the software-delivery lifecycle without becoming another planning board, IDE, CI service, deployment platform, or operations console. The repository runtime-readiness response describes which lifecycle checkpoints are controlled, supported, external, or still need setup. The signed-out RouteThai workspace teaches the same boundary through an interactive seven-step synthetic spine: **Intent → Change → Review → Verify → Delivery → Merge → Operate**. A live per-pull-request SDLC API or managed receipt field is not part of this candidate.
+
+The projection is deliberately read-only. It does not create a second evaluator, aggregate trust across commits, or contribute another signal to `PASS`. Intent is declared repository context; agent identity and model review are advisory; the deterministic harness alone evaluates behavioral evidence; exact-SHA deployment metadata is informational; GitHub owns merge; and production operation remains in the customer's existing systems. Every new commit restarts the revision-level assurance spine.
+
+This gives Codex, Cursor, Claude Code, Copilot, Trae, OpenSWE, and other coding agents a shared GitHub-native handoff contract without requiring them to join a proprietary agent runtime. See [Agentic SDLC assurance](docs/agentic-sdlc.md) for the stage model, authority matrix, API projection, and explicit non-goals.
 
 ## Install on GitHub
 
@@ -51,22 +65,29 @@ Hosted onboarding needs no CLI, database, ChangePlane account provisioning, or V
 2. On GitHub, choose a personal account or organization and grant the repository-scoped App access only to the intended repositories.
 3. Return to ChangePlane and choose one writable repository from an installation visible to the signed-in user. Repository-admin access is required before ChangePlane may inspect or change Actions Secrets.
 4. Complete the read-only safety preflight.
-5. Bind one existing behavioral Check and its publisher, then choose the normal autonomous path or agent-neutral Verify only. Deliberately choose scope-only observe mode when behavioral proof is not available.
-6. For autonomous repair, provide a repository BYOK OpenAI key. Verify only and observe require no provider key. ChangePlane verifies any supplied key, encrypts it with GitHub's repository public key, stores only `OPENAI_API_KEY` as an Actions Secret, and clears the field.
-7. Review and merge the single protected setup pull request. Automation remains inert until GitHub reports that pull request merged.
+5. Bind one existing behavioral Check and its publisher, then install the nine-file Verify Lite profile. Deliberately choose scope-only Observe when behavioral proof is unavailable. A fresh repository cannot opt directly into Autonomous.
+6. Review and merge the protected Verify Lite setup pull request. Automation remains inert until GitHub reports that pull request merged.
+7. After one normal pull request records the live publishers, configure one strict, no-bypass default-branch Ruleset with Merge Queue. Require `ChangePlane / guard` from the dedicated ChangePlane App and every behavioral evidence Check from its expected integration ID. `ChangePlane guard` remains operational workflow liveness only. ChangePlane never edits that policy.
+8. Only after that gate is active may an approved controlled-beta owner request the 21-file Full expansion through another protected pull request and complete the repository BYOK flow. ChangePlane verifies the selected allowlisted model, encrypts the key with GitHub's repository public key, stores only `OPENAI_API_KEY` as an Actions Secret, and clears the browser field after every attempt.
 
-Autonomous mode requires the repository-scoped App with read-only Administration metadata, a repository admin, strict up-to-date branch protection, an exact behavioral Check and expected publisher, verified repository BYOK, and the reviewed managed setup. Verify only requires the exact Check and publisher but receives no OpenAI key, repair webhook, controller HMAC, or installation credential. Merge Queue remains supported for guard-only exact-revision evaluation, but it does not replace autonomous activation prerequisites. Every missing gate fails closed. Scope-only observe mode never dispatches repair and does not block merge or deploy.
+Autonomous mode requires the repository-scoped App with read-only Administration metadata, a repository admin, one qualifying Ruleset as described above, an exact behavioral Check and expected publisher, verified repository BYOK, and the reviewed Full-profile setup. GitHub Actions evidence in Verify or Autonomous must also declare its exact trusted `.github/workflows/*.yml` or `.yaml` path. Verify Lite receives no OpenAI key or repair credential. Merge Queue execution does not replace these activation prerequisites. Every missing gate fails closed. Scope-only Observe never dispatches repair and does not block merge or deploy.
+
+### Recovering a v11 or v12 enforce policy
+
+An otherwise pristine v11/v12 installation may have a `github-actions` behavioral Check without the exact workflow path now required by v13. Preflight identifies that shape instead of carrying an unusable policy forward. A repository administrator must select one exact Check, publisher, and `.github/workflows/*.yml` or `.yaml` path; ChangePlane then includes the minimal `.changeplane.json` repair in the same human-reviewed upgrade pull request. The recovered mode defaults to Verify. Scope-only Observe is available only when selected explicitly, and Autonomous is never retained or provisioned by this migration.
+
+After merge, the owner must replace any legacy branch-policy binding that treated the `github-actions` publisher of `ChangePlane / guard` as authoritative. V13 authority belongs to the dedicated ChangePlane App in the qualifying Ruleset; `ChangePlane guard` remains operational liveness. The migration never writes the default branch or changes a Ruleset.
 
 ### Supported platforms
 
 - GitHub.com personal accounts and organizations, including Enterprise Cloud organizations.
 - Same-repository pull requests.
 - GitHub Merge Queue for exact-revision guard evaluation only.
-- Classic branch protection readiness for exact required-guard enforcement.
+- Read-only readiness for the deliberately narrow, fail-closed GitHub Rulesets shape described above.
 - Current desktop and mobile browsers for onboarding and the public example.
 - Node.js `>=22.18 <23` for local verification.
 
-GitHub Enterprise Server, GitLab, Bitbucket, fork pull requests, cross-repository repair, GitHub ruleset readiness, managed model billing, and automatic merge are not supported in this release.
+GitHub Enterprise Server, GitLab, Bitbucket, fork pull requests, cross-repository repair, ambiguous or bypass-bearing Rulesets topologies, managed model billing, and automatic merge are not supported in this candidate.
 
 ## Hosted service and Vercel
 
@@ -81,21 +102,36 @@ See [Hosted service boundary](docs/hosted-service.md) for the operator and custo
 ## Product controls
 
 - **Exact-revision guard.** Every contract, receipt, grant, review, preview, and decision is bound to one commit SHA. A new commit invalidates the prior assurance.
+- **Ruleset-bound assurance.** Active enforcement requires one strict, no-bypass default-branch Ruleset with Merge Queue, the dedicated-App `ChangePlane / guard`, and every behavioral evidence Check bound to its expected integration. The GitHub-owned `ChangePlane guard` job remains operational liveness and carries no merge authority.
+- **Ordered guard lifecycle.** Before mutable pull-request or evidence inputs are evaluated, the dedicated App creates or updates one stable exact-head Check to `in_progress` and supersedes older App successes. Completion is accepted only from the same authenticated workflow run and attempt; a newer run, rerun, stale completion, changed target, or newer eligible evidence blocks the write.
 - **Independent review.** `ChangePlane / review` may publish up to five validated findings on changed lines. It is advisory and cannot approve, repair, certify, or contribute to PASS.
 - **Repository assurance memory.** `.changeplane/assurance.md` stores reviewed invariants beside the code. It guides review but is never behavioral evidence.
 - **Bounded autonomous repair.** A campaign allows at most two attempts within one immutable 15-minute budget. Tests, evidence configuration, dependency manifests, managed files, and repository-protected paths require human review.
 - **Agent handback.** GitHub-native receipts can return bounded findings to Codex, Cursor, Claude Code, Trae, Copilot, OpenSWE, or another coding agent without granting it controller authority.
-- **Verify-only guard.** Customer-selected agents own repair while ChangePlane independently evaluates the next exact commit. The guard is blocking-capable, but GitHub branch policy remains the only merge-enforcement authority.
-- **Assurance Passport.** Every pull-request and Merge Queue receipt carries a vendor-neutral, machine-readable exact-head envelope for the policy, evaluator, evidence, decision, and separation of authority. Its domain-separated SHA-256 detects tampering; authenticity still requires the corresponding live `ChangePlane / guard` Check on GitHub. It is evidence, never a credential or authorization token.
+- **Verify-only gate.** Customer-selected agents own repair while ChangePlane independently evaluates the next exact commit. The guard is blocking-capable only through the qualifying GitHub Ruleset; GitHub remains the only merge-enforcement authority.
+- **Verify Lite payload.** The default protected setup pull request contains nine files. It omits the standalone provider, review, proposal, ledger, controller, and repair-workflow files that are unnecessary for independent verification; deterministic remediation findings remain available for agent handback.
+- **Explicit authority expansion.** Enabling Autonomous from Verify Lite proposes the 21-file Full profile through a separate protected pull request and keeps repair inactive until the reviewed payload is present.
+- **Assurance Passport.** Every pull-request and Merge Queue receipt carries a vendor-neutral, machine-readable exact-head envelope for the policy, evaluator, evidence, decision, and separation of authority. Its domain-separated SHA-256 detects tampering; live correspondence still requires the matching `ChangePlane / guard` Check on GitHub. In the v13 lifecycle, a successfully completed App guard emits a redacted `proof_locator` so an authenticated verifier can re-fetch the guard, every evidence Check, the trusted-base policy, and the current pull-request revision. It is evidence, never a credential or authorization token.
+- **Cursor Origin boundary proof.** The signed-out product and `npm run prove:origin-boundary` execute twelve deterministic contract scenarios, including three GitHub-mirrored Origin fixtures, and evaluate six product assertions. The proof shows that the authoring surface does not change the deterministic decision, a stale mirror view cannot inherit assurance, and a protected test change cannot self-certify. A passing fixture is only `guardEligible`; the proof publishes no Check, writes no repository, makes no GitHub or Origin API request, and is not an external benchmark.
 - **Preview binding.** Existing GitHub Deployment and Vercel preview URLs are shown only when their deployment SHA matches the evaluated head.
 - **Merge Queue guard.** A `merge_group` is evaluated as its own revision. Queue runs never dispatch review, proposal, repair, apply, or handback work.
 - **Trusted-base execution.** Pull-request workflows always execute the managed controller from the live default-branch revision. A retargeted pull request, changed default-branch SHA, stale event base, or mismatched controller SHA publishes no successful assurance.
+- **SDLC assurance spine.** Repository runtime readiness exposes a derived lifecycle posture; the signed-out RouteThai synthetic contract reconstruction provides the exact-revision explainer from intent through operation. Neither contributes to PASS: a new commit invalidates the reconstructed view, delivery stays informational, GitHub owns merge, and operation stays external.
 
 ### Agent and forge compatibility
 
 ChangePlane deliberately stays downstream of the coding agent. Codex, Cursor, Claude Code, or another tool may author and repair the pull request; none of those identities is trusted as a PASS input.
 
-For a repository mirrored from GitHub into Cursor Origin, [Cursor says GitHub remains the source of truth and synced pushes return to GitHub](https://cursor.com/changelog/origin-code-hosting). When that GitHub repository continues to run ChangePlane's App and Actions, ChangePlane evaluates the GitHub revision and publishes its GitHub Check there. This is an architectural compatibility boundary, not a claim of a native Origin integration. Standalone Origin repositories are not supported.
+Cursor Origin is a Git forge, not merely an editor feature. Cursor documents repositories, pull requests, Checks, rulesets, APIs, and GitHub mirroring; its own API already supports full-SHA Checks, publisher-bound required Checks, stale-update ordering, rulesets, and expected-head merge. ChangePlane therefore does not claim that Origin lacks exact-head controls.
+
+The defensible product boundary is different: a team can keep GitHub as its independently observable source of truth, branch-policy surface, and merge authority while Cursor Origin is an optional authoring and mirror surface. For a repository [mirrored from GitHub into Origin](https://cursor.com/docs/origin/mirror-github), ChangePlane evaluates the GitHub revision and publishes evidence back to GitHub. It does not require a second forge or trust a Cursor, Codex, Claude Code, or other agent identity as a PASS input. Standalone Origin repositories remain unsupported and untested.
+
+There are two proof tiers:
+
+1. `npm run prove:origin-boundary` and `GET /api/github?action=origin-proof` run the public deterministic contract with zero external requests.
+2. After a real guard run, `GET /api/github?action=proof&repository=OWNER/REPO&checkRunId=ID&passportDigest=SHA256` re-fetches the live guard, trusted policy, every evidence Check, and current pull-request head from GitHub and returns `VERIFIED_CURRENT`, `VERIFIED_HISTORICAL`, `INVALID`, or `INDETERMINATE`.
+
+The v13 candidate routes guard publication through a dedicated ChangePlane GitHub App. The managed workflow has read-only Actions and Checks access plus GitHub OIDC; it cannot publish `ChangePlane / guard` with `GITHUB_TOKEN`. Actions read is used only to resolve a candidate `github-actions` Check to its exact workflow run and policy path. At begin, the publisher verifies the exact repository, default-branch workflow path and SHA, event, ref, run ID and attempt, re-fetches the managed tree and current target, then opens the stable App-owned Check as `in_progress` before evaluation. At completion, it requires that same run/attempt lease, re-fetches the trusted policy and current target, and accepts only the latest eligible exact-head evidence; GitHub Actions evidence is admitted only when it resolves to the policy's exact workflow path. Read and `checks:write` installation credentials are minted separately for one repository. Readiness and onboarding fail closed when the dedicated guard or any behavioral evidence publisher cannot be proved in the qualifying Ruleset. This v13 lifecycle is implemented and locally tested, not deployed or live-canary proven; historical v9 `github-actions` guard evidence does not establish it. A protected v13 canary and a real Origin-access canary are still required before any head-to-head claim. See [Cursor Origin boundary and proof](docs/cursor-origin-boundary.md).
 
 ## Runtime contract
 
@@ -137,11 +173,11 @@ The OpenAI adapter uses native `fetch` with the Responses API, `reasoning.effort
 
 ## RouteThai production use
 
-ChangePlane is used and tested with RouteThai's real production workflow. That private installation validates the product against production constraints while keeping the repository, routing data, customer context, and operating details private.
+ChangePlane is used with RouteThai in production. That private use informs product constraints while keeping the repository, routing data, customer context, and operating details private; it is not public evidence for the current v13 dedicated publisher.
 
-The signed-out RouteThai workspace is a sanitized replay of the same assurance pattern. Every public stop ID, service window, repository name, source file, timestamp, and evidence value is synthetic. It makes no request to RouteThai production systems and contains no customer name, coordinate, map URL, production workbook, private-repository screenshot, or operating data.
+The signed-out RouteThai workspace is a synthetic contract reconstruction of the same assurance pattern, not a replay of a stored production run. Every public stop ID, service window, repository name, source file, timestamp, and evidence value is synthetic. It makes no request to RouteThai production systems and contains no customer name, coordinate, map URL, production workbook, private-repository screenshot, or operating data.
 
-The reusable fixture is under [`examples/routethai-synthetic`](examples/routethai-synthetic). Redacted live evidence is under [`evidence`](evidence).
+The reusable fixture is under [`examples/routethai-synthetic`](examples/routethai-synthetic). Historical, release-scoped redacted evidence is under [`evidence`](evidence); it must not be reused as proof of the v13 dedicated-App/OIDC publisher, whose protected live canary remains pending.
 
 ## Local verification
 
@@ -170,7 +206,7 @@ For the fastest evaluation path, use [EVALUATION.md](EVALUATION.md). A live adap
 
 ## Built with Codex and GPT-5.6
 
-Codex was the implementation and verification partner across the OpenAI adapter, GitHub App and BYOK onboarding, autonomous controller boundary, fail-closed tests, browser journeys, production canary, and release evidence. The product owner retained the authority model, product scope, production-data boundary, and release decisions.
+Codex was the implementation and verification partner across the OpenAI adapter, GitHub App and BYOK onboarding, autonomous controller boundary, fail-closed tests, browser journeys, historical production canary, and release evidence. The product owner retained the authority model, product scope, production-data boundary, and release decisions.
 
 GPT-5.6 Luna is the real default for bounded patch proposals and advisory review, not a display-only selection. Terra and Sol use the same allowlisted contract. The model proposes from bounded evidence; it never validates its own patch, writes to GitHub, publishes a required Check, or decides PASS.
 

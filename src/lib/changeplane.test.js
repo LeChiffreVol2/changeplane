@@ -209,6 +209,57 @@ test('binds required evidence to the declared GitHub App identity', () => {
   }), /name, appSlug/u);
 });
 
+test('binds github-actions evidence to its trusted workflow path without expanding the passport evidence schema', () => {
+  const requirement = {
+    name: 'validate',
+    appSlug: 'github-actions',
+    workflowPath: '.github/workflows/ci.yml',
+  };
+  const mismatch = evaluateEvidence({
+    requiredChecks: [requirement],
+    checks: [{
+      name: 'validate',
+      source: 'github-actions',
+      workflowPath: '.github/workflows/untrusted.yml',
+      status: 'completed',
+      conclusion: 'success',
+    }],
+  });
+  assert.equal(mismatch.decision, DECISION.REVIEW_REQUIRED);
+  assert.deepEqual(mismatch.reasons.map(({ code }) => code), ['EVIDENCE_PROVENANCE_MISMATCH']);
+
+  const matched = evaluateEvidence({
+    requiredChecks: [requirement],
+    checks: [{
+      name: 'validate',
+      source: 'github-actions',
+      workflowPath: '.github/workflows/ci.yml',
+      status: 'completed',
+      conclusion: 'success',
+      checkRunId: 808,
+      publisherAppId: 15368,
+      completedAt: '2026-08-20T00:01:00Z',
+    }],
+  });
+  assert.equal(matched.decision, DECISION.PASS);
+  assert.deepEqual(matched.evidence[0], {
+    name: 'validate',
+    source: 'github-actions',
+    expectedSource: 'github-actions',
+    status: 'COMPLETED',
+    conclusion: 'SUCCESS',
+    checkRunId: 808,
+    publisherAppId: 15368,
+    completedAt: '2026-08-20T00:01:00Z',
+  });
+  assert.throws(() => evaluateEvidence({
+    requiredChecks: [{ ...requirement, workflowPath: '.github/workflows/nested/ci.yml' }],
+  }), /workflowPath/u);
+  assert.throws(() => evaluateEvidence({
+    requiredChecks: [{ name: 'validate', appSlug: 'trusted-ci', workflowPath: '.github/workflows/ci.yml' }],
+  }), /workflowPath/u);
+});
+
 test('reports overlap with another open pull request as advisory only', () => {
   const advisory = detectFileOverlap(
     ['src/payments/service.js', 'src/payments/types.js'],

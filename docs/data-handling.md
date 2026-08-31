@@ -13,7 +13,9 @@ The RouteThai example uses synthetic data and makes no request to GitHub, OpenAI
 - Session state is encrypted and authenticated in a secure, same-site, HTTP-only cookie with a bounded lifetime. ChangePlane has no product database.
 - Setup and configuration changes are proposed through protected pull requests. The installer does not write directly to the default branch.
 - GitHub stores the installed workflows, policy, receipts, Checks, comments, artifacts, refs, and repository secrets.
-- The machine-readable Assurance Passport contains only repository/revision identifiers, policy and input digests, evaluator metadata, bounded Check names and GitHub App publishers, status/conclusion values, a decision, and fixed authority declarations. Legacy commit-status creators are normalized to `LEGACY_COMMIT_STATUS`; actor usernames beyond an owner login inherent in the repository identifier are excluded, together with diagnostics, source text, prompts, patches, preview URLs, provider responses, and credentials. Its digest is an integrity check, not an offline authenticity claim; verify the exact marker, head, conclusion, and policy-pinned App ID and slug against the live GitHub Check.
+- The machine-readable Assurance Passport contains only repository/revision identifiers, policy and input digests, evaluator metadata, bounded Check names and GitHub App publishers, status/conclusion values, a decision, and fixed authority declarations. Legacy commit-status creators are normalized to `LEGACY_COMMIT_STATUS`; actor usernames beyond an owner login inherent in the repository identifier are excluded, together with diagnostics, source text, prompts, patches, preview URLs, provider responses, and credentials. Its digest is an integrity check, not an offline authenticity claim. Live proof verifies the guard marker, head, conclusion, and configured dedicated ChangePlane App identity, then separately re-fetches every policy-bound evidence publisher.
+- The managed workflow sends a bounded passport and receipt summary to the fixed guard-publisher endpoint with a short-lived GitHub OIDC token. The token and GitHub App credentials are never returned to the browser, stored in a repository secret, embedded in the passport, or written to a ChangePlane database. Read and write installation tokens are minted separately for exactly one repository and kept only for the request lifetime.
+- A `proof_locator` contains only the numeric repository and Check Run identifiers, target type, pull-request number when applicable, exact head SHA, and passport digest. The authenticated proof endpoint re-fetches GitHub metadata and the trusted policy, but its response omits repository names, source text, diagnostics, comments, patches, prompts, provider responses, and credentials. Proof results are computed per request and are not stored in a ChangePlane database.
 - Repository-admin access is required before ChangePlane reads secret metadata or creates, rotates, or deletes BYOK and autonomous-controller secrets. Write collaborators receive a redacted `admin_required` state and no secret-backed readiness signal.
 
 ## Repository BYOK
@@ -24,7 +26,7 @@ Plaintext provider keys are not stored in localStorage, cookies, logs, API respo
 
 ## Model requests
 
-Observe mode, Verify only, and the public example send no repository content to OpenAI. Verify only also receives no repair webhook, controller HMAC, or controller installation credential.
+Observe mode, Verify Lite, the Cursor Origin boundary proof, and the public example send no repository content to OpenAI. Verify Lite also receives no repair webhook, controller HMAC, or controller installation credential. Origin proof inputs are fixed synthetic contract cases and never contain a connected repository's content or identity.
 
 When repository BYOK enables advisory review or autonomous repair, the trusted workflow sends bounded inputs to the repository owner's OpenAI project:
 

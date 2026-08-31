@@ -46,6 +46,8 @@ jobs:
         run: npm ci
       - name: Test
         run: npm test
+      - name: Prove the Cursor Origin boundary contract
+        run: npm run prove:origin-boundary
       - name: Build
         run: npm run build
       - name: Audit public source and build data

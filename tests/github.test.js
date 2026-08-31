@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { constants, createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,12 +7,22 @@ import test from "node:test";
 import sodium from "libsodium-wrappers";
 
 import {
+  buildAssurancePassport,
+  buildReceipt,
+  digest,
+  headCheckPayload,
+  renderReceiptComment,
+} from "../action/index.js";
+import {
   buildSetupFiles,
+  buildUpgradeRecoveryPolicy,
   buildRuntimePolicy,
   classifyManagedInstallation,
   classifyManagedInstallationDigests,
+  classifyManagedRuntimeTree,
+  classifyUpgradePolicyMigration,
+  createObserveUpgradePullRequest,
   default as handler,
-  guardEnforcementState,
   githubRetryDelayMs,
   managedVersionSnapshot,
   prepareAutonomousHarness,
@@ -25,12 +35,16 @@ import {
   verifyOpenAIKey,
 } from "../api/github.js";
 import {
+  parseCanaryEvidenceChecks,
   provisionRepairCanary,
-  validateCanaryBranchProtection,
+  validateCanaryRulesets,
+  validateInstallationCredential,
   validateRepairGeneration,
 } from "../scripts/provision-repair-canary.mjs";
 
 const SECRET = "test-secret-that-is-longer-than-thirty-two-characters";
+const TEST_GUARD_PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  .privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 
 function responseRecorder() {
   const headers = new Map();
@@ -40,6 +54,223 @@ function responseRecorder() {
     setHeader(name, value) { headers.set(String(name).toLowerCase(), value); },
     getHeader(name) { return headers.get(String(name).toLowerCase()); },
     end(value = "") { this.body = String(value); },
+  };
+}
+
+function githubJsonResponse(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => null },
+    async json() { return body; },
+    async text() { return status >= 400 ? JSON.stringify(body) : ""; },
+  };
+}
+
+function assuranceProofApiFixture(overrides = {}) {
+  const repository = "acme/payments";
+  const repositoryId = 4242;
+  const pullRequestNumber = 42;
+  const baseSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const plan = { goal: "Keep payment retries idempotent", scope: ["src/payments/**"] };
+  const policy = overrides.policy ?? {
+    version: 1,
+    evidence: {
+      requiredChecks: [{
+        name: "CI / verify",
+        appSlug: "github-actions",
+        workflowPath: ".github/workflows/ci.yml",
+      }],
+    },
+  };
+  const evidence = {
+    name: "CI / verify",
+    expectedSource: "github-actions",
+    source: "github-actions",
+    checkRunId: 808,
+    publisherAppId: 15368,
+    status: "COMPLETED",
+    conclusion: "SUCCESS",
+    completedAt: "2026-08-31T00:00:00Z",
+    ...(overrides.evidence ?? {}),
+  };
+  const receipt = buildReceipt({
+    repository,
+    repositoryId,
+    pullRequest: {
+      number: pullRequestNumber,
+      base: { sha: baseSha },
+      head: { sha: headSha },
+    },
+    plan,
+    policyPath: ".changeplane.json",
+    policyDigest: digest(policy),
+    inputDigest: digest({ plan, files: [{ path: "src/payments/retry.js" }] }),
+    contractDigest: digest(plan),
+    approvalDigest: "f".repeat(64),
+    result: { approval: { status: "MISSING" }, reasons: [] },
+    evidence: [evidence],
+    autonomousPlan: {
+      decision: "PASS",
+      reason: "ALL_GUARANTEES_SATISFIED",
+      humanRequired: false,
+    },
+    mode: "enforce",
+    actualFiles: [{ path: "src/payments/retry.js" }],
+    maxAttempts: 2,
+  });
+  const summary = renderReceiptComment(receipt);
+  const passportDigest = buildAssurancePassport(receipt).digest;
+  const guardCheck = {
+    id: 909,
+    ...headCheckPayload(receipt, summary),
+    external_id: `changeplane.guard/v1:${repositoryId}:pull_request:${headSha}`,
+    output: {
+      ...headCheckPayload(receipt, summary).output,
+      text: "changeplane.guard-run/v1;run_id=8001;run_attempt=1;phase=complete",
+    },
+    app: { id: 424242, slug: "changeplane-test" },
+  };
+  const evidenceCheck = {
+    id: evidence.checkRunId,
+    name: evidence.name,
+    head_sha: headSha,
+    status: "completed",
+    conclusion: "success",
+    app: { id: evidence.publisherAppId, slug: evidence.source },
+    details_url: `https://github.com/${repository}/actions/runs/7001`,
+    created_at: "2026-08-30T23:59:00Z",
+    completed_at: evidence.completedAt,
+  };
+  const pullRequest = {
+    number: pullRequestNumber,
+    state: "open",
+    merged: false,
+    head: { sha: headSha, ref: "agent/retry-fix", repo: { id: repositoryId, full_name: repository } },
+    base: { sha: baseSha, ref: "main", repo: { id: repositoryId, full_name: repository } },
+  };
+  const repositoryPayload = {
+    id: repositoryId,
+    full_name: repository,
+    default_branch: "main",
+    permissions: { push: true, admin: false },
+  };
+  return {
+    repository,
+    repositoryId,
+    pullRequestNumber,
+    baseSha,
+    headSha,
+    policy,
+    passportDigest,
+    receipt,
+    guardCheck,
+    evidenceCheck,
+    pullRequest,
+    repositoryPayload,
+  };
+}
+
+function assuranceProofFetch(fixture, {
+  policy = fixture.policy,
+  evidenceCheck = fixture.evidenceCheck,
+  evidenceCheckRuns,
+  pullRequest = fixture.pullRequest,
+  associatedPullRequests = [pullRequest],
+  workflowPath = ".github/workflows/ci.yml",
+} = {}) {
+  const calls = [];
+  const fetchImpl = async (input, options = {}) => {
+    const url = new URL(String(input));
+    calls.push({ path: url.pathname, search: url.search, options });
+    assert.equal(options.headers.authorization, "Bearer alice-token");
+    if (url.pathname === `/repos/${fixture.repository}`) {
+      return githubJsonResponse(fixture.repositoryPayload);
+    }
+    if (url.pathname === `/repos/${fixture.repository}/check-runs/${fixture.guardCheck.id}`) {
+      return githubJsonResponse(fixture.guardCheck);
+    }
+    if (url.pathname === `/repos/${fixture.repository}/contents/.changeplane.json`) {
+      assert.equal(url.searchParams.get("ref"), fixture.baseSha);
+      return githubJsonResponse({
+        type: "file",
+        encoding: "base64",
+        content: Buffer.from(JSON.stringify(policy)).toString("base64"),
+      });
+    }
+    if (url.pathname === `/repos/${fixture.repository}/check-runs/${fixture.evidenceCheck.id}`) {
+      return githubJsonResponse(evidenceCheck);
+    }
+    if (url.pathname === `/repos/${fixture.repository}/commits/${fixture.headSha}/check-runs`) {
+      assert.equal(url.searchParams.get("check_name"), fixture.evidenceCheck.name);
+      assert.equal(url.searchParams.get("filter"), "all");
+      return githubJsonResponse({
+        total_count: (evidenceCheckRuns ?? [evidenceCheck]).length,
+        check_runs: evidenceCheckRuns ?? [evidenceCheck],
+      });
+    }
+    if (url.pathname === `/repos/${fixture.repository}/actions/runs/7001`) {
+      return githubJsonResponse({
+        id: 7001,
+        head_sha: fixture.headSha,
+        path: workflowPath,
+      });
+    }
+    if (url.pathname === `/repos/${fixture.repository}/pulls/${fixture.pullRequestNumber}`) {
+      return githubJsonResponse(pullRequest);
+    }
+    if (url.pathname === `/repos/${fixture.repository}/commits/${fixture.headSha}/pulls`) {
+      return githubJsonResponse(associatedPullRequests);
+    }
+    throw new Error(`Unexpected assurance-proof request: ${url.pathname}${url.search}`);
+  };
+  fetchImpl.calls = calls;
+  return fetchImpl;
+}
+
+function managedManifestFileResponse(managedProfile = "verify-lite") {
+  const content = Buffer.from(managedVersionSnapshot(13, managedProfile).manifest).toString("base64");
+  return {
+    ok: true,
+    status: 200,
+    async json() { return { type: "file", encoding: "base64", content }; },
+  };
+}
+
+function managedFileResponse(content) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return { type: "file", encoding: "base64", content: Buffer.from(content).toString("base64") };
+    },
+  };
+}
+
+function managedRuntimeTreeFixture(managedProfile, policyContent) {
+  const files = buildSetupFiles(
+    managedProfile === "full" ? {
+      name: "CI / test",
+      appSlug: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
+    } : null,
+    managedProfile === "full" ? "autonomous" : "observe",
+  );
+  const contents = new Map(files.map(({ path: filePath, content }) => [filePath, content]));
+  contents.set(".changeplane.json", policyContent);
+  const treeSha = managedProfile === "full" ? "d".repeat(40) : "c".repeat(40);
+  return {
+    treeSha,
+    payload: {
+      truncated: false,
+      tree: [...contents].map(([filePath, content]) => ({
+        path: filePath,
+        type: "blob",
+        mode: "100644",
+        sha: createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex"),
+      })),
+    },
   };
 }
 
@@ -59,6 +290,10 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_MANAGED_OPENAI_API_KEY",
     "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY",
+    "CHANGEPLANE_GUARD_APP_ID",
+    "CHANGEPLANE_GUARD_APP_SLUG",
+    "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
+    "CHANGEPLANE_GUARD_REUSE_GITHUB_APP",
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_GIT_PROVIDER",
@@ -74,6 +309,9 @@ async function withOAuthEnvironment(callback) {
     GITHUB_CLIENT_SECRET: "client-secret",
     CHANGEPLANE_SESSION_SECRET: SECRET,
     CHANGEPLANE_APP_ORIGIN: "https://changeplane.example",
+    CHANGEPLANE_GUARD_APP_ID: "424242",
+    CHANGEPLANE_GUARD_APP_SLUG: "changeplane-test",
+    CHANGEPLANE_GUARD_APP_PRIVATE_KEY: TEST_GUARD_PRIVATE_KEY,
   });
   delete process.env.GITHUB_APP_SLUG;
   delete process.env.VERCEL;
@@ -92,6 +330,7 @@ async function withOAuthEnvironment(callback) {
   delete process.env.CHANGEPLANE_CONTROLLER_SECRET;
   delete process.env.GITHUB_APP_ID;
   delete process.env.GITHUB_APP_PRIVATE_KEY;
+  delete process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP;
   try {
     return await callback();
   } finally {
@@ -188,12 +427,20 @@ test("runtime policy changes only the reserved runtime object and preserves repo
   const original = `${JSON.stringify({
     version: 1,
     protectedPaths: { requireApproval: ["infra/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions" }], timeoutSeconds: 120 },
+    evidence: { requiredChecks: [{
+      name: "test",
+      appSlug: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
+    }], timeoutSeconds: 120 },
     runtime: { provider: "legacy", model: "legacy" },
   }, null, 2)}\n`;
   const updated = JSON.parse(buildRuntimePolicy(original, "gpt-5.6-terra"));
   assert.deepEqual(updated.protectedPaths, { requireApproval: ["infra/**"], block: ["secrets/**"] });
-  assert.deepEqual(updated.evidence, { requiredChecks: [{ name: "test", appSlug: "github-actions" }], timeoutSeconds: 120 });
+  assert.deepEqual(updated.evidence, { requiredChecks: [{
+    name: "test",
+    appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
+  }], timeoutSeconds: 120 });
   assert.deepEqual(updated.runtime, {
     funding: "byok",
     provider: "openai",
@@ -214,36 +461,101 @@ test("runtime policy changes only the reserved runtime object and preserves repo
   );
 });
 
-test("autonomous mode requires strict up-to-date branch protection", () => {
-  assert.equal(validateAutonomousBranchProtection({ strict: true }), true);
-  for (const value of [null, {}, { strict: false }]) {
+test("autonomous mode requires one complete no-bypass merge-queue authority gate", () => {
+  const active = {
+    active: true,
+    strict: true,
+    mergeQueueRequired: true,
+    guardRequired: true,
+    publisherBound: true,
+    evidenceRequired: true,
+    evidencePublisherBound: true,
+  };
+  assert.equal(validateAutonomousBranchProtection(active), true);
+  for (const value of [
+    null,
+    {},
+    { ...active, active: false },
+    { ...active, strict: false },
+    { ...active, mergeQueueRequired: false },
+    { ...active, guardRequired: false },
+    { ...active, publisherBound: false },
+    { ...active, evidenceRequired: false },
+    { ...active, evidencePublisherBound: false },
+  ]) {
     assert.throws(
       () => validateAutonomousBranchProtection(value),
-      /require pull requests to be up to date before merging/u,
+      /one verified no-bypass GitHub merge gate/u,
     );
   }
 });
 
-test("merge enforcement is active only for a strict guard bound to the live publisher", () => {
-  const guard = { context: "ChangePlane / guard", app_id: 15368 };
-  assert.deepEqual(guardEnforcementState({ strict: true, checks: [guard] }, 15368), {
-    state: "active",
-    active: true,
-    strict: true,
-    guardRequired: true,
-    publisherBound: true,
-  });
-  assert.equal(guardEnforcementState({ strict: false, checks: [guard] }, 15368).state, "strict_required");
-  assert.equal(guardEnforcementState({ strict: true, checks: [] }, 15368).state, "guard_required");
-  assert.equal(guardEnforcementState({ strict: true, contexts: ["ChangePlane / guard"] }, 15368).state, "publisher_binding_required");
-  assert.equal(guardEnforcementState({ strict: true, checks: [guard] }).state, "guard_run_required");
-  assert.equal(guardEnforcementState({ strict: true, checks: [guard] }, 999).state, "publisher_binding_required");
+test("the production canary provisioner requires one complete no-bypass authority Ruleset", () => {
+  const evidenceChecks = [{ name: "CI / verify", integrationId: 15368 }];
+  const ruleset = {
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+    rules: [
+      { type: "merge_queue" },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          required_status_checks: [
+            { context: "ChangePlane / guard", integration_id: 424242 },
+            { context: "CI / verify", integration_id: 15368 },
+          ],
+        },
+      },
+    ],
+  };
+  const input = {
+    rulesets: [ruleset],
+    defaultBranch: "main",
+    guardIntegrationId: 424242,
+    evidenceChecks,
+  };
+  assert.equal(validateCanaryRulesets(input).active, true);
+  assert.throws(
+    () => validateCanaryRulesets({ ...input, rulesets: [] }),
+    /ruleset_required/u,
+    "missing ruleset",
+  );
+  for (const [name, mutate, expected] of [
+    ["missing strict policy", (value) => { value.rules[1].parameters.strict_required_status_checks_policy = false; }, /strict_required/u],
+    ["missing merge queue", (value) => { value.rules = value.rules.slice(1); }, /merge_queue_required/u],
+    ["missing evidence", (value) => { value.rules[1].parameters.required_status_checks.pop(); }, /evidence_required/u],
+    ["ambiguous target", (value) => { value.conditions.ref_name.include = ["release/*"]; }, /ruleset_ambiguous/u],
+    ["bypass actor", (value) => { value.bypass_actors = [{ actor_id: 1 }]; }, /ruleset_ambiguous/u],
+    ["guard publisher mismatch", (value) => { value.rules[1].parameters.required_status_checks[0].integration_id = 999; }, /publisher_binding_required/u],
+    ["evidence publisher mismatch", (value) => { value.rules[1].parameters.required_status_checks[1].integration_id = 999; }, /evidence_publisher_binding_required/u],
+  ]) {
+    const candidate = structuredClone(ruleset);
+    mutate(candidate);
+    assert.throws(
+      () => validateCanaryRulesets({ ...input, rulesets: [candidate] }),
+      expected,
+      name,
+    );
+  }
 });
 
-test("the production canary provisioner also requires strict up-to-date branch protection", () => {
-  assert.equal(validateCanaryBranchProtection({ strict: true }), true);
-  for (const value of [null, {}, { strict: false }]) {
-    assert.throws(() => validateCanaryBranchProtection(value), /strict up-to-date required checks/u);
+test("the production canary provisioner requires explicit evidence publisher identities", () => {
+  assert.deepEqual(
+    parseCanaryEvidenceChecks('[{"name":"CI / verify","integrationId":15368}]'),
+    [{ name: "CI / verify", integrationId: 15368 }],
+  );
+  for (const value of [
+    undefined,
+    "not-json",
+    "[]",
+    '[{"name":"CI / verify","integrationId":0}]',
+    '[{"name":"ChangePlane / guard","integrationId":15368}]',
+    '[{"name":"CI / verify","integrationId":15368},{"name":"CI / verify","integrationId":15369}]',
+  ]) {
+    assert.throws(() => parseCanaryEvidenceChecks(value), /CHANGEPLANE_CANARY_EVIDENCE_CHECKS_JSON/u);
   }
 });
 
@@ -251,6 +563,39 @@ test("the production canary provisioner requires the active positive generation"
   assert.equal(validateRepairGeneration("7"), "7");
   for (const value of [undefined, "", "0", "-1", "1.5", "01", "9007199254740992"]) {
     assert.throws(() => validateRepairGeneration(value), /must be a positive integer/u);
+  }
+});
+
+test("the production canary accepts only short-lived exact-repository installation credentials", () => {
+  const repositoryId = 77;
+  const permissions = { administration: "read" };
+  const valid = {
+    token: "ghs-exact-repository-token",
+    expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+    permissions: { administration: "read", metadata: "read" },
+    repositories: [{ id: repositoryId }],
+  };
+  assert.equal(
+    validateInstallationCredential(valid, { repositoryId, permissions }),
+    valid.token,
+  );
+
+  for (const [name, mutate] of [
+    ["wrong repository", (value) => { value.repositories[0].id = 78; }],
+    ["multiple repositories", (value) => { value.repositories.push({ id: 79 }); }],
+    ["widened permissions", (value) => { value.permissions.contents = "write"; }],
+    ["missing requested permission", (value) => { delete value.permissions.administration; }],
+    ["overlong lifetime", (value) => { value.expires_at = new Date(Date.now() + 66 * 60 * 1_000).toISOString(); }],
+    ["expired", (value) => { value.expires_at = new Date(Date.now() - 1_000).toISOString(); }],
+    ["unsafe token", (value) => { value.token = "ghs token"; }],
+  ]) {
+    const candidate = structuredClone(valid);
+    mutate(candidate);
+    assert.throws(
+      () => validateInstallationCredential(candidate, { repositoryId, permissions }),
+      /invalid exact-repository installation credential/u,
+      name,
+    );
   }
 });
 
@@ -269,9 +614,11 @@ test("the production canary provisioner uses its exact repository and stays disa
 
   const names = [
     "CHANGEPLANE_GITHUB_APP_ID",
+    "CHANGEPLANE_GUARD_APP_ID",
     "CHANGEPLANE_CANARY_REPOSITORY",
     "CHANGEPLANE_CANARY_REPOSITORY_ID",
     "CHANGEPLANE_CANARY_INSTALLATION_ID",
+    "CHANGEPLANE_CANARY_EVIDENCE_CHECKS_JSON",
     "CHANGEPLANE_REPAIR_GENERATION",
     "CHANGEPLANE_GITHUB_APP_PRIVATE_KEY_PATH",
     "CHANGEPLANE_GITHUB_ADMIN_TOKEN_PATH",
@@ -282,9 +629,11 @@ test("the production canary provisioner uses its exact repository and stays disa
   const originalEnvironment = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   Object.assign(process.env, {
     CHANGEPLANE_GITHUB_APP_ID: "101",
+    CHANGEPLANE_GUARD_APP_ID: "424242",
     CHANGEPLANE_CANARY_REPOSITORY: "acme/canary",
     CHANGEPLANE_CANARY_REPOSITORY_ID: "77",
     CHANGEPLANE_CANARY_INSTALLATION_ID: "44",
+    CHANGEPLANE_CANARY_EVIDENCE_CHECKS_JSON: '[{"name":"CI / verify","integrationId":15368}]',
     CHANGEPLANE_REPAIR_GENERATION: "7",
     CHANGEPLANE_GITHUB_APP_PRIVATE_KEY_PATH: privateKeyPath,
     CHANGEPLANE_GITHUB_ADMIN_TOKEN_PATH: adminTokenPath,
@@ -307,19 +656,25 @@ test("the production canary provisioner uses its exact repository and stays disa
   ];
   try {
     for (const scenario of [
-      { name: "eligible first creation", finalStrict: true, secretStatus: 201 },
-      { name: "strict protection removed before activation update", finalStrict: false, secretStatus: 204 },
+      { name: "eligible first creation", finalComplete: true, secretStatus: 201 },
+      { name: "merge queue removed before activation update", finalComplete: false, secretStatus: 204 },
     ]) {
       const calls = [];
       const writes = [];
-      let protectionReads = 0;
+      let rulesetReads = 0;
       globalThis.fetch = async (url, options = {}) => {
         const requestUrl = new URL(String(url));
         const method = options.method ?? "GET";
         calls.push(`${method} ${requestUrl.pathname}`);
         if (method === "POST" && requestUrl.pathname === "/app/installations/44/access_tokens") {
+          const request = JSON.parse(String(options.body));
+          assert.deepEqual(request.repository_ids, [77]);
           return new Response(JSON.stringify({
-            token: "ghs-installation-token",
+            token: request.permissions.administration === "read"
+              ? "ghs-administration-read-token"
+              : "ghs-secrets-write-token",
+            expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+            permissions: request.permissions,
             repositories: [{ id: 77 }],
           }), { status: 200 });
         }
@@ -340,10 +695,31 @@ test("the production canary provisioner uses its exact repository and stays disa
             disabled: false,
           }), { status: 200 });
         }
-        if (method === "GET" && requestUrl.pathname === "/repos/acme/canary/branches/main/protection/required_status_checks") {
-          protectionReads += 1;
+        if (method === "GET" && requestUrl.pathname === "/repos/acme/canary/rulesets") {
+          assert.equal(requestUrl.searchParams.get("includes_parents"), "true");
+          return new Response(JSON.stringify([{ id: 42 }]), { status: 200 });
+        }
+        if (method === "GET" && requestUrl.pathname === "/repos/acme/canary/rulesets/42") {
+          rulesetReads += 1;
           return new Response(JSON.stringify({
-            strict: protectionReads === 1 || scenario.finalStrict,
+            id: 42,
+            target: "branch",
+            enforcement: "active",
+            bypass_actors: [],
+            conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+            rules: [
+              ...(rulesetReads === 1 || scenario.finalComplete ? [{ type: "merge_queue" }] : []),
+              {
+                type: "required_status_checks",
+                parameters: {
+                  strict_required_status_checks_policy: true,
+                  required_status_checks: [
+                    { context: "ChangePlane / guard", integration_id: 424242 },
+                    { context: "CI / verify", integration_id: 15368 },
+                  ],
+                },
+              },
+            ],
           }), { status: 200 });
         }
         if (method === "GET" && requestUrl.pathname === "/repos/acme/canary/actions/secrets/public-key") {
@@ -363,7 +739,7 @@ test("the production canary provisioner uses its exact repository and stays disa
       };
 
       let output = "";
-      if (scenario.finalStrict) {
+      if (scenario.finalComplete) {
         await provisionRepairCanary({ writeOutput: (value) => { output += value; } });
         assert.deepEqual(writes, [...expectedPrefix, "CHANGEPLANE_REPAIR_ENABLED"]);
         assert.deepEqual(JSON.parse(output), {
@@ -378,12 +754,13 @@ test("the production canary provisioner uses its exact repository and stays disa
       } else {
         await assert.rejects(
           provisionRepairCanary({ writeOutput: (value) => { output += value; } }),
-          /strict up-to-date required checks/u,
+          /merge_queue_required/u,
         );
         assert.deepEqual(writes, expectedPrefix);
         assert.equal(output, "");
       }
-      assert.equal(protectionReads, 2);
+      assert.equal(rulesetReads, 2);
+      assert.equal(calls.filter((call) => call === "POST /app/installations/44/access_tokens").length, 2);
       assert.equal(
         calls.filter((call) => call.includes("/actions/secrets/")).every(
           (call) => call.includes("/repos/acme/canary/actions/secrets/"),
@@ -401,240 +778,70 @@ test("the production canary provisioner uses its exact repository and stays disa
   }
 });
 
-test("autonomous activation fails closed before App-token or secret access without admin and strict branch protection", async () => {
-  for (const scenario of [
-    { name: "write collaborator", admin: false, expectedStatus: 403, expectedError: /admin access is required/u },
-    { name: "non-strict protection", admin: true, strict: false, expectedStatus: 409, expectedError: /up to date before merging/u },
-    { name: "missing protection", admin: true, strictStatus: 404, expectedStatus: 409, expectedError: /strict required status checks/u },
-    { name: "strict protection", admin: true, strict: true, expectedStatus: 403, expectedError: /Actions Secrets write permission/u },
-  ]) {
-    await withGitHubAppEnvironment(async () => {
-      Object.assign(process.env, {
-        CHANGEPLANE_SELF_SERVE_ENABLED: "true",
-        CHANGEPLANE_REPAIR_ENABLED: "true",
-        CHANGEPLANE_REPAIR_GENERATION: "1",
-        CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
-        GITHUB_APP_ID: "101",
-        GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nnot-used-before-secret-access\n-----END PRIVATE KEY-----",
-      });
-      const session = seal({
-        kind: "session",
-        token: "ghu-user-token",
-        login: "alice",
-        csrf: "alice-csrf",
-        authMode: "github_app",
-        installationId: "123",
-        installationIds: ["123"],
-        byokSecretWrite: false,
-      }, SECRET);
-      const calls = [];
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url, options = {}) => {
-        const requestUrl = new URL(String(url));
-        const method = options.method || "GET";
-        calls.push(`${method} ${requestUrl.pathname}`);
-        if (requestUrl.pathname === "/user/installations/123/repositories") {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                repositories: [{
-                  id: 77,
-                  full_name: "alice/private-service",
-                  default_branch: "main",
-                  permissions: { push: true, admin: scenario.admin },
-                }],
-              };
-            },
-          };
-        }
-        if (requestUrl.pathname === "/repos/alice/private-service") {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                id: 77,
-                full_name: "alice/private-service",
-                default_branch: "main",
-                permissions: { push: true, admin: scenario.admin },
-              };
-            },
-          };
-        }
-        if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
-          const status = scenario.strictStatus ?? 200;
-          return {
-            ok: status >= 200 && status < 300,
-            status,
-            headers: { get: () => null },
-            async json() { return { strict: scenario.strict }; },
-            async text() { return "not found"; },
-          };
-        }
-        throw new Error(`Unexpected external call in ${scenario.name}: ${method} ${requestUrl}`);
-      };
-      try {
-        const response = responseRecorder();
-        await handler({
-          method: "POST",
-          url: "/api/github?action=install",
-          headers: {
-            origin: "https://changeplane.example",
-            cookie: `__Host-changeplane_session=${session}`,
-            "content-type": "application/json",
-            "x-changeplane-csrf": "alice-csrf",
-          },
-          body: {
-            repository: "alice/private-service",
-            requiredCheck: { name: "CI / verify", appSlug: "github-actions" },
-            harnessMode: "autonomous",
-          },
-        }, response);
-        assert.equal(response.statusCode, scenario.expectedStatus, scenario.name);
-        assert.match(JSON.parse(response.body).error, scenario.expectedError, scenario.name);
-        assert.equal(calls.some((call) => call.includes("/access_tokens")), false, scenario.name);
-        assert.equal(calls.some((call) => call.includes("/actions/secrets")), false, scenario.name);
-        if (!scenario.admin) {
-          assert.equal(calls.some((call) => call.includes("required_status_checks")), false, scenario.name);
-        }
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+test("fresh onboarding cannot bootstrap Autonomous authority or touch GitHub", async () => {
+  await withGitHubAppEnvironment(async () => {
+    Object.assign(process.env, {
+      CHANGEPLANE_SELF_SERVE_ENABLED: "true",
+      CHANGEPLANE_REPAIR_ENABLED: "true",
+      CHANGEPLANE_REPAIR_GENERATION: "1",
+      CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
+      GITHUB_APP_ID: "101",
+      GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nnot-used-before-rejection\n-----END PRIVATE KEY-----",
     });
-  }
-});
+    const session = seal({
+      kind: "session",
+      token: "ghu-user-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "github_app",
+      installationId: "123",
+      installationIds: ["123"],
+      byokSecretWrite: true,
+    }, SECRET);
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      externalCalls += 1;
+      throw new Error("fresh autonomous rejection must happen before GitHub access");
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: {
+          repository: "alice/private-service",
+          requiredCheck: {
+            name: "CI / verify",
+            appSlug: "github-actions",
+            workflowPath: ".github/workflows/ci.yml",
+          },
+          harnessMode: "autonomous",
+        },
+      }, response);
+      assert.equal(response.statusCode, 409, response.body);
+      assert.match(JSON.parse(response.body).error, /Install Verify Lite first/u);
+      assert.equal(externalCalls, 0);
 
-test("autonomous provisioning stays inert across final admin or branch-protection drift", async () => {
-  await sodium.ready;
-  const box = sodium.crypto_box_keypair();
-  const repositoryPublicKey = sodium.to_base64(box.publicKey, sodium.base64_variants.ORIGINAL);
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" });
-  const scenarios = [
-    { name: "admin revoked", finalAdmin: false, finalStrict: true, expected: /admin access changed/u },
-    { name: "strict protection removed", finalAdmin: true, finalStrict: false, expected: /up to date before merging/u },
-    { name: "authorization remains current", finalAdmin: true, finalStrict: true, expected: null },
-  ];
-  try {
-    for (const scenario of scenarios) {
-      await withGitHubAppEnvironment(async () => {
-        Object.assign(process.env, {
-          CHANGEPLANE_SELF_SERVE_ENABLED: "true",
-          CHANGEPLANE_REPAIR_ENABLED: "false",
-          CHANGEPLANE_REPAIR_GENERATION: "7",
-          CHANGEPLANE_CONTROLLER_SECRET: "c".repeat(64),
-          GITHUB_APP_ID: "101",
-          GITHUB_APP_PRIVATE_KEY: privateKeyPem,
-        });
-        const session = {
+      await assert.rejects(
+        prepareAutonomousHarness("alice/private-service", {
           token: "ghu-user-token",
           authMode: "github_app",
           installationId: "123",
-          installationIds: ["123"],
-          byokSecretWrite: true,
-        };
-        const writes = [];
-        let liveRepoReads = 0;
-        let protectionReads = 0;
-        const originalFetch = globalThis.fetch;
-        globalThis.fetch = async (url, options = {}) => {
-          const requestUrl = new URL(String(url));
-          const method = options.method || "GET";
-          if (requestUrl.pathname === "/user/installations/123/repositories") {
-            return {
-              ok: true,
-              status: 200,
-              async json() {
-                return { repositories: [{
-                  id: 77,
-                  full_name: "alice/private-service",
-                  default_branch: "main",
-                  permissions: { push: true, admin: true },
-                }] };
-              },
-            };
-          }
-          if (requestUrl.pathname === "/repos/alice/private-service") {
-            liveRepoReads += 1;
-            const admin = liveRepoReads === 1 ? true : scenario.finalAdmin;
-            return {
-              ok: true,
-              status: 200,
-              async json() {
-                return { id: 77, full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin } };
-              },
-            };
-          }
-          if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
-            protectionReads += 1;
-            return {
-              ok: true,
-              status: 200,
-              async json() { return { strict: protectionReads === 1 ? true : scenario.finalStrict }; },
-            };
-          }
-          if (requestUrl.pathname === "/app/installations/123/access_tokens" && method === "POST") {
-            return {
-              ok: true,
-              status: 201,
-              async json() {
-                return {
-                  token: "ghs-repository-secrets-token",
-                  expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
-                  repositories: [{ id: 77 }],
-                };
-              },
-            };
-          }
-          if (requestUrl.pathname.endsWith("/actions/secrets/OPENAI_API_KEY") && method === "GET") {
-            return { ok: true, status: 200, async json() { return { name: "OPENAI_API_KEY" }; } };
-          }
-          if (requestUrl.pathname.endsWith("/actions/secrets/public-key")) {
-            return { ok: true, status: 200, async json() { return { key_id: "key-1", key: repositoryPublicKey }; } };
-          }
-          if (requestUrl.pathname.includes("/actions/secrets/") && method === "PUT") {
-            const name = decodeURIComponent(requestUrl.pathname.split("/actions/secrets/")[1]);
-            const body = JSON.parse(options.body);
-            const cipher = sodium.from_base64(body.encrypted_value, sodium.base64_variants.ORIGINAL);
-            const plain = sodium.crypto_box_seal_open(cipher, box.publicKey, box.privateKey);
-            writes.push({ name, value: sodium.to_string(plain) });
-            sodium.memzero(cipher);
-            sodium.memzero(plain);
-            return { ok: true, status: 201 };
-          }
-          throw new Error(`Unexpected ${scenario.name} request: ${method} ${requestUrl.pathname}`);
-        };
-        try {
-          const operation = prepareAutonomousHarness("alice/private-service", session);
-          if (scenario.expected) await assert.rejects(operation, scenario.expected, scenario.name);
-          else await operation;
-          assert.equal(writes[0]?.name, "CHANGEPLANE_REPAIR_ENABLED", scenario.name);
-          assert.equal(writes[0]?.value, "false", scenario.name);
-          assert.deepEqual(
-            writes.filter(({ name }) => name === "CHANGEPLANE_CONTROLLER_HMAC").map(({ value }) => value),
-            ["retired-by-managed-v12"],
-            scenario.name,
-          );
-          assert.equal(writes.some(({ name, value }) => name === "CHANGEPLANE_CONTROLLER_HMAC_V12" && value.length >= 32), true, scenario.name);
-          const activationValues = writes
-            .filter(({ name }) => name === "CHANGEPLANE_REPAIR_ENABLED")
-            .map(({ value }) => value);
-          assert.deepEqual(
-            activationValues,
-            scenario.expected ? ["false"] : ["false", "managed-v12"],
-            scenario.name,
-          );
-        } finally {
-          globalThis.fetch = originalFetch;
-        }
-      });
+        }, { state: "fresh" }),
+        /Install Verify Lite first/u,
+      );
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
-  } finally {
-    sodium.memzero(box.publicKey);
-    sodium.memzero(box.privateKey);
-  }
+  });
 });
 
 test("runtime API rejects an unsupported model before GitHub access", async () => {
@@ -670,57 +877,81 @@ test("runtime API rejects an unsupported model before GitHub access", async () =
   });
 });
 
-test("managed setup vendors the autonomous harness behind trusted policy", () => {
+test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit", () => {
   const files = new Map(buildSetupFiles().map((file) => [file.path, file.content]));
+  assert.equal(files.size, 9);
   for (const expected of [
     "changeplane/action.yml",
     "changeplane/action/index.js",
     "changeplane/src/lib/changeplane.js",
     "changeplane/src/lib/harness.js",
+    "changeplane/examples/changeplane-evidence-policy.js",
+    "changeplane/package.json",
+    "changeplane/manifest.json",
+    ".changeplane.json",
+    ".github/workflows/changeplane.yml",
+  ]) assert.equal(files.has(expected), true, `missing ${expected}`);
+  for (const privilegedPath of [
     "changeplane/src/lib/review.js",
     "changeplane/src/lib/runtime.js",
     "changeplane/server/github-repair-controller.js",
     "changeplane/server/repair-ledger.js",
-    "changeplane/examples/changeplane-claim.js",
-    "changeplane/examples/changeplane-evidence-policy.js",
-    "changeplane/examples/changeplane-grant.js",
-    "changeplane/examples/changeplane-proposal.js",
     "changeplane/examples/changeplane-provider-openai.js",
     "changeplane/examples/changeplane-review-openai.js",
     "changeplane/examples/changeplane-review-run.js",
-    "changeplane/manifest.json",
-    ".changeplane.json",
     ".changeplane/assurance.md",
     ".github/workflows/changeplane-repair.yml",
-    ".github/workflows/changeplane.yml",
-  ]) assert.equal(files.has(expected), true, `missing ${expected}`);
+  ]) assert.equal(files.has(privilegedPath), false, `Verify Lite must omit ${privilegedPath}`);
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
-  assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.managedVersion, 12);
+  assert.equal(manifest.schemaVersion, 2);
+  assert.equal(manifest.managedVersion, 13);
+  assert.equal(manifest.managedProfile, "verify-lite");
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
-    ".github/workflows/changeplane-repair.yml",
     ".github/workflows/changeplane.yml",
     "changeplane/action.yml",
     "changeplane/action/index.js",
-    "changeplane/examples/changeplane-claim.js",
     "changeplane/examples/changeplane-evidence-policy.js",
+    "changeplane/package.json",
+    "changeplane/src/lib/changeplane.js",
+    "changeplane/src/lib/harness.js",
+  ]);
+
+  const fullFiles = new Map(buildSetupFiles({
+    name: "CI / test",
+    appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
+  }, "autonomous").map((file) => [file.path, file.content]));
+  assert.equal(fullFiles.size, 21);
+  for (const expected of [
+    "changeplane/src/lib/review.js",
+    "changeplane/src/lib/runtime.js",
+    "changeplane/server/github-repair-controller.js",
+    "changeplane/server/repair-ledger.js",
+    "changeplane/examples/changeplane-claim.js",
     "changeplane/examples/changeplane-grant.js",
     "changeplane/examples/changeplane-proposal.js",
     "changeplane/examples/changeplane-provider-openai.js",
     "changeplane/examples/changeplane-review-openai.js",
     "changeplane/examples/changeplane-review-run.js",
-    "changeplane/package.json",
-    "changeplane/server/github-repair-controller.js",
-    "changeplane/server/repair-ledger.js",
-    "changeplane/src/lib/changeplane.js",
-    "changeplane/src/lib/harness.js",
-    "changeplane/src/lib/review.js",
-    "changeplane/src/lib/runtime.js",
-  ]);
+    ".changeplane/assurance.md",
+    ".github/workflows/changeplane-repair.yml",
+  ]) assert.equal(fullFiles.has(expected), true, `Full Autonomous is missing ${expected}`);
+  const fullManifest = JSON.parse(fullFiles.get("changeplane/manifest.json"));
+  assert.equal(fullManifest.schemaVersion, 2);
+  assert.equal(fullManifest.managedVersion, 13);
+  assert.equal(fullManifest.managedProfile, "full");
+  assert.equal(Object.keys(fullManifest.managedFiles).length, 18);
 
-  const workflow = files.get(".github/workflows/changeplane.yml");
+  const liteWorkflow = files.get(".github/workflows/changeplane.yml");
+  assert.match(liteWorkflow, /Evaluate the exact pull-request revision/u);
+  assert.match(liteWorkflow, /agent_dispatch: none/u);
+  assert.match(liteWorkflow, /permissions:\n  actions: read\n  checks: read\n  id-token: write/u);
+  assert.doesNotMatch(liteWorkflow, /checks: write/u);
+  assert.doesNotMatch(liteWorkflow, /review_propose:|review_publish:|OPENAI_API_KEY|CONTROLLER_HMAC|CONTROLLER_INSTALLATION_ID/u);
+
+  const workflow = fullFiles.get(".github/workflows/changeplane.yml");
   assert.match(workflow, /pull_request_target:/u);
   assert.match(workflow, /types: \[opened, synchronize, reopened, edited\]/u);
   assert.doesNotMatch(workflow, /\n  push:/u);
@@ -735,7 +966,10 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   assert.match(workflow, /agent_dispatch: \$\{\{ steps\.harness\.outputs\.dispatch \}\}/u);
   assert.match(workflow, /max_remediation_attempts: \$\{\{ steps\.harness\.outputs\.max_attempts \}\}/u);
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/u);
-  assert.match(workflow, /checks: write/u);
+  const workflowPermissions = workflow.match(/permissions:\n([\s\S]*?)\nconcurrency:/u)?.[1] ?? "";
+  assert.match(workflowPermissions, /checks: read/u);
+  assert.match(workflowPermissions, /id-token: write/u);
+  assert.doesNotMatch(workflowPermissions, /checks: write/u);
   assert.match(workflow, /pull-requests: write/u);
   assert.match(workflow, /contents: read/u);
   assert.match(workflow, /deployments: read/u);
@@ -789,8 +1023,8 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   assert.match(actionMetadata, /^  assurance_passport_digest:/mu);
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-  assert.match(appSource, /Assurance for agent-written code/u);
-  assert.match(appSource, /Any coding agent can own the change\. None can own the proof/u);
+  assert.match(appSource, /Agentic SDLC assurance/u);
+  assert.match(appSource, /keeps intent, review, evidence, and delivery tied to the exact commit/u);
   assert.match(appSource, /Portable evidence, never portable authority/u);
   assert.match(installerSource, /\*\*Done when:\*\* open or update one normal pull request/u);
   assert.match(installerSource, /\*\*Neutral\*\* means ChangePlane reported findings without changing merge rules/u);
@@ -805,6 +1039,7 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   assert.deepEqual(policy.evidence, {
     requiredChecks: [],
     protectedPaths: [
+      ".changeplane.json", ".github/workflows/**", "changeplane/**",
       "test/**", "tests/**", "spec/**", "specs/**", "__tests__/**", "e2e/**", "cypress/**",
       "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
       "pyproject.toml", "pytest.ini", "tox.ini", "poetry.lock", "Pipfile", "Pipfile.lock",
@@ -815,11 +1050,17 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   });
   assert.deepEqual(policy.harness, { mode: "observe", maxAttempts: 2, budgetMinutes: 15 });
   assert.deepEqual(policy.review, {
+    mode: "off",
+    maxFindings: 0,
+  });
+  assert.equal(files.has(".changeplane/assurance.md"), false);
+  const fullPolicy = JSON.parse(fullFiles.get(".changeplane.json"));
+  assert.deepEqual(fullPolicy.review, {
     mode: "advisory",
     maxFindings: 5,
     memoryPath: ".changeplane/assurance.md",
   });
-  assert.match(files.get(".changeplane/assurance.md"), /repository-owned context for independent review/u);
+  assert.match(fullFiles.get(".changeplane/assurance.md"), /repository-owned context for independent review/u);
   assert.deepEqual(policy.runtime, {
     funding: "byok",
     provider: "openai",
@@ -832,10 +1073,16 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   const behaviorFiles = new Map(buildSetupFiles({
     name: "CI / test",
     appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
   }).map((file) => [file.path, file.content]));
   assert.deepEqual(JSON.parse(behaviorFiles.get(".changeplane.json")).evidence, {
-    requiredChecks: [{ name: "CI / test", appSlug: "github-actions" }],
+    requiredChecks: [{
+      name: "CI / test",
+      appSlug: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
+    }],
     protectedPaths: [
+      ".changeplane.json", ".github/workflows/**", "changeplane/**",
       "test/**", "tests/**", "spec/**", "specs/**", "__tests__/**", "e2e/**", "cypress/**",
       "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
       "pyproject.toml", "pytest.ini", "tox.ini", "poetry.lock", "Pipfile", "Pipfile.lock",
@@ -847,6 +1094,7 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   const autonomousFiles = new Map(buildSetupFiles({
     name: "CI / test",
     appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
   }, "autonomous").map((file) => [file.path, file.content]));
   assert.deepEqual(JSON.parse(autonomousFiles.get(".changeplane.json")).harness, {
     mode: "autonomous",
@@ -856,6 +1104,7 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
   const verifyFiles = new Map(buildSetupFiles({
     name: "CI / test",
     appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
   }, "verify").map((file) => [file.path, file.content]));
   assert.deepEqual(JSON.parse(verifyFiles.get(".changeplane.json")).harness, {
     mode: "verify",
@@ -874,6 +1123,12 @@ test("managed setup vendors the autonomous harness behind trusted policy", () =>
     () => buildSetupFiles({ name: "ChangePlane / guard", appSlug: "github-actions" }),
     /cannot be ChangePlane \/ guard/u,
   );
+  for (const reservedName of ["ChangePlane guard", "ChangePlane / review"]) {
+    assert.throws(
+      () => buildSetupFiles({ name: reservedName, appSlug: "github-actions" }),
+      /cannot be ChangePlane \/ guard/u,
+    );
+  }
 });
 
 test("managed install classification protects policy and rejects modified reserved bytes", () => {
@@ -886,8 +1141,9 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 12,
-    targetVersion: 12,
+    currentVersion: 13,
+    targetVersion: 13,
+    managedProfile: "verify-lite",
     conflicts: [],
   });
 
@@ -905,13 +1161,13 @@ test("managed install classification protects policy and rejects modified reserv
   assert.match(installerSource, /"changeplane\/examples\/changeplane-provider-openai\.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8"/u);
   const legacyFiles = { ...currentFiles, "changeplane/manifest.json": null };
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
-    state: "outdated",
-    currentVersion: 0,
-    targetVersion: 12,
-    conflicts: [],
+    state: "conflict",
+    currentVersion: null,
+    targetVersion: 13,
+    conflicts: [".github/workflows/changeplane.yml"],
   });
 
-  const modifiedFiles = { ...legacyFiles, "changeplane/action/index.js": "repository-owned modification\n" };
+  const modifiedFiles = { ...currentFiles, "changeplane/action/index.js": "repository-owned modification\n" };
   const modified = classifyManagedInstallation({ files: modifiedFiles, reservedEntries });
   assert.equal(modified.state, "conflict");
   assert.deepEqual(modified.conflicts, ["changeplane/action/index.js"]);
@@ -922,11 +1178,68 @@ test("managed install classification protects policy and rejects modified reserv
   });
   assert.equal(reservedConflict.state, "conflict");
   assert.deepEqual(reservedConflict.conflicts, ["changeplane/custom-hook.js"]);
+
+  const repairWorkflowConflict = classifyManagedInstallation({
+    files: {
+      ...currentFiles,
+      ".github/workflows/changeplane-repair.yml": "name: repository-owned repair\n",
+    },
+    reservedEntries: [...reservedEntries, ".github/workflows/changeplane-repair.yml"],
+  });
+  assert.equal(repairWorkflowConflict.state, "conflict");
+  assert.deepEqual(repairWorkflowConflict.conflicts, [".github/workflows/changeplane-repair.yml"]);
 });
 
-test("pristine v11 is safely classified for a policy-preserving v12 upgrade", () => {
+test("runtime trusts a managed profile only after exact tree and reserved-path verification", () => {
+  const policy = `${JSON.stringify({
+    version: 1,
+    harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
+  }, null, 2)}\n`;
+  const liteManifest = managedVersionSnapshot(13, "verify-lite").manifest;
+  const liteTree = managedRuntimeTreeFixture("verify-lite", policy).payload.tree;
+  assert.deepEqual(classifyManagedRuntimeTree({
+    manifest: liteManifest,
+    policy,
+    treeEntries: liteTree,
+  }), {
+    state: "current",
+    managedProfile: "verify-lite",
+    conflicts: [],
+  });
+
+  const injectedRepair = [
+    ...liteTree,
+    {
+      path: ".github/workflows/changeplane-repair.yml",
+      type: "blob",
+      mode: "100644",
+      sha: "e".repeat(40),
+    },
+  ];
+  assert.deepEqual(classifyManagedRuntimeTree({
+    manifest: liteManifest,
+    policy,
+    treeEntries: injectedRepair,
+  }), {
+    state: "conflict",
+    managedProfile: null,
+    conflicts: [".github/workflows/changeplane-repair.yml"],
+  });
+
+  const forgedFullProfile = classifyManagedRuntimeTree({
+    manifest: managedVersionSnapshot(13, "full").manifest,
+    policy,
+    treeEntries: liteTree,
+  });
+  assert.equal(forgedFullProfile.state, "conflict");
+  assert.equal(forgedFullProfile.managedProfile, null);
+  assert.equal(forgedFullProfile.conflicts.includes("changeplane/src/lib/runtime.js"), true);
+  assert.equal(forgedFullProfile.conflicts.includes(".github/workflows/changeplane-repair.yml"), true);
+});
+
+test("pristine v11 is safely classified for a v13 Full upgrade", () => {
   const v11 = managedVersionSnapshot(11);
-  const v12 = managedVersionSnapshot(12);
+  const v13 = managedVersionSnapshot(13);
   assert.equal(v11.managedVersion, 11);
   assert.equal(Object.keys(v11.managedHashes).length, 18);
   assert.equal(v11.manifest.includes('"managedVersion": 11'), true);
@@ -940,12 +1253,13 @@ test("pristine v11 is safely classified for a policy-preserving v12 upgrade", ()
   }), {
     state: "outdated",
     currentVersion: 11,
-    targetVersion: 12,
+    targetVersion: 13,
+    managedProfile: "full",
     conflicts: [],
   });
 
-  const changedManagedPaths = Object.keys(v12.managedHashes)
-    .filter((filePath) => v11.managedHashes[filePath] !== v12.managedHashes[filePath]);
+  const changedManagedPaths = Object.keys(v13.managedHashes)
+    .filter((filePath) => v11.managedHashes[filePath] !== v13.managedHashes[filePath]);
   assert.equal(changedManagedPaths.length > 0, true);
   assert.equal(changedManagedPaths.includes(".github/workflows/changeplane.yml"), true);
   assert.equal(changedManagedPaths.includes("changeplane/action/index.js"), true);
@@ -962,12 +1276,274 @@ test("pristine v11 is safely classified for a policy-preserving v12 upgrade", ()
   }), {
     state: "conflict",
     currentVersion: null,
-    targetVersion: 12,
+    targetVersion: 13,
     conflicts: ["changeplane/action/index.js"],
   });
 });
 
-test("pristine manifestless install creates one manifest-only v12 upgrade PR from the base commit tree", async () => {
+test("v11/v12 enforce policy recovery is reviewable, defaults to Verify, and cannot retain autonomous authority", () => {
+  const legacyPolicy = `${JSON.stringify({
+    version: 1,
+    ownerPolicy: { protectedService: true },
+    evidence: {
+      requiredChecks: [{ name: "CI / verify", appSlug: "github-actions" }],
+      protectedPaths: [".github/**", "tests/**"],
+      timeoutSeconds: 90,
+    },
+    harness: { mode: "autonomous", maxAttempts: 2, budgetMinutes: 15 },
+    runtime: { provider: "openai", model: "gpt-5.6-luna" },
+  }, null, 2)}\n`;
+  const migration = classifyUpgradePolicyMigration(legacyPolicy);
+  assert.deepEqual(migration, {
+    required: true,
+    reason: "github_actions_workflow_path_required",
+    previousHarnessMode: "autonomous",
+    defaultHarnessMode: "verify",
+    allowedHarnessModes: ["verify", "observe"],
+    policyIncluded: true,
+    ownerSelectionRequired: true,
+    autonomousCredentialsProvisioned: false,
+    legacyGuardPolicyAction: "replace_with_dedicated_app_guard",
+  });
+
+  const exactCheck = {
+    name: "CI / verify",
+    appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
+  };
+  const recovered = JSON.parse(buildUpgradeRecoveryPolicy(legacyPolicy, exactCheck));
+  assert.deepEqual(recovered.ownerPolicy, { protectedService: true });
+  assert.deepEqual(recovered.evidence.requiredChecks, [exactCheck]);
+  assert.deepEqual(recovered.evidence.protectedPaths, [".github/**", "tests/**"]);
+  assert.equal(recovered.evidence.timeoutSeconds, 120);
+  assert.deepEqual(recovered.harness, { mode: "verify", maxAttempts: 2, budgetMinutes: 15 });
+  assert.deepEqual(recovered.runtime, { provider: "openai", model: "gpt-5.6-luna" });
+
+  const scopeOnly = JSON.parse(buildUpgradeRecoveryPolicy(legacyPolicy, null, "observe"));
+  assert.deepEqual(scopeOnly.evidence.requiredChecks, []);
+  assert.equal(scopeOnly.evidence.timeoutSeconds, 0);
+  assert.deepEqual(scopeOnly.harness, { mode: "observe", maxAttempts: 2, budgetMinutes: 15 });
+
+  assert.throws(
+    () => buildUpgradeRecoveryPolicy(legacyPolicy),
+    /defaults to Verify only.*owner-selected exact behavioral Check/iu,
+  );
+  assert.throws(
+    () => buildUpgradeRecoveryPolicy(legacyPolicy, exactCheck, "autonomous"),
+    /cannot retain Autonomous repair/iu,
+  );
+  assert.throws(
+    () => buildUpgradeRecoveryPolicy(legacyPolicy, exactCheck, "observe"),
+    /Scope-only Observe must not include/iu,
+  );
+  assert.throws(
+    () => buildUpgradeRecoveryPolicy(legacyPolicy, {
+      ...exactCheck,
+      name: "ChangePlane / review",
+    }),
+    /cannot be ChangePlane \/ guard.*ChangePlane \/ review/iu,
+  );
+
+  const currentPolicy = `${JSON.stringify({
+    ...JSON.parse(legacyPolicy),
+    evidence: { requiredChecks: [exactCheck], timeoutSeconds: 120 },
+    harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
+  })}\n`;
+  assert.equal(classifyUpgradePolicyMigration(currentPolicy), null);
+});
+
+test("v12 recovery creates one exact reviewed policy upgrade and never provisions autonomous credentials", async () => {
+  const exactCheck = {
+    name: "CI / verify",
+    appSlug: "github-actions",
+    workflowPath: ".github/workflows/ci.yml",
+  };
+  const legacyPolicy = `${JSON.stringify({
+    version: 1,
+    ownerPolicy: { protectedService: true },
+    evidence: {
+      requiredChecks: [{ name: exactCheck.name, appSlug: exactCheck.appSlug }],
+      protectedPaths: ["tests/**"],
+      timeoutSeconds: 90,
+    },
+    harness: { mode: "autonomous", maxAttempts: 2, budgetMinutes: 15 },
+    runtime: { provider: "openai", model: "gpt-5.6-luna" },
+  }, null, 2)}\n`;
+  const recoveredPolicy = buildUpgradeRecoveryPolicy(legacyPolicy, exactCheck);
+  const current = new Map(buildSetupFiles(exactCheck, "autonomous").map(({ path, content }) => [path, content]));
+  current.set(".changeplane.json", legacyPolicy);
+  current.set("changeplane/manifest.json", managedVersionSnapshot(12).manifest);
+  const desiredManifest = new Map(buildSetupFiles(exactCheck, "autonomous").map(({ path, content }) => [path, content]))
+    .get("changeplane/manifest.json");
+  const baseSha = "a".repeat(40);
+  const baseTreeSha = "b".repeat(40);
+  const upgradeTreeSha = "c".repeat(40);
+  const upgradeHeadSha = "d".repeat(40);
+  const shaFor = (content) => createHash("sha1")
+    .update(`blob ${Buffer.byteLength(content)}\0`)
+    .update(content)
+    .digest("hex");
+  const headFiles = new Map([
+    ["changeplane/manifest.json", desiredManifest],
+    [".changeplane.json", recoveredPolicy],
+  ]);
+  const calls = [];
+  let upgradeBranch = null;
+  let upgradePullRequest = null;
+  let upgradeTreeEntries = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    const method = options.method ?? "GET";
+    const body = options.body ? JSON.parse(options.body) : null;
+    calls.push({ path: url.pathname, method, body });
+    if (url.pathname.startsWith("/repos/alice/service/actions/secrets")
+      || url.pathname.includes("/dispatches")) {
+      throw new Error(`Recovery must not call an authority endpoint: ${method} ${url.pathname}`);
+    }
+    if (url.pathname === "/repos/alice/service/contents/changeplane%2Fmanifest.json") {
+      throw new Error("Encoded slashes must stay path segments.");
+    }
+    if (url.pathname.startsWith("/repos/alice/service/contents/")) {
+      const filePath = decodeURIComponent(url.pathname.split("/contents/")[1]);
+      const content = url.searchParams.get("ref") === upgradeHeadSha
+        ? headFiles.get(filePath)
+        : current.get(filePath);
+      return typeof content === "string"
+        ? githubJsonResponse({
+          type: "file",
+          encoding: "base64",
+          sha: shaFor(content),
+          content: Buffer.from(content).toString("base64"),
+        })
+        : githubJsonResponse({}, 404);
+    }
+    if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
+      return githubJsonResponse(upgradePullRequest ? [upgradePullRequest] : []);
+    }
+    if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v13") {
+      return upgradeBranch
+        ? githubJsonResponse({ object: { sha: upgradeBranch } })
+        : githubJsonResponse({}, 404);
+    }
+    if (url.pathname === "/repos/alice/service/git/ref/heads/main") {
+      return githubJsonResponse({ object: { sha: baseSha } });
+    }
+    if (url.pathname === `/repos/alice/service/git/commits/${baseSha}`) {
+      return githubJsonResponse({ tree: { sha: baseTreeSha }, parents: [] });
+    }
+    if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") {
+      return githubJsonResponse({ sha: shaFor(body.content) }, 201);
+    }
+    if (url.pathname === "/repos/alice/service/git/trees" && method === "POST") {
+      assert.equal(body.base_tree, baseTreeSha);
+      assert.deepEqual(body.tree.map(({ path }) => path), [
+        "changeplane/manifest.json",
+        ".changeplane.json",
+      ]);
+      upgradeTreeEntries = body.tree;
+      return githubJsonResponse({ sha: upgradeTreeSha }, 201);
+    }
+    if (url.pathname === "/repos/alice/service/git/commits" && method === "POST") {
+      assert.equal(body.tree, upgradeTreeSha);
+      assert.deepEqual(body.parents, [baseSha]);
+      return githubJsonResponse({ sha: upgradeHeadSha }, 201);
+    }
+    if (url.pathname === "/repos/alice/service/git/refs" && method === "POST") {
+      assert.deepEqual(body, {
+        ref: "refs/heads/changeplane/observe-upgrade-v13",
+        sha: upgradeHeadSha,
+      });
+      upgradeBranch = upgradeHeadSha;
+      return githubJsonResponse({ ref: body.ref, object: { sha: body.sha } }, 201);
+    }
+    if (url.pathname === `/repos/alice/service/git/commits/${upgradeHeadSha}`) {
+      return githubJsonResponse({ tree: { sha: upgradeTreeSha }, parents: [{ sha: baseSha }] });
+    }
+    if (url.pathname === "/repos/alice/service/pulls" && method === "POST") {
+      assert.match(body.body, /replace any legacy `github-actions` branch-policy binding/u);
+      assert.match(body.body, /dedicated ChangePlane App publisher/u);
+      assert.match(body.body, /no repair credential is provisioned/u);
+      upgradePullRequest = {
+        number: 31,
+        html_url: "https://github.com/alice/service/pull/31",
+        state: "open",
+        title: body.title,
+        body: body.body,
+        head: { ref: body.head, sha: upgradeHeadSha, repo: { full_name: "alice/service" } },
+        base: { ref: body.base, sha: baseSha },
+      };
+      return githubJsonResponse(upgradePullRequest, 201);
+    }
+    if (url.pathname === `/repos/alice/service/compare/${baseSha}...${upgradeHeadSha}`) {
+      return githubJsonResponse({
+        base_commit: { sha: baseSha },
+        merge_base_commit: { sha: baseSha },
+        ahead_by: 1,
+        behind_by: 0,
+        total_commits: 1,
+        files: [
+          { filename: "changeplane/manifest.json", status: "modified" },
+          { filename: ".changeplane.json", status: "modified" },
+        ],
+      });
+    }
+    if (url.pathname === `/repos/alice/service/git/trees/${upgradeTreeSha}`) {
+      return githubJsonResponse({ truncated: false, tree: upgradeTreeEntries });
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  };
+
+  const target = {
+    encodedRepository: "alice/service",
+    repo: {
+      full_name: "alice/service",
+      default_branch: "main",
+      permissions: { push: true, admin: true },
+    },
+    baseSha,
+    installation: { state: "outdated", currentVersion: 12, targetVersion: 13 },
+  };
+  try {
+    const first = await createObserveUpgradePullRequest(target, { token: "alice-token" }, exactCheck);
+    assert.equal(first.operation, "upgrade");
+    assert.equal(first.harnessMode, "verify");
+    assert.equal(first.policyIncluded, true);
+    assert.equal(first.policyMigration.previousHarnessMode, "autonomous");
+    assert.equal(first.policyMigration.autonomousCredentialsProvisioned, false);
+    assert.deepEqual(JSON.parse(headFiles.get(".changeplane.json")).evidence.requiredChecks, [exactCheck]);
+    assert.deepEqual(JSON.parse(headFiles.get(".changeplane.json")).harness, {
+      mode: "verify",
+      maxAttempts: 2,
+      budgetMinutes: 15,
+    });
+    assert.deepEqual(upgradeTreeEntries.map(({ path }) => path), [
+      "changeplane/manifest.json",
+      ".changeplane.json",
+    ]);
+    const mutationCount = calls.filter(({ method }) => method !== "GET").length;
+
+    const retry = await createObserveUpgradePullRequest(target, { token: "alice-token" }, exactCheck);
+    assert.equal(retry.pullRequest.number, 31);
+    assert.equal(calls.filter(({ method }) => method !== "GET").length, mutationCount);
+    assert.equal(calls.filter(({ path, method }) => path === "/repos/alice/service/pulls" && method === "POST").length, 1);
+    assert.equal(calls.some(({ path }) => path.includes("/actions/secrets") || path.includes("/dispatches")), false);
+
+    const nonAdminTarget = {
+      ...target,
+      repo: { ...target.repo, permissions: { push: true, admin: false } },
+    };
+    await assert.rejects(
+      () => createObserveUpgradePullRequest(nonAdminTarget, { token: "alice-token" }, exactCheck),
+      /repository administrator must choose/iu,
+    );
+    assert.equal(calls.filter(({ method }) => method !== "GET").length, mutationCount);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pristine manifestless Full install creates one manifest-only v13 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -976,7 +1552,11 @@ test("pristine manifestless install creates one manifest-only v12 upgrade PR fro
       csrf: "alice-csrf",
       authMode: "oauth",
     }, SECRET);
-    const desired = new Map(buildSetupFiles().map(({ path, content }) => [path, content]));
+    const desired = new Map(buildSetupFiles({
+      name: "CI / test",
+      appSlug: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
+    }, "autonomous").map(({ path, content }) => [path, content]));
     desired.set(".changeplane.json", "{\n  \"version\": 1,\n  \"ownerPolicy\": true\n}\n");
     const baseSha = "a".repeat(40);
     const baseTreeSha = "b".repeat(40);
@@ -987,6 +1567,7 @@ test("pristine manifestless install creates one manifest-only v12 upgrade PR fro
     const calls = [];
     let upgradePullRequest = null;
     let upgradeBranch = null;
+    let repoAdmin = true;
     const response = (body, status = 200) => ({
       ok: status >= 200 && status < 300,
       status,
@@ -1001,7 +1582,7 @@ test("pristine manifestless install creates one manifest-only v12 upgrade PR fro
       const body = options.body ? JSON.parse(options.body) : null;
       calls.push({ path: url.pathname, method, body });
       if (url.pathname === "/repos/alice/service" && method === "GET") {
-        return response({ full_name: "alice/service", default_branch: "main", permissions: { push: true } });
+        return response({ full_name: "alice/service", default_branch: "main", permissions: { push: true, admin: repoAdmin } });
       }
       if (url.pathname === "/repos/alice/service/git/ref/heads/main") return response({ object: { sha: baseSha } });
       if (url.pathname === "/repos/alice/service/contents/changeplane") return response([]);
@@ -1037,7 +1618,7 @@ test("pristine manifestless install creates one manifest-only v12 upgrade PR fro
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v12") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v13") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1095,7 +1676,7 @@ test("pristine manifestless install creates one manifest-only v12 upgrade PR fro
           "content-type": "application/json",
           "x-changeplane-csrf": "alice-csrf",
         },
-        body: { repository: "alice/service", requiredCheck: null },
+        body: { repository: "alice/service", requiredCheck: null, harnessMode: "observe" },
       }, recorder);
       return recorder;
     };
@@ -1117,20 +1698,73 @@ test("pristine manifestless install creates one manifest-only v12 upgrade PR fro
           "content-type": "application/json",
           "x-changeplane-csrf": "alice-csrf",
         },
-        body: { repository: "alice/service", requiredCheck: null },
+        body: { repository: "alice/service", requiredCheck: null, harnessMode: "observe" },
       }, secondResponse);
       assert.equal(secondResponse.statusCode, 201);
       assert.equal(JSON.parse(secondResponse.body).operation, "upgrade");
       assert.equal(JSON.parse(secondResponse.body).pullRequest.number, 21);
       assert.equal(calls.filter(({ method }) => method !== "GET").length, firstMutationCount);
       assert.equal(calls.filter(({ path, method }) => path === "/repos/alice/service/pulls" && method === "POST").length, 1);
+
+      desired.set(".changeplane.json", `${JSON.stringify({
+        version: 1,
+        evidence: { requiredChecks: [{ name: "CI / test", appSlug: "github-actions" }] },
+        harness: { mode: "autonomous", maxAttempts: 2, budgetMinutes: 15 },
+      }, null, 2)}\n`);
+      const staleRecoveryPreflight = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fservice",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, staleRecoveryPreflight);
+      assert.equal(staleRecoveryPreflight.statusCode, 200);
+      assert.equal(JSON.parse(staleRecoveryPreflight.body).installable, false);
+      assert.equal(JSON.parse(staleRecoveryPreflight.body).setup.state, "stale");
+      assert.match(JSON.parse(staleRecoveryPreflight.body).setup.message, /Close it and delete changeplane\/observe-upgrade-v13/u);
+      assert.equal(calls.filter(({ method }) => method !== "GET").length, firstMutationCount);
+
+      repoAdmin = false;
+      const ownerRequiredPreflight = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fservice",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, ownerRequiredPreflight);
+      assert.equal(ownerRequiredPreflight.statusCode, 200);
+      assert.equal(JSON.parse(ownerRequiredPreflight.body).installable, false);
+      assert.equal(JSON.parse(ownerRequiredPreflight.body).setup.state, "owner_required");
+      assert.equal(JSON.parse(ownerRequiredPreflight.body).setup.policyMigration.ownerAuthorized, false);
+
+      const nonAdminInstall = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: {
+          repository: "alice/service",
+          requiredCheck: {
+            name: "CI / test",
+            appSlug: "github-actions",
+            workflowPath: ".github/workflows/ci.yml",
+          },
+        },
+      }, nonAdminInstall);
+      assert.equal(nonAdminInstall.statusCode, 403);
+      assert.match(JSON.parse(nonAdminInstall.body).error, /repository administrator must choose/iu);
+      assert.equal(calls.filter(({ method }) => method !== "GET").length, firstMutationCount);
+      assert.equal(calls.some(({ path }) => path.includes("/actions/secrets") || path.includes("/dispatches")), false);
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 });
 
-test("observe setup retries reuse the one GitHub-native setup pull request without writes", async () => {
+test("Verify-first setup defaults a selected Check to Verify and reuses one GitHub-native pull request", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -1139,8 +1773,12 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       csrf: "alice-csrf",
       authMode: "oauth",
     }, SECRET);
-    const configuredCheck = { name: "test", appSlug: "github-actions" };
-    let files = buildSetupFiles(configuredCheck);
+    const configuredCheck = {
+      name: "test",
+      appSlug: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
+    };
+    let files = buildSetupFiles(configuredCheck, "verify");
     let fileContents = new Map(files.map(({ path, content }) => [path, content]));
     const baseSha = "a".repeat(40);
     const headSha = "b".repeat(40);
@@ -1149,9 +1787,11 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
     const blobSha = (content) => createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
     const scope = files.map(({ path }) => path === "changeplane/package.json" ? "changeplane/**" : path);
     let plan = {
-      goal: "Install the ChangePlane observe harness",
+      goal: "Install the ChangePlane verify harness",
       scope: [...new Set(scope)],
-      harnessMode: "observe",
+      harnessMode: "verify",
+      managedVersion: 13,
+      managedProfile: "verify-lite",
       requiredCheck: configuredCheck,
     };
     const calls = [];
@@ -1246,7 +1886,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       assert.match(JSON.parse(implicitScopeResponse.body).error, /explicitly continue/u);
       assert.equal(calls.length, 0);
 
-      const conflictingScopeResponse = responseRecorder();
+      const implicitObserveResponse = responseRecorder();
       await handler({
         method: "POST",
         url: "/api/github?action=install",
@@ -1257,6 +1897,38 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
           "x-changeplane-csrf": "alice-csrf",
         },
         body: { repository: "alice/service", requiredCheck: null },
+      }, implicitObserveResponse);
+      assert.equal(implicitObserveResponse.statusCode, 400);
+      assert.match(JSON.parse(implicitObserveResponse.body).error, /Verify only requires/u);
+      assert.equal(calls.length, 0);
+
+      const observeWithCheckResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: configuredCheck, harnessMode: "observe" },
+      }, observeWithCheckResponse);
+      assert.equal(observeWithCheckResponse.statusCode, 400);
+      assert.match(JSON.parse(observeWithCheckResponse.body).error, /Scope-only Observe.*cannot include/u);
+      assert.equal(calls.length, 0);
+
+      const conflictingScopeResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: null, harnessMode: "observe" },
       }, conflictingScopeResponse);
       assert.equal(conflictingScopeResponse.statusCode, 409);
       assert.match(JSON.parse(conflictingScopeResponse.body).error, /different evidence or harness choice/u);
@@ -1291,7 +1963,7 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
         state: "pending",
         pullRequest: { number: 17, url: "https://github.com/alice/service/pull/17" },
         requiredCheck: configuredCheck,
-        harnessMode: "observe",
+        harnessMode: "verify",
       });
 
       fileContents.set(files[0].path, "tampered setup payload\n");
@@ -1341,7 +2013,13 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       setupBranchHead = headSha;
       files = buildSetupFiles();
       fileContents = new Map(files.map(({ path, content }) => [path, content]));
-      plan = { goal: "Install the ChangePlane observe harness", scope: [...new Set(scope)], harnessMode: "observe" };
+      plan = {
+        goal: "Install the ChangePlane observe harness",
+        scope: [...new Set(scope)],
+        harnessMode: "observe",
+        managedVersion: 13,
+        managedProfile: "verify-lite",
+      };
       const conflictingBehaviorResponse = responseRecorder();
       await handler({
         method: "POST",
@@ -1356,6 +2034,45 @@ test("observe setup retries reuse the one GitHub-native setup pull request witho
       }, conflictingBehaviorResponse);
       assert.equal(conflictingBehaviorResponse.statusCode, 409);
       assert.match(JSON.parse(conflictingBehaviorResponse.body).error, /different evidence or harness choice/u);
+
+      files = buildSetupFiles(configuredCheck, "autonomous");
+      fileContents = new Map(files.map(({ path, content }) => [path, content]));
+      const autonomousScope = files.map(({ path }) => path === "changeplane/package.json" ? "changeplane/**" : path);
+      plan = {
+        goal: "Install the ChangePlane autonomous harness",
+        scope: [...new Set(autonomousScope)],
+        harnessMode: "autonomous",
+        managedVersion: 13,
+        managedProfile: "full",
+        requiredCheck: configuredCheck,
+      };
+      const mutationCountBeforeAutonomousCheck = calls.filter(({ method }) => method !== "GET").length;
+      const autonomousPreflight = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=alice%2Fservice",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, autonomousPreflight);
+      assert.equal(autonomousPreflight.statusCode, 200);
+      assert.equal(JSON.parse(autonomousPreflight.body).installable, false);
+      assert.equal(JSON.parse(autonomousPreflight.body).setup.state, "stale");
+      assert.match(JSON.parse(autonomousPreflight.body).setup.message, /Branch changeplane\/observe-setup.*Delete the branch/u);
+
+      const autonomousRetry = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=install",
+        headers: {
+          cookie: `__Host-changeplane_session=${session}`,
+          origin: "https://changeplane.example",
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/service", requiredCheck: configuredCheck },
+      }, autonomousRetry);
+      assert.equal(autonomousRetry.statusCode, 409);
+      assert.match(JSON.parse(autonomousRetry.body).error, /compatible verified Verify-first setup PR/u);
+      assert.equal(calls.filter(({ method }) => method !== "GET").length, mutationCountBeforeAutonomousCheck);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1477,13 +2194,17 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   assert.match(guardWorkflow, /INPUT_AGENT_DISPATCH: webhook/u);
   assert.match(guardWorkflow, /ref: __CHANGEPLANE_RELEASE_SHA__/u);
   assert.doesNotMatch(guardWorkflow, /statuses: read/u);
-  assert.match(provisioner, /repository_ids: \[repositoryId\][\s\S]*?administration: "read"[\s\S]*?secrets: "write"/u);
+  assert.match(provisioner, /permissions: \{ administration: "read" \}/u);
+  assert.match(provisioner, /permissions: \{ secrets: "write" \}/u);
+  assert.doesNotMatch(provisioner, /permissions: \{[^}]*administration: "read"[^}]*secrets: "write"/u);
+  assert.match(provisioner, /installationToken: readToken/u);
+  assert.match(provisioner, /token: secretsToken/u);
   assert.match(provisioner, /requiredRepository\(\)/u);
   assert.match(provisioner, /CHANGEPLANE_CANARY_REPOSITORY_ID/u);
   assert.match(provisioner, /CHANGEPLANE_CANARY_INSTALLATION_ID/u);
   assert.match(provisioner, /CHANGEPLANE_GITHUB_ADMIN_TOKEN_PATH/u);
   assert.match(provisioner, /adminRepository\.permissions\?\.admin !== true/u);
-  const eligibilityCall = "await requireEligibleCanary({ repository, repositoryId, adminToken, installationToken: installation.token })";
+  const eligibilityCall = "await requireEligibleCanary(eligibility)";
   const firstEligibilityCheck = provisioner.indexOf(eligibilityCall);
   const firstSecretWrite = provisioner.indexOf('name: "CHANGEPLANE_REPAIR_ENABLED", value: "false"');
   const secondEligibilityCheck = provisioner.indexOf(
@@ -1513,11 +2234,16 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
     : "";
   const disableIndex = autonomousProvisioning.indexOf('HARNESS_SECRETS.enabled,\n    "false"');
   const retireLegacyIndex = autonomousProvisioning.indexOf("HARNESS_SECRETS.legacyController");
-  const controllerIndex = autonomousProvisioning.indexOf("[HARNESS_SECRETS.controller, controllerSecret]");
+  const controllerTombstoneIndex = autonomousProvisioning.indexOf("HARNESS_SECRETS.controller", retireLegacyIndex);
   const enableIndex = autonomousProvisioning.indexOf("HARNESS_SECRETS.enabled,\n    MANAGED_REPAIR_ACTIVATION");
+  const controllerCredentialIndex = autonomousProvisioning.lastIndexOf("HARNESS_SECRETS.controller");
   assert.ok(
-    disableIndex > 0 && retireLegacyIndex > disableIndex && controllerIndex > retireLegacyIndex && enableIndex > controllerIndex,
-    "self-serve harness provisioning must disable repair before rotation and enable it last",
+    disableIndex > 0
+      && retireLegacyIndex > disableIndex
+      && controllerTombstoneIndex > retireLegacyIndex
+      && enableIndex > controllerTombstoneIndex
+      && controllerCredentialIndex > enableIndex,
+    "self-serve provisioning must tombstone credentials before rotation and write the usable HMAC last",
   );
   const includedFiles = vercelConfig.functions["api/github.js"].includeFiles;
   assert.equal(
@@ -1615,6 +2341,7 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         githubAppSlug: true,
         sessionSecret: true,
         appOrigin: true,
+        guardPublisher: true,
         sourceProvenance: false,
         canaryRepository: true,
       },
@@ -1665,6 +2392,7 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         githubAppSlug: true,
         sessionSecret: true,
         appOrigin: true,
+        guardPublisher: true,
         sourceProvenance: true,
         canaryRepository: true,
       },
@@ -1686,6 +2414,59 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         },
       },
     });
+  });
+});
+
+test("readiness and onboarding fail closed without the dedicated guard publisher", async () => {
+  await withOAuthEnvironment(async () => {
+    delete process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY;
+
+    const readinessResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+    const readinessPayload = JSON.parse(readinessResponse.body);
+    assert.equal(readinessResponse.statusCode, 503);
+    assert.equal(readinessPayload.status, "configuration_required");
+    assert.equal(readinessPayload.checks.guardPublisher, false);
+
+    process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----";
+    const malformedResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, malformedResponse);
+    assert.equal(malformedResponse.statusCode, 503);
+    assert.equal(JSON.parse(malformedResponse.body).checks.guardPublisher, false);
+
+    const sessionResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+    assert.equal(JSON.parse(sessionResponse.body).configured, false);
+  });
+});
+
+test("readiness permits only explicit reuse of the reviewed GitHub App for guard publication", async () => {
+  await withOAuthEnvironment(async () => {
+    delete process.env.CHANGEPLANE_GUARD_APP_ID;
+    delete process.env.CHANGEPLANE_GUARD_APP_SLUG;
+    delete process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY;
+    Object.assign(process.env, {
+      GITHUB_APP_ID: "424242",
+      GITHUB_APP_SLUG: "changeplane-test",
+      GITHUB_APP_PRIVATE_KEY: TEST_GUARD_PRIVATE_KEY,
+    });
+
+    const closedResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, closedResponse);
+    assert.equal(closedResponse.statusCode, 503);
+    assert.equal(JSON.parse(closedResponse.body).checks.guardPublisher, false);
+
+    process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP = "true";
+    const readyResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readyResponse);
+    assert.equal(readyResponse.statusCode, 200);
+    assert.equal(JSON.parse(readyResponse.body).checks.guardPublisher, true);
+
+    process.env.GITHUB_APP_SLUG = "github-actions";
+    const unsafeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, unsafeResponse);
+    assert.equal(unsafeResponse.statusCode, 503);
+    assert.equal(JSON.parse(unsafeResponse.body).checks.guardPublisher, false);
   });
 });
 
@@ -2321,7 +3102,21 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
           status: 200,
           async json() {
             if (discoveryMode === "empty") return { check_runs: [] };
-            return { check_runs: [{ name: "unit tests", app: { slug: "github-actions" } }] };
+            return { check_runs: [{
+              name: "unit tests",
+              head_sha: pullHeadSha,
+              details_url: "https://github.com/alice/private-service/actions/runs/7001/job/8001",
+              app: { slug: "github-actions" },
+            }] };
+          },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/actions/runs/7001") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { id: 7001, head_sha: pullHeadSha, path: ".github/workflows/ci.yml" };
           },
         };
       }
@@ -2366,17 +3161,37 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       const payload = JSON.parse(response.body);
       assert.equal(payload.installable, true);
       assert.equal(payload.defaultBranch, "main");
-      assert.equal(payload.setupFiles, 21);
+      assert.equal(payload.setupFiles, 9);
+      assert.equal(payload.setupProfile, "verify-lite");
+      assert.deepEqual(payload.payloadProfiles, {
+        verifyLite: {
+          managedProfile: "verify-lite",
+          files: 9,
+          repairAuthority: false,
+          providerKeyRequired: false,
+        },
+        autonomous: {
+          managedProfile: "full",
+          files: 21,
+          repairAuthority: true,
+          providerKeyRequired: true,
+        },
+      });
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 12,
+        targetVersion: 13,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
       assert.deepEqual(payload.setup, { state: "none" });
       assert.deepEqual(payload.evidenceOptions, [
-        { name: "unit tests", appSlug: "github-actions", suggested: true },
+        {
+          name: "unit tests",
+          appSlug: "github-actions",
+          workflowPath: ".github/workflows/ci.yml",
+          suggested: true,
+        },
         { name: "Vercel deployment", appSlug: "vercel", suggested: false },
       ]);
       assert.deepEqual(payload.evidenceDiscovery, { state: "found", checkedHeads: 2 });
@@ -2395,9 +3210,9 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
         budgetMinutes: 15,
       });
       assert.deepEqual(payload.capabilities, {
-        independentReview: true,
+        independentReview: false,
         agentHandback: true,
-        assuranceMemory: true,
+        assuranceMemory: false,
         exactHeadPreview: true,
         mergeQueue: true,
       });
@@ -2486,6 +3301,20 @@ test("runtime status redacts secret metadata from a non-admin writer", async () 
       csrf: "alice-csrf",
     }, SECRET);
     const managedKey = `provider-${"m".repeat(40)}`;
+    const headSha = "a".repeat(40);
+    const policyContent = JSON.stringify({
+      version: 1,
+      evidence: { requiredChecks: [] },
+      runtime: {
+        funding: "byok",
+        provider: "openai",
+        secretName: "OPENAI_API_KEY",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "high",
+        managedSubscription: "reserved",
+      },
+    });
+    const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
     const originalManagedKey = process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY;
     const originalFetch = globalThis.fetch;
     process.env.CHANGEPLANE_MANAGED_OPENAI_API_KEY = managedKey;
@@ -2507,21 +3336,19 @@ test("runtime status redacts secret metadata from a non-admin writer", async () 
         };
       }
       if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
-        return { ok: true, status: 200, async json() { return { object: { sha: "a".repeat(40) } }; } };
+        return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse();
       }
       if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
-        const content = Buffer.from(JSON.stringify({
-          version: 1,
-          runtime: {
-            funding: "byok",
-            provider: "openai",
-            secretName: "OPENAI_API_KEY",
-            model: "gpt-5.6-luna",
-            reasoningEffort: "high",
-            managedSubscription: "reserved",
-          },
-        })).toString("base64");
-        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+        return managedFileResponse(policyContent);
+      }
+      if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)) {
+        return { ok: true, status: 200, async json() { return { tree: { sha: runtimeTree.treeSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+        return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
       }
       throw new Error(`Unexpected request: ${requestUrl}`);
     };
@@ -2551,6 +3378,10 @@ test("runtime status redacts secret metadata from a non-admin writer", async () 
       assert.equal(payload.harness.verifyAvailable, true);
       assert.equal(payload.harness.ready, false);
       assert.equal(payload.model, "gpt-5.6-luna");
+      assert.equal(payload.sdlc.type, "changeplane.agentic-sdlc-view");
+      assert.equal(payload.sdlc.posture, "scope_only");
+      assert.equal(payload.sdlc.stages.find(({ id }) => id === "operate").state, "external");
+      assert.equal(payload.sdlc.authority.merge, "github");
       assert.equal(response.body.includes(managedKey), false);
     } finally {
       globalThis.fetch = originalFetch;
@@ -2560,7 +3391,7 @@ test("runtime status redacts secret metadata from a non-admin writer", async () 
   });
 });
 
-test("runtime status proves active merge blocking from strict protection and the live guard publisher", async () => {
+test("runtime status rejects required Check schema drift before projecting SDLC readiness", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -2569,7 +3400,178 @@ test("runtime status proves active merge blocking from strict protection and the
       csrf: "alice-csrf",
     }, SECRET);
     const headSha = "a".repeat(40);
+    const originalFetch = globalThis.fetch;
+    try {
+      for (const requiredChecks of [
+        [{ name: "test", appSlug: "github-actions", unexpected: true }],
+        [{ name: "test", appSlug: "GitHub-Actions" }],
+        [],
+      ]) {
+        const policyContent = JSON.stringify({
+          version: 1,
+          harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
+          evidence: { requiredChecks },
+          runtime: {
+            funding: "byok",
+            provider: "openai",
+            secretName: "OPENAI_API_KEY",
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            managedSubscription: "reserved",
+          },
+        });
+        const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
+        const calls = [];
+        globalThis.fetch = async (url) => {
+          const requestUrl = new URL(String(url));
+          calls.push(`${requestUrl.pathname}${requestUrl.search}`);
+          if (requestUrl.pathname === "/repos/alice/private-service") {
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return { full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin: true } };
+              },
+            };
+          }
+          if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+            return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
+          }
+          if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+            return managedManifestFileResponse();
+          }
+          if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+            return managedFileResponse(policyContent);
+          }
+          if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)) {
+            return { ok: true, status: 200, async json() { return { tree: { sha: runtimeTree.treeSha } }; } };
+          }
+          if (requestUrl.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+            return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
+          }
+          throw new Error(`Unexpected request: ${requestUrl}`);
+        };
+        const response = responseRecorder();
+        await handler({
+          method: "GET",
+          url: "/api/github?action=runtime&repository=alice%2Fprivate-service",
+          headers: { cookie: `__Host-changeplane_session=${session}` },
+        }, response);
+        assert.equal(response.statusCode, 409);
+        assert.match(JSON.parse(response.body).error, /evidence checks are malformed/u);
+        assert.equal(response.body.includes("changeplane.agentic-sdlc-view"), false);
+        assert.equal(calls.some((call) => call.includes("/rulesets")), false);
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("runtime status rejects a forged Full profile over a Lite managed tree before authority checks", async () => {
+  await withOAuthEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    const headSha = "a".repeat(40);
+    const policyContent = JSON.stringify({
+      version: 1,
+      harness: { mode: "autonomous", maxAttempts: 2, budgetMinutes: 15 },
+      runtime: {
+        funding: "byok",
+        provider: "openai",
+        secretName: "OPENAI_API_KEY",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "high",
+        managedSubscription: "reserved",
+      },
+    });
+    const liteTree = managedRuntimeTreeFixture("verify-lite", policyContent);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      calls.push(requestUrl.pathname);
+      if (requestUrl.pathname === "/repos/alice/private-service") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              full_name: "alice/private-service",
+              default_branch: "main",
+              permissions: { push: true, admin: true },
+            };
+          },
+        };
+      }
+      if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+        return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse("full");
+      }
+      if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+        return managedFileResponse(policyContent);
+      }
+      if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)) {
+        return { ok: true, status: 200, async json() { return { tree: { sha: liteTree.treeSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith(`/git/trees/${liteTree.treeSha}`)) {
+        return { ok: true, status: 200, async json() { return liteTree.payload; } };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=runtime&repository=alice%2Fprivate-service",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+      assert.equal(response.statusCode, 409);
+      assert.match(JSON.parse(response.body).error, /profile-expanded outside a protected pull request/u);
+      assert.equal(calls.some((call) => call.endsWith("/rulesets")), false);
+      assert.equal(calls.some((call) => call.includes("/actions/secrets")), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("runtime status refuses to call classic branch protection a high-assurance merge gate", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    const headSha = "a".repeat(40);
     const pullHeadSha = "b".repeat(40);
+    const policyContent = JSON.stringify({
+      harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
+      evidence: { requiredChecks: [{
+        name: "test",
+        appSlug: "github-actions",
+        workflowPath: ".github/workflows/ci.yml",
+      }] },
+      runtime: {
+        funding: "byok",
+        provider: "openai",
+        secretName: "OPENAI_API_KEY",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "high",
+        managedSubscription: "reserved",
+      },
+    });
+    const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
     const calls = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
@@ -2592,26 +3594,33 @@ test("runtime status proves active merge blocking from strict protection and the
       if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
         return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
       }
+      if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse();
+      }
       if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
-        const content = Buffer.from(JSON.stringify({
-          harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
-          runtime: {
-            funding: "byok",
-            provider: "openai",
-            secretName: "OPENAI_API_KEY",
-            model: "gpt-5.6-luna",
-            reasoningEffort: "high",
-            managedSubscription: "reserved",
-          },
-        })).toString("base64");
-        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+        return managedFileResponse(policyContent);
+      }
+      if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)) {
+        return { ok: true, status: 200, async json() { return { tree: { sha: runtimeTree.treeSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+        return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/rulesets") {
+        return { ok: true, status: 200, async json() { return []; } };
       }
       if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
         return {
           ok: true,
           status: 200,
           async json() {
-            return { strict: true, checks: [{ context: "ChangePlane / guard", app_id: 15368 }] };
+            return {
+              strict: true,
+              checks: [
+                { context: "ChangePlane / guard", app_id: 424242 },
+                { context: "ChangePlane guard", app_id: 15368 },
+              ],
+            };
           },
         };
       }
@@ -2629,7 +3638,28 @@ test("runtime status proves active merge blocking from strict protection and the
           ok: true,
           status: 200,
           async json() {
-            return { check_runs: [{ name: "ChangePlane / guard", app: { id: 15368, slug: "github-actions" } }] };
+            return { check_runs: [
+              {
+                name: "ChangePlane / guard",
+                head_sha: pullHeadSha,
+                app: { id: 424242, slug: "changeplane-test" },
+              },
+              {
+                name: "test",
+                head_sha: pullHeadSha,
+                app: { id: 15368, slug: "github-actions" },
+                details_url: "https://github.com/alice/private-service/actions/runs/7001",
+              },
+            ] };
+          },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/actions/runs/7001") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { id: 7001, head_sha: pullHeadSha, path: ".github/workflows/ci.yml@refs/heads/main" };
           },
         };
       }
@@ -2652,12 +3682,199 @@ test("runtime status proves active merge blocking from strict protection and the
       }, response);
       assert.equal(response.statusCode, 200, `${response.body}\n${calls.join("\n")}`);
       assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
+        source: "ruleset",
+        state: "ruleset_required",
+        active: false,
+        strict: false,
+        mergeQueueRequired: false,
+        guardRequired: false,
+        publisherBound: false,
+        evidenceRequired: false,
+        evidencePublisherBound: false,
+        nextAction: "Add an active branch ruleset targeting the default branch, then recheck this repository.",
+      });
+      const sdlc = JSON.parse(response.body).sdlc;
+      assert.equal(sdlc.posture, "verification_ready");
+      assert.equal(sdlc.stages.find(({ id }) => id === "verify").state, "controlled");
+      assert.equal(sdlc.stages.find(({ id }) => id === "release").state, "action_required");
+      assert.equal(sdlc.authority.contributesToPass, false);
+      assert.equal(calls.some((call) => call.includes("/branches/main/protection")), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("runtime status proves active merge blocking from one strict default-branch ruleset", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+    }, SECRET);
+    const headSha = "a".repeat(40);
+    const pullHeadSha = "b".repeat(40);
+    const policyContent = JSON.stringify({
+      harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
+      evidence: { requiredChecks: [{
+        name: "test",
+        appSlug: "github-actions",
+        workflowPath: ".github/workflows/ci.yml",
+      }] },
+      runtime: {
+        funding: "byok",
+        provider: "openai",
+        secretName: "OPENAI_API_KEY",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "high",
+        managedSubscription: "reserved",
+      },
+    });
+    const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      calls.push(`${requestUrl.pathname}${requestUrl.search}`);
+      if (requestUrl.pathname === "/repos/alice/private-service") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              id: 77,
+              full_name: "alice/private-service",
+              default_branch: "main",
+              permissions: { push: true, admin: true },
+            };
+          },
+        };
+      }
+      if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
+        return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse();
+      }
+      if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
+        return managedFileResponse(policyContent);
+      }
+      if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)) {
+        return { ok: true, status: 200, async json() { return { tree: { sha: runtimeTree.treeSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+        return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/rulesets") {
+        return { ok: true, status: 200, async json() { return [{ id: 42 }]; } };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/rulesets/42") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              id: 42,
+              source_type: "Organization",
+              target: "branch",
+              enforcement: "active",
+              bypass_actors: [],
+              conditions: {
+                ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
+                repository_name: { include: ["private-service"], exclude: [], protected: true },
+              },
+              rules: [
+                { type: "merge_queue" },
+                {
+                  type: "required_status_checks",
+                  parameters: {
+                    strict_required_status_checks_policy: true,
+                    required_status_checks: [
+                      { context: "ChangePlane / guard", integration_id: 424242 },
+                      { context: "test", integration_id: 15368 },
+                    ],
+                  },
+                },
+              ],
+            };
+          },
+        };
+      }
+      if (requestUrl.pathname.endsWith("/pulls")) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return [{ head: { sha: pullHeadSha, repo: { full_name: "alice/private-service" } } }];
+          },
+        };
+      }
+      if (requestUrl.pathname === `/repos/alice/private-service/commits/${pullHeadSha}/check-runs`) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { check_runs: [
+              {
+                name: "ChangePlane / guard",
+                head_sha: pullHeadSha,
+                app: { id: 424242, slug: "changeplane-test" },
+              },
+              {
+                name: "test",
+                head_sha: pullHeadSha,
+                app: { id: 15368, slug: "github-actions" },
+                details_url: "https://github.com/alice/private-service/actions/runs/7001",
+              },
+            ] };
+          },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/actions/runs/7001") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { id: 7001, head_sha: pullHeadSha, path: ".github/workflows/ci.yml@main" };
+          },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/actions/secrets/OPENAI_API_KEY") {
+        return {
+          ok: false,
+          status: 404,
+          headers: { get: () => "github-request-ruleset-secret" },
+          async text() { return "not found"; },
+        };
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=runtime&repository=alice%2Fprivate-service",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+      assert.equal(response.statusCode, 200, `${response.body}\n${calls.join("\n")}`);
+      assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
+        source: "ruleset",
         state: "active",
         active: true,
         strict: true,
+        mergeQueueRequired: true,
         guardRequired: true,
         publisherBound: true,
+        evidenceRequired: true,
+        evidencePublisherBound: true,
+        nextAction: "No action is required; one active default-branch GitHub Ruleset has no bypasses, requires merge queue and strict status checks, and binds the ChangePlane guard plus every behavioral evidence check to its expected publisher.",
       });
+      assert.equal(JSON.parse(response.body).sdlc.posture, "merge_gate_active");
+      assert.equal(JSON.parse(response.body).sdlc.authority.merge, "github");
+      assert.equal(calls.some((call) => call.includes("/branches/main/protection")), false);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -2726,6 +3943,20 @@ test("BYOK save rechecks admin after provider verification and performs no secre
   await withOAuthEnvironment(async () => {
     const session = seal({ kind: "session", token: "alice-token", login: "alice", csrf: "alice-csrf" }, SECRET);
     const apiKey = `provider-${"r".repeat(40)}`;
+    const headSha = "a".repeat(40);
+    const policyContent = JSON.stringify({
+      version: 1,
+      evidence: { requiredChecks: [] },
+      runtime: {
+        funding: "byok",
+        provider: "openai",
+        secretName: "OPENAI_API_KEY",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "high",
+        managedSubscription: "reserved",
+      },
+    });
+    const runtimeTree = managedRuntimeTreeFixture("full", policyContent);
     const calls = [];
     let repoReads = 0;
     const originalFetch = globalThis.fetch;
@@ -2752,21 +3983,19 @@ test("BYOK save rechecks admin after provider verification and performs no secre
         };
       }
       if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
-        return { ok: true, status: 200, async json() { return { object: { sha: "a".repeat(40) } }; } };
+        return { ok: true, status: 200, async json() { return { object: { sha: headSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse("full");
       }
       if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
-        const content = Buffer.from(JSON.stringify({
-          version: 1,
-          runtime: {
-            funding: "byok",
-            provider: "openai",
-            secretName: "OPENAI_API_KEY",
-            model: "gpt-5.6-luna",
-            reasoningEffort: "high",
-            managedSubscription: "reserved",
-          },
-        })).toString("base64");
-        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+        return managedFileResponse(policyContent);
+      }
+      if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)) {
+        return { ok: true, status: 200, async json() { return { tree: { sha: runtimeTree.treeSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+        return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
       }
       throw new Error(`Unexpected external call: ${method} ${requestUrl}`);
     };
@@ -2801,6 +4030,21 @@ test("repository BYOK encrypts and rotates directly in GitHub Actions without ec
     const repositoryPublicKey = sodium.to_base64(keyPair.publicKey, sodium.base64_variants.ORIGINAL);
     const apiKey = `provider-${"s".repeat(40)}`;
     const rotatedApiKey = `provider-${"r".repeat(40)}`;
+    const driftedApiKey = `provider-${"d".repeat(40)}`;
+    const headSha = "a".repeat(40);
+    const policyContent = JSON.stringify({
+      version: 1,
+      evidence: { requiredChecks: [] },
+      runtime: {
+        funding: "byok",
+        provider: "openai",
+        secretName: "OPENAI_API_KEY",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "high",
+        managedSubscription: "reserved",
+      },
+    });
+    const runtimeTree = managedRuntimeTreeFixture("full", policyContent);
     const session = seal({
       kind: "session",
       token: "alice-token",
@@ -2808,12 +4052,14 @@ test("repository BYOK encrypts and rotates directly in GitHub Actions without ec
       csrf: "alice-csrf",
     }, SECRET);
     const storedSecrets = [];
+    let headReads = 0;
+    let driftOnNextSave = false;
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
       const method = options.method || "GET";
       if (requestUrl.origin === "https://api.openai.com" && requestUrl.pathname === "/v1/models/gpt-5.6-luna") {
-        assert.equal([`Bearer ${apiKey}`, `Bearer ${rotatedApiKey}`].includes(options.headers.authorization), true);
+        assert.equal([`Bearer ${apiKey}`, `Bearer ${rotatedApiKey}`, `Bearer ${driftedApiKey}`].includes(options.headers.authorization), true);
         return {
           ok: true,
           status: 200,
@@ -2830,21 +4076,22 @@ test("repository BYOK encrypts and rotates directly in GitHub Actions without ec
         };
       }
       if (requestUrl.pathname.endsWith("/git/ref/heads/main")) {
-        return { ok: true, status: 200, async json() { return { object: { sha: "a".repeat(40) } }; } };
+        headReads += 1;
+        const sha = driftOnNextSave && headReads % 2 === 0 ? "b".repeat(40) : headSha;
+        return { ok: true, status: 200, async json() { return { object: { sha } }; } };
+      }
+      if (requestUrl.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse("full");
       }
       if (requestUrl.pathname.endsWith("/contents/.changeplane.json")) {
-        const content = Buffer.from(JSON.stringify({
-          version: 1,
-          runtime: {
-            funding: "byok",
-            provider: "openai",
-            secretName: "OPENAI_API_KEY",
-            model: "gpt-5.6-luna",
-            reasoningEffort: "high",
-            managedSubscription: "reserved",
-          },
-        })).toString("base64");
-        return { ok: true, status: 200, async json() { return { type: "file", encoding: "base64", content }; } };
+        return managedFileResponse(policyContent);
+      }
+      if (requestUrl.pathname.endsWith(`/git/commits/${headSha}`)
+        || requestUrl.pathname.endsWith(`/git/commits/${"b".repeat(40)}`)) {
+        return { ok: true, status: 200, async json() { return { tree: { sha: runtimeTree.treeSha } }; } };
+      }
+      if (requestUrl.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+        return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
       }
       if (requestUrl.pathname.endsWith("/actions/secrets/public-key")) {
         return {
@@ -2912,6 +4159,24 @@ test("repository BYOK encrypts and rotates directly in GitHub Actions without ec
       assert.equal(sodium.to_string(rotatedPlaintext), rotatedApiKey);
       sodium.memzero(rotatedCipher);
       sodium.memzero(rotatedPlaintext);
+
+      driftOnNextSave = true;
+      const driftResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=byok",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: { repository: "alice/private-service", apiKey: driftedApiKey },
+      }, driftResponse);
+      assert.equal(driftResponse.statusCode, 409);
+      assert.match(JSON.parse(driftResponse.body).error, /default branch or managed payload changed/u);
+      assert.equal(driftResponse.body.includes(driftedApiKey), false);
+      assert.equal(storedSecrets.length, 2);
     } finally {
       sodium.memzero(keyPair.publicKey);
       sodium.memzero(keyPair.privateKey);
@@ -3130,13 +4395,13 @@ test("GitHub App onboarding installs first, then verifies the installation throu
               installations: [{
                 id: 12345,
                 permissions: {
+                  actions: "read",
                   administration: "read",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
-                  checks: "read",
-                  secrets: "write",
                   checks: "write",
+                  secrets: "write",
                 },
               }],
             };
@@ -3210,11 +4475,12 @@ test("returning GitHub App users authorize without reopening installation settin
                 id: 98765,
                 app_slug: "changeplane-test",
                 permissions: {
+                  actions: "read",
                   administration: "read",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
-                  checks: "read",
+                  checks: "write",
                 },
               }],
             };
@@ -3326,12 +4592,12 @@ test("returning authorization keeps every eligible personal and organization ins
                 {
                   id: 1,
                   app_slug: "changeplane-test",
-                  permissions: { administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
+                  permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
                 },
                 {
                   id: 2,
                   app_slug: "changeplane-test",
-                  permissions: { administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "read", secrets: "write" },
+                  permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
                 },
               ],
             };
@@ -3445,6 +4711,942 @@ test("GitHub App repository picker combines eligible personal and organization i
         "alice/personal-service",
         "acme/platform-service",
       ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("public Origin boundary proof runs without a session or external request", async () => {
+  await withOAuthEnvironment(async () => {
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      externalCalls += 1;
+      throw new Error("The synthetic Origin proof must not call an external service");
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=origin-proof",
+        headers: {},
+      }, response);
+
+      assert.equal(response.statusCode, 200);
+      const proof = JSON.parse(response.body);
+      assert.equal(proof.type, "changeplane.cursor-origin-boundary-proof");
+      assert.equal(proof.execution.fixtureKind, "SYNTHETIC");
+      assert.equal(proof.execution.externalRequests, 0);
+      assert.equal(proof.compatibility.githubMirroredOrigin, "CANDIDATE_THROUGH_GITHUB");
+      assert.equal(proof.compatibility.standaloneOrigin, "UNSUPPORTED_NOT_TESTED");
+      assert.equal(proof.summary.allPassed, true);
+      assert.equal(proof.summary.originBoundaryCases, 3);
+      assert.equal(proof.assertions.every(({ passed }) => passed), true);
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("OIDC-authenticated guard publication re-fetches authority and writes only through the dedicated App", async () => {
+  await withOAuthEnvironment(async () => {
+    const fixture = assuranceProofApiFixture();
+    const passport = buildAssurancePassport(fixture.receipt);
+    const policyContent = JSON.stringify(fixture.policy);
+    const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
+    const { privateKey: appPrivateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { privateKey: oidcPrivateKey, publicKey: oidcPublicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY = appPrivateKey.export({ type: "pkcs8", format: "pem" });
+
+    const nowSeconds = Math.floor(Date.now() / 1_000);
+    const oidcHeader = Buffer.from(JSON.stringify({
+      alg: "RS256",
+      typ: "JWT",
+      kid: "changeplane-api-test",
+    })).toString("base64url");
+    const oidcPayload = Buffer.from(JSON.stringify({
+      iss: "https://token.actions.githubusercontent.com",
+      aud: "https://changeplane.vercel.app/guard-publisher/v1",
+      exp: nowSeconds + 300,
+      nbf: nowSeconds - 10,
+      iat: nowSeconds - 10,
+      repository: fixture.repository,
+      repository_id: String(fixture.repositoryId),
+      workflow_ref: `${fixture.repository}/.github/workflows/changeplane.yml@refs/heads/main`,
+      workflow_sha: fixture.baseSha,
+      ref: "refs/heads/main",
+      event_name: "pull_request_target",
+      run_id: "8001",
+      run_attempt: "1",
+      jti: "changeplane-api-test-8001-1",
+      sha: fixture.baseSha,
+      base_ref: "main",
+    })).toString("base64url");
+    const oidcInput = `${oidcHeader}.${oidcPayload}`;
+    const oidcSignature = sign("RSA-SHA256", Buffer.from(oidcInput), {
+      key: oidcPrivateKey,
+      padding: constants.RSA_PKCS1_PADDING,
+    }).toString("base64url");
+    const oidcToken = `${oidcInput}.${oidcSignature}`;
+    const jwk = oidcPublicKey.export({ format: "jwk" });
+    const calls = [];
+    let latestEvidenceChecks = [fixture.evidenceCheck];
+    let evidenceWorkflowPath = ".github/workflows/ci.yml@refs/heads/main";
+    let associatedPullRequests = [fixture.pullRequest];
+    let liveGuardCheck = null;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, options = {}) => {
+      const url = new URL(String(input));
+      const method = options.method ?? "GET";
+      calls.push({ method, path: url.pathname, search: url.search, options });
+      if (url.origin === "https://token.actions.githubusercontent.com") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { keys: [{ ...jwk, kid: "changeplane-api-test", use: "sig", alg: "RS256", key_ops: ["verify"] }] };
+          },
+        };
+      }
+      if (url.pathname === `/repos/${fixture.repository}/installation`) {
+        return githubJsonResponse({ id: 7007, app_id: 424242, app_slug: "changeplane-test" });
+      }
+      if (url.pathname === "/app/installations/7007/access_tokens") {
+        const requested = JSON.parse(options.body);
+        const kind = requested.permissions.checks;
+        return githubJsonResponse({
+          token: kind === "write" ? "ghs_guard_write_only" : "ghs_guard_read_only",
+          expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+          permissions: requested.permissions,
+          repositories: [{ id: fixture.repositoryId }],
+        }, 201);
+      }
+      if (url.pathname === `/repos/${fixture.repository}`) {
+        return githubJsonResponse({
+          id: fixture.repositoryId,
+          full_name: fixture.repository,
+          default_branch: "main",
+        });
+      }
+      if (url.pathname.endsWith("/git/ref/heads/main")) {
+        return githubJsonResponse({ object: { sha: fixture.baseSha } });
+      }
+      if (url.pathname.endsWith("/contents/.changeplane.json")) {
+        return managedFileResponse(policyContent);
+      }
+      if (url.pathname.endsWith("/contents/changeplane/manifest.json")) {
+        return managedManifestFileResponse("verify-lite");
+      }
+      if (url.pathname.endsWith(`/git/commits/${fixture.baseSha}`)) {
+        return githubJsonResponse({ tree: { sha: runtimeTree.treeSha } });
+      }
+      if (url.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) {
+        return githubJsonResponse(runtimeTree.payload);
+      }
+      if (url.pathname.endsWith(`/check-runs/${fixture.evidenceCheck.id}`)) {
+        return githubJsonResponse(fixture.evidenceCheck);
+      }
+      if (url.pathname.endsWith("/actions/runs/7001")) {
+        return githubJsonResponse({
+          id: 7001,
+          head_sha: fixture.headSha,
+          path: evidenceWorkflowPath,
+        });
+      }
+      if (url.pathname.endsWith(`/pulls/${fixture.pullRequestNumber}`)) {
+        return githubJsonResponse(fixture.pullRequest);
+      }
+      if (url.pathname.endsWith(`/commits/${fixture.headSha}/pulls`)) {
+        return githubJsonResponse(associatedPullRequests);
+      }
+      if (url.pathname.endsWith(`/commits/${fixture.headSha}/check-runs`) && method === "GET") {
+        if (url.searchParams.get("check_name") === fixture.evidenceCheck.name) {
+          return githubJsonResponse({
+            total_count: latestEvidenceChecks.length,
+            check_runs: latestEvidenceChecks,
+          });
+        }
+        assert.equal(url.searchParams.get("check_name"), "ChangePlane / guard");
+        return githubJsonResponse({
+          total_count: liveGuardCheck ? 1 : 0,
+          check_runs: liveGuardCheck ? [liveGuardCheck] : [],
+        });
+      }
+      if (url.pathname === `/repos/${fixture.repository}/check-runs` && method === "POST") {
+        const payload = JSON.parse(options.body);
+        liveGuardCheck = {
+          id: 919,
+          ...payload,
+          app: { id: 424242, slug: "changeplane-test" },
+        };
+        return githubJsonResponse(liveGuardCheck, 201);
+      }
+      if (url.pathname === `/repos/${fixture.repository}/check-runs/919` && method === "PATCH") {
+        const payload = JSON.parse(options.body);
+        liveGuardCheck = { ...liveGuardCheck, ...payload, output: payload.output };
+        return githubJsonResponse(liveGuardCheck);
+      }
+      throw new Error(`Unexpected guard publication request: ${method} ${url.pathname}${url.search}`);
+    };
+    try {
+      const prematureCompletion = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, prematureCompletion);
+      assert.equal(prematureCompletion.statusCode, 409, prematureCompletion.body);
+      assert.match(JSON.parse(prematureCompletion.body).error, /not invalidated/iu);
+
+      const beginResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-begin",
+          repository: fixture.repository,
+          repositoryId: fixture.repositoryId,
+          defaultBranch: "main",
+          controllerSha: fixture.baseSha,
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          target: {
+            type: "pull_request",
+            pullRequestNumber: fixture.pullRequestNumber,
+            baseSha: fixture.baseSha,
+            headSha: fixture.headSha,
+            baseRef: "main",
+            headRef: "agent/retry-fix",
+          },
+        },
+      }, beginResponse);
+      assert.equal(beginResponse.statusCode, 200, beginResponse.body);
+      assert.equal(JSON.parse(beginResponse.body).check.status, "in_progress");
+
+      const writesBeforeIdempotentBegin = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      const writeTokensBeforeIdempotentBegin = calls.filter(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )).length;
+      const idempotentBegin = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-begin",
+          repository: fixture.repository,
+          repositoryId: fixture.repositoryId,
+          defaultBranch: "main",
+          controllerSha: fixture.baseSha,
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          target: {
+            type: "pull_request",
+            pullRequestNumber: fixture.pullRequestNumber,
+            baseSha: fixture.baseSha,
+            headSha: fixture.headSha,
+            baseRef: "main",
+            headRef: "agent/retry-fix",
+          },
+        },
+      }, idempotentBegin);
+      assert.equal(idempotentBegin.statusCode, 200, idempotentBegin.body);
+      assert.equal(calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length, writesBeforeIdempotentBegin);
+      assert.equal(calls.filter(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )).length, writeTokensBeforeIdempotentBegin);
+
+      associatedPullRequests = [
+        fixture.pullRequest,
+        { ...fixture.pullRequest, number: fixture.pullRequestNumber + 1 },
+      ];
+      const writesBeforeAmbiguousHead = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      const writeTokensBeforeAmbiguousHead = calls.filter(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )).length;
+      const ambiguousHeadCompletion = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, ambiguousHeadCompletion);
+      assert.equal(ambiguousHeadCompletion.statusCode, 409, ambiguousHeadCompletion.body);
+      assert.match(JSON.parse(ambiguousHeadCompletion.body).error, /stale|trusted workflow boundary/iu);
+      assert.equal(liveGuardCheck.status, "in_progress");
+      assert.equal(calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length, writesBeforeAmbiguousHead);
+      assert.equal(calls.filter(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )).length, writeTokensBeforeAmbiguousHead);
+      associatedPullRequests = [fixture.pullRequest];
+
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, response);
+
+      assert.equal(response.statusCode, 200, response.body);
+      const result = JSON.parse(response.body);
+      assert.equal(result.type, "changeplane.guard-publication");
+      assert.equal(result.passportDigest, passport.digest);
+      assert.deepEqual(result.check, {
+        id: 919,
+        name: "ChangePlane / guard",
+        headSha: fixture.headSha,
+        conclusion: "success",
+        publisherAppId: 424242,
+        publisherAppSlug: "changeplane-test",
+      });
+      const writesBeforeCompletionReplay = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      const writeTokensBeforeCompletionReplay = calls.filter(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )).length;
+      const completionReplay = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, completionReplay);
+      assert.equal(completionReplay.statusCode, 200, completionReplay.body);
+      assert.equal(JSON.parse(completionReplay.body).passportDigest, passport.digest);
+      assert.equal(calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length, writesBeforeCompletionReplay);
+      assert.equal(calls.filter(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )).length, writeTokensBeforeCompletionReplay);
+      const tokenRequests = calls.filter(({ path }) => path === "/app/installations/7007/access_tokens")
+        .map(({ options }) => JSON.parse(options.body).permissions);
+      assert.deepEqual(tokenRequests, [
+        { actions: "read", checks: "read", contents: "read", pull_requests: "read" },
+        { actions: "read", checks: "read", contents: "read", pull_requests: "read" },
+        { checks: "write" },
+        { actions: "read", checks: "read", contents: "read", pull_requests: "read" },
+        { actions: "read", checks: "read", contents: "read", pull_requests: "read" },
+        { actions: "read", checks: "read", contents: "read", pull_requests: "read" },
+        { checks: "write" },
+        { actions: "read", checks: "read", contents: "read", pull_requests: "read" },
+      ]);
+      assert.equal(calls.some(({ method, path }) => method === "PATCH" && path === `/repos/${fixture.repository}/check-runs/919`), true);
+      assert.equal(calls.some(({ options }) => options.headers?.authorization === "Bearer alice-token"), false);
+
+      const writesBeforeBeginReplay = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      const beginReplay = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-begin",
+          repository: fixture.repository,
+          repositoryId: fixture.repositoryId,
+          defaultBranch: "main",
+          controllerSha: fixture.baseSha,
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          target: {
+            type: "pull_request",
+            pullRequestNumber: fixture.pullRequestNumber,
+            baseSha: fixture.baseSha,
+            headSha: fixture.headSha,
+            baseRef: "main",
+            headRef: "agent/retry-fix",
+          },
+        },
+      }, beginReplay);
+      assert.equal(beginReplay.statusCode, 409, beginReplay.body);
+      assert.match(JSON.parse(beginReplay.body).error, /immutable evaluation|new commit/iu);
+      assert.equal(calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length, writesBeforeBeginReplay + 1);
+      assert.equal(liveGuardCheck.status, "completed");
+      assert.equal(liveGuardCheck.conclusion, "action_required");
+
+      const writesBeforeWorkflowMismatch = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      evidenceWorkflowPath = ".github/workflows/spoof.yml@refs/heads/main";
+      const workflowMismatchResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, workflowMismatchResponse);
+      assert.equal(workflowMismatchResponse.statusCode, 409, workflowMismatchResponse.body);
+      assert.match(JSON.parse(workflowMismatchResponse.body).error, /evidence changed/iu);
+      assert.equal(calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length, writesBeforeWorkflowMismatch);
+      evidenceWorkflowPath = ".github/workflows/ci.yml@refs/heads/main";
+
+      const guardWritesBeforeStaleAttempt = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      latestEvidenceChecks = [
+        fixture.evidenceCheck,
+        {
+          ...fixture.evidenceCheck,
+          id: fixture.evidenceCheck.id + 1,
+          status: "completed",
+          conclusion: "failure",
+          created_at: "2026-08-31T00:01:00Z",
+          completed_at: "2026-08-31T00:02:00Z",
+        },
+      ];
+      const staleResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, staleResponse);
+      assert.equal(staleResponse.statusCode, 409, staleResponse.body);
+      assert.match(JSON.parse(staleResponse.body).error, /evidence changed/iu);
+      const guardWritesAfterStaleAttempt = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      assert.equal(guardWritesAfterStaleAttempt, guardWritesBeforeStaleAttempt);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("guard publication rejects an unauthenticated workflow before any GitHub App request", async () => {
+  await withOAuthEnvironment(async () => {
+    const fixture = assuranceProofApiFixture();
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" });
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      externalCalls += 1;
+      throw new Error("Unverified publication must not reach GitHub");
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${"x".repeat(120)}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport: buildAssurancePassport(fixture.receipt),
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, response);
+
+      assert.equal(response.statusCode, 403);
+      assert.match(JSON.parse(response.body).error, /OIDC.*authentication failed/iu);
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("controlled-canary guard publication rejects missing, invalid, or mismatched scope before any external request", async (t) => {
+  for (const scenario of [
+    { name: "missing canary repository", repository: null, vercel: true, status: 503 },
+    { name: "invalid canary repository", repository: "not-a-repository", vercel: false, status: 503 },
+    { name: "different repository", repository: "acme/approved-canary", vercel: false, status: 403 },
+  ]) {
+    await t.test(scenario.name, async () => {
+      await withOAuthEnvironment(async () => {
+        const fixture = assuranceProofApiFixture();
+        const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+        process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+        process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+        process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" });
+        if (scenario.repository === null) delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+        else process.env.CHANGEPLANE_CANARY_REPOSITORY = scenario.repository;
+        if (scenario.vercel) {
+          Object.assign(process.env, {
+            VERCEL: "1",
+            VERCEL_ENV: "production",
+            VERCEL_GIT_PROVIDER: "github",
+            VERCEL_GIT_REPO_OWNER: "LeChiffreVol2",
+            VERCEL_GIT_REPO_SLUG: "changeplane",
+            VERCEL_GIT_COMMIT_REF: "main",
+            VERCEL_GIT_COMMIT_SHA: "c".repeat(40),
+          });
+        } else delete process.env.VERCEL;
+        let externalCalls = 0;
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => {
+          externalCalls += 1;
+          throw new Error("Out-of-scope publication must not call GitHub or the OIDC issuer");
+        };
+        try {
+          const response = responseRecorder();
+          await handler({
+            method: "POST",
+            url: "/api/github?action=guard-publish",
+            headers: {
+              authorization: `Bearer ${"x".repeat(120)}`,
+              "content-type": "application/json",
+            },
+            body: {
+              schemaVersion: 1,
+              type: "changeplane.guard-publication-request",
+              repository: fixture.repository,
+              defaultBranch: "main",
+              gitRef: "refs/heads/main",
+              workflowRunId: 8001,
+              workflowRunAttempt: 1,
+              passport: buildAssurancePassport(fixture.receipt),
+              summary: fixture.guardCheck.output.summary,
+            },
+          }, response);
+
+          assert.equal(response.statusCode, scenario.status, response.body);
+          assert.match(JSON.parse(response.body).error, /canary|CHANGEPLANE_CANARY_REPOSITORY/iu);
+          assert.equal(externalCalls, 0);
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+    });
+  }
+});
+
+test("live assurance proof denies unauthenticated access before GitHub", async () => {
+  await withOAuthEnvironment(async () => {
+    let externalCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      externalCalls += 1;
+      throw new Error("GitHub must not be called without a connected session");
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=proof&repository=acme%2Fpayments&checkRunId=909",
+        headers: {},
+      }, response);
+
+      assert.equal(response.statusCode, 401);
+      assert.match(JSON.parse(response.body).error, /connect github first/iu);
+      assert.equal(externalCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("authenticated live assurance proof re-fetches exact-head GitHub evidence", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    const fixture = assuranceProofApiFixture();
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "oauth",
+    }, SECRET);
+    const originalFetch = globalThis.fetch;
+    const proofFetch = assuranceProofFetch(fixture);
+    globalThis.fetch = proofFetch;
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=proof&repository=${encodeURIComponent(fixture.repository)}&checkRunId=${fixture.guardCheck.id}&passportDigest=${fixture.passportDigest}`,
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+
+      assert.equal(response.statusCode, 200, response.body);
+      const proof = JSON.parse(response.body);
+      assert.equal(proof.type, "changeplane.live-assurance-proof");
+      assert.equal(proof.verdict, "VERIFIED_CURRENT");
+      assert.equal(proof.currentness, "CURRENT");
+      assert.equal(proof.claimLevel, "BEHAVIORAL_PASS");
+      assert.equal(proof.decision.currentBehavioralPass, true);
+      assert.deepEqual(proof.target, {
+        type: "pull_request",
+        repositoryId: fixture.repositoryId,
+        pullRequestNumber: fixture.pullRequestNumber,
+        headSha: fixture.headSha,
+        baseSha: fixture.baseSha,
+      });
+      assert.equal(proof.guard.checkRunId, fixture.guardCheck.id);
+      assert.equal(proof.guard.publisherAppId, 424242);
+      assert.equal(proof.guard.publisherTrust, "DEDICATED_CHANGEPLANE_APP");
+      assert.equal(proof.checks.every(({ state }) => state === "PASS"), true);
+      assert.deepEqual(proofFetch.calls.map(({ path }) => path), [
+        `/repos/${fixture.repository}`,
+        `/repos/${fixture.repository}/check-runs/${fixture.guardCheck.id}`,
+        `/repos/${fixture.repository}/contents/.changeplane.json`,
+        `/repos/${fixture.repository}/pulls/${fixture.pullRequestNumber}`,
+        `/repos/${fixture.repository}/commits/${fixture.headSha}/pulls`,
+        `/repos/${fixture.repository}/check-runs/${fixture.evidenceCheck.id}`,
+        `/repos/${fixture.repository}/commits/${fixture.headSha}/check-runs`,
+        `/repos/${fixture.repository}/actions/runs/7001`,
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("live assurance proof rejects a head shared by multiple open pull requests", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    const fixture = assuranceProofApiFixture();
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "oauth",
+    }, SECRET);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = assuranceProofFetch(fixture, {
+      associatedPullRequests: [
+        fixture.pullRequest,
+        { ...fixture.pullRequest, number: fixture.pullRequestNumber + 1 },
+      ],
+    });
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=proof&repository=${encodeURIComponent(fixture.repository)}&checkRunId=${fixture.guardCheck.id}&passportDigest=${fixture.passportDigest}`,
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+      assert.equal(response.statusCode, 200, response.body);
+      const proof = JSON.parse(response.body);
+      assert.equal(proof.verdict, "INVALID");
+      assert.equal(proof.decision.currentBehavioralPass, false);
+      assert.equal(proof.checks.find(({ id }) => id === "current-target")?.state, "FAIL");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("live assurance proof invalidates policy or evidence drift", async (t) => {
+  for (const scenario of [
+    {
+      name: "trusted-base policy drift",
+      overrides: {
+        policy: {
+          version: 1,
+          evidence: { requiredChecks: [{
+            name: "CI / changed",
+            appSlug: "github-actions",
+            workflowPath: ".github/workflows/ci.yml",
+          }] },
+        },
+      },
+      failedCheck: "trusted-policy",
+    },
+    {
+      name: "live evidence drift",
+      overrides: (fixture) => ({
+        evidenceCheck: { ...fixture.evidenceCheck, conclusion: "failure" },
+      }),
+      failedCheck: "live-evidence",
+    },
+    {
+      name: "GitHub Actions workflow provenance drift",
+      overrides: { workflowPath: ".github/workflows/spoof.yml" },
+      failedCheck: "live-evidence",
+    },
+  ]) {
+    await t.test(scenario.name, async () => {
+      await withOAuthEnvironment(async () => {
+        process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+        process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+        const fixture = assuranceProofApiFixture();
+        const session = seal({
+          kind: "session",
+          token: "alice-token",
+          login: "alice",
+          csrf: "alice-csrf",
+          authMode: "oauth",
+        }, SECRET);
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = assuranceProofFetch(
+          fixture,
+          typeof scenario.overrides === "function" ? scenario.overrides(fixture) : scenario.overrides,
+        );
+        try {
+          const response = responseRecorder();
+          await handler({
+            method: "GET",
+            url: `/api/github?action=proof&repository=${encodeURIComponent(fixture.repository)}&checkRunId=${fixture.guardCheck.id}&passportDigest=${fixture.passportDigest}`,
+            headers: { cookie: `__Host-changeplane_session=${session}` },
+          }, response);
+
+          assert.equal(response.statusCode, 200, response.body);
+          const proof = JSON.parse(response.body);
+          assert.equal(proof.verdict, "INVALID");
+          assert.equal(proof.decision.currentBehavioralPass, false);
+          assert.equal(proof.checks.find(({ id }) => id === scenario.failedCheck)?.state, "FAIL");
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+    });
+  }
+});
+
+test("live assurance proof requires the passport Check Run to remain the latest publisher-bound evidence", async (t) => {
+  const scenarios = [
+    {
+      name: "newer failing rerun",
+      newer: (fixture) => ({
+        ...fixture.evidenceCheck,
+        id: fixture.evidenceCheck.id + 1,
+        conclusion: "failure",
+        created_at: "2026-08-31T00:01:00Z",
+        completed_at: "2026-08-31T00:02:00Z",
+      }),
+      verdict: "INVALID",
+    },
+    {
+      name: "in-progress rerun wins an equal timestamp by higher Check Run id",
+      newer: (fixture) => ({
+        ...fixture.evidenceCheck,
+        id: fixture.evidenceCheck.id + 1,
+        status: "in_progress",
+        conclusion: null,
+        created_at: fixture.evidenceCheck.created_at,
+        completed_at: null,
+      }),
+      verdict: "INVALID",
+    },
+    {
+      name: "newer successful rerun still invalidates the older receipt id",
+      newer: (fixture) => ({
+        ...fixture.evidenceCheck,
+        id: fixture.evidenceCheck.id + 1,
+        created_at: "2026-08-31T00:01:00Z",
+        completed_at: "2026-08-31T00:02:00Z",
+      }),
+      verdict: "INVALID",
+    },
+    {
+      name: "same-name Check from another publisher is not eligible",
+      newer: (fixture) => ({
+        ...fixture.evidenceCheck,
+        id: fixture.evidenceCheck.id + 1,
+        app: { id: 999999, slug: "lookalike-ci" },
+        conclusion: "failure",
+        created_at: "2026-08-31T00:01:00Z",
+        completed_at: "2026-08-31T00:02:00Z",
+      }),
+      verdict: "VERIFIED_CURRENT",
+    },
+  ];
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      await withOAuthEnvironment(async () => {
+        process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+        process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+        const fixture = assuranceProofApiFixture();
+        const session = seal({
+          kind: "session",
+          token: "alice-token",
+          login: "alice",
+          csrf: "alice-csrf",
+          authMode: "oauth",
+        }, SECRET);
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = assuranceProofFetch(fixture, {
+          evidenceCheckRuns: [fixture.evidenceCheck, scenario.newer(fixture)],
+        });
+        try {
+          const response = responseRecorder();
+          await handler({
+            method: "GET",
+            url: `/api/github?action=proof&repository=${encodeURIComponent(fixture.repository)}&checkRunId=${fixture.guardCheck.id}&passportDigest=${fixture.passportDigest}`,
+            headers: { cookie: `__Host-changeplane_session=${session}` },
+          }, response);
+
+          assert.equal(response.statusCode, 200, response.body);
+          const proof = JSON.parse(response.body);
+          assert.equal(proof.verdict, scenario.verdict);
+          assert.equal(proof.decision.currentBehavioralPass, scenario.verdict === "VERIFIED_CURRENT");
+          assert.equal(
+            proof.checks.find(({ id }) => id === "live-evidence")?.state,
+            scenario.verdict === "VERIFIED_CURRENT" ? "PASS" : "FAIL",
+          );
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+    });
+  }
+});
+
+test("live assurance proof rejects a green Check that is unrelated to the trusted policy", async () => {
+  await withOAuthEnvironment(async () => {
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    const fixture = assuranceProofApiFixture({
+      evidence: { name: "CI / unrelated" },
+    });
+    const session = seal({
+      kind: "session",
+      token: "alice-token",
+      login: "alice",
+      csrf: "alice-csrf",
+      authMode: "oauth",
+    }, SECRET);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = assuranceProofFetch(fixture);
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "GET",
+        url: `/api/github?action=proof&repository=${encodeURIComponent(fixture.repository)}&checkRunId=${fixture.guardCheck.id}&passportDigest=${fixture.passportDigest}`,
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, response);
+
+      assert.equal(response.statusCode, 200, response.body);
+      const proof = JSON.parse(response.body);
+      assert.equal(proof.verdict, "INVALID");
+      assert.equal(proof.claimLevel, "NON_PASS");
+      assert.equal(proof.checks.find(({ id }) => id === "policy-evidence-contract")?.state, "FAIL");
     } finally {
       globalThis.fetch = originalFetch;
     }

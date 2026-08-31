@@ -2,12 +2,18 @@ import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-import { matchesPathRule, normalizeRepoPath } from "../src/lib/changeplane.js";
-import { DEFAULT_PROPOSAL_MODEL, proposalModel } from "../src/lib/runtime.js";
+import {
+  matchesPathRule,
+  normalizeRepoPath,
+} from "../src/lib/changeplane.js";
+import {
+  DEFAULT_PROPOSAL_MODEL,
+  proposalModel,
+  validateBoundedPatchProposal,
+} from "../src/lib/runtime.js";
 import { isEvidenceControlPath } from "./changeplane-evidence-policy.js";
 import { requestOpenAIProposal } from "./changeplane-provider-openai.js";
 
-const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_CONTEXT_BYTES = 160 * 1024;
 const MAX_CONTEXT_FILES = 40;
 const SAFE_PROVIDER_REQUEST_ID = /^[A-Za-z0-9._:-]{1,200}$/u;
@@ -25,48 +31,8 @@ function allowedRules(value) {
   });
 }
 
-function stripPatchFence(value) {
-  const content = String(value ?? "").trim();
-  const fenced = content.match(/^```(?:diff)?\n([\s\S]*?)\n```$/u);
-  return (fenced ? fenced[1] : content).trim();
-}
-
 export function validatePatchProposal(value, rules) {
-  const patch = stripPatchFence(value);
-  if (!patch || Buffer.byteLength(patch) > MAX_PATCH_BYTES || patch.includes("\0") || patch.includes("\r")) {
-    throw new Error("The proposal patch is empty or exceeds the bounded patch format.");
-  }
-  if (!patch.startsWith("diff --git ") || /^\*\*\* (?:Begin|End) Patch$/mu.test(patch)) {
-    throw new Error("The proposal must contain only a unified Git patch.");
-  }
-  if (/^(?:new file mode|deleted file mode|old mode|new mode|similarity index|rename from|rename to|copy from|copy to|GIT binary patch|Binary files )/mu.test(patch)) {
-    throw new Error("Repair proposals may modify existing text files only.");
-  }
-
-  const allowed = allowedRules(rules);
-  const sections = patch.split(/(?=^diff --git )/mu).filter(Boolean);
-  const paths = [];
-  for (const section of sections) {
-    const firstLine = section.slice(0, section.indexOf("\n") === -1 ? undefined : section.indexOf("\n"));
-    const match = firstLine.match(/^diff --git a\/([^\s]+) b\/([^\s]+)$/u);
-    if (!match || match[1] !== match[2]) {
-      throw new Error("Repair proposals cannot add, delete, copy, or rename files.");
-    }
-    const filePath = normalizeRepoPath(match[1]);
-    if (paths.includes(filePath)) throw new Error(`The proposal repeats a patch section for ${filePath}.`);
-    if (!allowed.some((rule) => matchesPathRule(filePath, rule))) {
-      throw new Error(`The proposal edits a path outside its repair grant: ${filePath}.`);
-    }
-    if (isEvidenceControlPath(filePath)) {
-      throw new Error(`The proposal edits protected evidence or test control: ${filePath}.`);
-    }
-    if (!section.includes(`\n--- a/${filePath}\n+++ b/${filePath}\n`) || !/^@@ /mu.test(section)) {
-      throw new Error(`The proposal for ${filePath} is not a standard text modification patch.`);
-    }
-    paths.push(filePath);
-  }
-  if (paths.length === 0) throw new Error("The proposal patch contains no file modifications.");
-  return { patch: `${patch}\n`, paths };
+  return validateBoundedPatchProposal(value, rules, { isProtectedPath: isEvidenceControlPath });
 }
 
 function trackedFiles({ baseSha, headSha, rules }) {

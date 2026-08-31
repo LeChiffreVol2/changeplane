@@ -31,8 +31,11 @@ const REVIEW_CODES = new Set([
   'EVIDENCE_PENDING',
   'EVIDENCE_MISSING',
   'EVIDENCE_SOURCE_MISMATCH',
+  'EVIDENCE_PROVENANCE_MISMATCH',
 ]);
 const MAX_EVIDENCE_DIAGNOSTIC_LENGTH = 6_000;
+const GITHUB_ACTIONS_APP_SLUG = 'github-actions';
+const GITHUB_WORKFLOW_PATH = /^\.github\/workflows\/[^/\\\u0000-\u001f\u007f]{1,260}\.ya?ml$/u;
 
 function normalizeEvidenceDiagnostic(value) {
   if (typeof value !== 'string') return null;
@@ -240,8 +243,9 @@ export function evaluateEvidence({ requiredChecks = [], checks = [] } = {}) {
 
   const requirements = requiredChecks.map((requirement) => {
     if (typeof requirement === 'string' && requirement.trim()) {
-      return { name: requirement.trim(), appSlug: null };
+      return { name: requirement.trim(), appSlug: null, workflowPath: null };
     }
+    const workflowPath = requirement?.workflowPath ?? null;
     if (
       !requirement
       || typeof requirement !== 'object'
@@ -250,11 +254,18 @@ export function evaluateEvidence({ requiredChecks = [], checks = [] } = {}) {
       || !requirement.name.trim()
       || typeof requirement.appSlug !== 'string'
       || !/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u.test(requirement.appSlug)
-      || Object.keys(requirement).some((key) => key !== 'name' && key !== 'appSlug')
+      || Object.keys(requirement).some((key) => !['name', 'appSlug', 'workflowPath'].includes(key))
+      || (workflowPath != null && (
+        requirement.appSlug !== GITHUB_ACTIONS_APP_SLUG
+        || typeof workflowPath !== 'string'
+        || workflowPath.length > 300
+        || workflowPath !== workflowPath.trim()
+        || !GITHUB_WORKFLOW_PATH.test(workflowPath)
+      ))
     ) {
-      throw new TypeError('Each required check must be a name or { name, appSlug }');
+      throw new TypeError('Each required check must be a name or { name, appSlug, workflowPath? }');
     }
-    return { name: requirement.name.trim(), appSlug: requirement.appSlug };
+    return { name: requirement.name.trim(), appSlug: requirement.appSlug, workflowPath };
   });
 
   const byName = new Map();
@@ -267,12 +278,19 @@ export function evaluateEvidence({ requiredChecks = [], checks = [] } = {}) {
   }
 
   const reasons = [];
-  const evidence = requirements.map(({ name, appSlug }) => {
+  const evidence = requirements.map(({ name, appSlug, workflowPath }) => {
     const named = byName.get(name) ?? [];
-    const eligible = appSlug ? named.filter(({ source }) => source === appSlug) : named;
+    const sourceEligible = appSlug ? named.filter(({ source }) => source === appSlug) : named;
+    const eligible = workflowPath
+      ? sourceEligible.filter((check) => check.workflowPath === workflowPath)
+      : sourceEligible;
     const check = eligible.sort((left, right) => right.timestamp - left.timestamp)[0];
     if (!check) {
-      const code = appSlug && named.length > 0 ? 'EVIDENCE_SOURCE_MISMATCH' : 'EVIDENCE_MISSING';
+      const code = workflowPath && sourceEligible.length > 0
+        ? 'EVIDENCE_PROVENANCE_MISMATCH'
+        : appSlug && named.length > 0
+          ? 'EVIDENCE_SOURCE_MISMATCH'
+          : 'EVIDENCE_MISSING';
       reasons.push({ code, path: `check:${name}`, pathKind: 'evidence' });
       return { name, source: null, expectedSource: appSlug, status: 'MISSING', conclusion: null };
     }

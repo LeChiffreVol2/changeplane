@@ -15,10 +15,8 @@ import {
   evaluateEvidence,
   planAutonomousDecision,
 } from "../src/lib/changeplane.js";
-import {
-  effectiveProtectedPaths,
-  evidenceProtectedPaths,
-} from "../examples/changeplane-evidence-policy.js";
+import { effectiveProtectedPaths } from "../examples/changeplane-evidence-policy.js";
+import { githubWorkflowFilePath } from "../src/lib/harness.js";
 import {
   canonicalJson,
   issueRepairGrant,
@@ -316,6 +314,53 @@ export function validateControllerRequest(request, { expectedDeliveryId } = {}) 
   return request;
 }
 
+function validateInstallationTokenPermissions(value, expected, label) {
+  const permissions = plainObject(value, `${label} permissions`);
+  for (const [name, permission] of Object.entries(permissions)) {
+    if (name === "metadata") {
+      if (permission !== "read") throw new Error(`${label} permissions are broader than requested`);
+      continue;
+    }
+    if (!Object.hasOwn(expected, name) || permission !== expected[name]) {
+      throw new Error(`${label} permissions are broader than requested`);
+    }
+  }
+  if (Object.entries(expected).some(([name, permission]) => permissions[name] !== permission)) {
+    throw new Error(`${label} permissions are incomplete`);
+  }
+}
+
+async function createScopedInstallationAccessToken({
+  appId,
+  privateKey,
+  installationId,
+  repositoryId,
+  permissions,
+  request,
+  now,
+  label,
+}) {
+  if (typeof request !== "function") throw new TypeError("GitHub request function is required");
+  if (!validPositiveInteger(installationId) || !validPositiveInteger(repositoryId) || !Number.isFinite(now)) {
+    throw new Error(`${label} scope is invalid`);
+  }
+  const jwt = createGitHubAppJwt({ appId, privateKey, now });
+  const payload = await request(`/app/installations/${installationId}/access_tokens`, jwt, {
+    method: "POST",
+    body: { repository_ids: [repositoryId], permissions },
+  });
+  const expiresAt = typeof payload?.expires_at === "string" ? Date.parse(payload.expires_at) : Number.NaN;
+  validateInstallationTokenPermissions(payload?.permissions, permissions, label);
+  if (typeof payload?.token !== "string" || !payload.token || payload.token.length > 4_096
+    || /[\u0000-\u0020\u007f]/u.test(payload.token)
+    || !Array.isArray(payload?.repositories) || payload.repositories.length !== 1
+    || payload.repositories[0]?.id !== repositoryId
+    || !Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + (65 * 60 * 1_000)) {
+    throw new Error(`GitHub returned an invalid ${label}`);
+  }
+  return Object.freeze({ token: payload.token, expiresAt: new Date(expiresAt).toISOString() });
+}
+
 export async function createInstallationAccessToken({
   appId,
   privateKey,
@@ -324,28 +369,22 @@ export async function createInstallationAccessToken({
   request,
   now = Date.now(),
 }) {
-  if (typeof request !== "function") throw new TypeError("GitHub request function is required");
-  if (!validPositiveInteger(installationId) || !validPositiveInteger(repositoryId)) {
-    throw new Error("GitHub App installation scope is invalid");
-  }
-  const jwt = createGitHubAppJwt({ appId, privateKey, now });
-  const payload = await request(`/app/installations/${installationId}/access_tokens`, jwt, {
-    method: "POST",
-    body: {
-      repository_ids: [repositoryId],
-      permissions: {
-        actions: "read",
-        checks: "write",
-        contents: "write",
-        pull_requests: "read",
-      },
+  const credential = await createScopedInstallationAccessToken({
+    appId,
+    privateKey,
+    installationId,
+    repositoryId,
+    permissions: {
+      actions: "read",
+      checks: "read",
+      contents: "read",
+      pull_requests: "read",
     },
+    request,
+    now,
+    label: "read-only repair credential",
   });
-  if (typeof payload?.token !== "string" || !payload.token || !Array.isArray(payload.repositories)
-    || payload.repositories.length !== 1 || payload.repositories[0]?.id !== repositoryId) {
-    throw new Error("GitHub returned an invalid repository-scoped installation token");
-  }
-  return payload.token;
+  return credential.token;
 }
 
 export async function createSecretsWriteInstallationAccessToken({
@@ -356,28 +395,20 @@ export async function createSecretsWriteInstallationAccessToken({
   request,
   now = Date.now(),
 }) {
-  if (typeof request !== "function") throw new TypeError("GitHub request function is required");
-  if (!validPositiveInteger(installationId) || !validPositiveInteger(repositoryId) || !Number.isFinite(now)) {
-    throw new Error("GitHub App BYOK scope is invalid");
-  }
-  const jwt = createGitHubAppJwt({ appId, privateKey, now });
-  const payload = await request(`/app/installations/${installationId}/access_tokens`, jwt, {
-    method: "POST",
-    body: {
-      repository_ids: [repositoryId],
-      permissions: { secrets: "write" },
-    },
+  const credential = await createScopedInstallationAccessToken({
+    appId,
+    privateKey,
+    installationId,
+    repositoryId,
+    permissions: { secrets: "write" },
+    request,
+    now,
+    label: "repository-scoped BYOK credential",
   });
-  const expiresAt = Date.parse(payload?.expires_at);
-  if (typeof payload?.token !== "string" || !payload.token || !Array.isArray(payload.repositories)
-    || payload.repositories.length !== 1 || payload.repositories[0]?.id !== repositoryId
-    || !Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + (65 * 60 * 1_000)) {
-    throw new Error("GitHub returned an invalid repository-scoped BYOK credential");
-  }
-  return payload.token;
+  return credential.token;
 }
 
-async function createContentsWriteInstallationAccessToken({
+async function createChecksWriteInstallationAccessToken({
   appId,
   privateKey,
   installationId,
@@ -385,25 +416,32 @@ async function createContentsWriteInstallationAccessToken({
   request,
   now = Date.now(),
 }) {
-  if (typeof request !== "function") throw new TypeError("GitHub request function is required");
-  if (!validPositiveInteger(installationId) || !validPositiveInteger(repositoryId) || !Number.isFinite(now)) {
-    throw new Error("GitHub App push credential scope is invalid");
-  }
-  const jwt = createGitHubAppJwt({ appId, privateKey, now });
-  const payload = await request(`/app/installations/${installationId}/access_tokens`, jwt, {
-    method: "POST",
-    body: {
-      repository_ids: [repositoryId],
-      permissions: { contents: "write" },
-    },
+  return createScopedInstallationAccessToken({
+    appId,
+    privateKey,
+    installationId,
+    repositoryId,
+    permissions: { checks: "write" },
+    request,
+    now,
+    label: "Checks-only repair credential",
   });
-  const expiresAt = Date.parse(payload?.expires_at);
-  if (typeof payload?.token !== "string" || !payload.token || !Array.isArray(payload.repositories)
-    || payload.repositories.length !== 1 || payload.repositories[0]?.id !== repositoryId
-    || !Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + (65 * 60 * 1_000)) {
-    throw new Error("GitHub returned an invalid short-lived repository push credential");
-  }
-  return { token: payload.token, expiresAt: new Date(expiresAt).toISOString() };
+}
+
+async function createContentsWriteInstallationAccessToken(options) {
+  return createScopedInstallationAccessToken({
+    ...options,
+    permissions: { contents: "write" },
+    label: options.label ?? "short-lived repository push credential",
+  });
+}
+
+function deferredCredentialToken(factory, options) {
+  let pending;
+  return async () => {
+    pending ??= factory(options);
+    return (await pending).token;
+  };
 }
 
 function encodedRepository(repository) {
@@ -449,11 +487,11 @@ function decodePolicy(file, path) {
   return policy;
 }
 
-function protectedPathRules(policy) {
+function protectedPathRules(policy, actualFiles = []) {
+  const protectedPaths = effectiveProtectedPaths(policy, actualFiles);
   const values = [
-    ...(Array.isArray(policy.protectedPaths.requireApproval) ? policy.protectedPaths.requireApproval : []),
-    ...(Array.isArray(policy.protectedPaths.block) ? policy.protectedPaths.block : []),
-    ...evidenceProtectedPaths(policy),
+    ...protectedPaths.requireApproval,
+    ...protectedPaths.block,
   ];
   if (values.some((value) => typeof value !== "string")) throw new Error("Policy protected paths are invalid");
   return [...new Set(values)].sort();
@@ -513,6 +551,24 @@ function checkDiagnostic(check, annotations) {
   ].filter(Boolean).join("\n").slice(0, MAX_DIAGNOSTIC_LENGTH);
 }
 
+function canonicalGithubActionsRunId(detailsUrl, repository) {
+  if (typeof detailsUrl !== "string"
+    || typeof repository !== "string"
+    || !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(repository)) return null;
+  let parsed;
+  try {
+    parsed = new URL(detailsUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com" || parsed.port
+    || parsed.username || parsed.password || parsed.search || parsed.hash) return null;
+  const prefix = `/${repository}/actions/runs/`;
+  if (!parsed.pathname.startsWith(prefix)) return null;
+  const match = parsed.pathname.slice(prefix.length).match(/^([1-9][0-9]{0,19})(?:\/job\/[1-9][0-9]{0,19})?$/u);
+  return match?.[1] ?? null;
+}
+
 async function evidenceResult(repository, headSha, policy, token, request) {
   const requiredChecks = policy.evidence?.requiredChecks ?? [];
   if (!Array.isArray(requiredChecks) || requiredChecks.some((item) => typeof item === "string")) {
@@ -521,9 +577,27 @@ async function evidenceResult(repository, headSha, policy, token, request) {
   if (requiredChecks.length === 0) return evaluateEvidence();
   const encoded = encodedRepository(repository);
   const checkPayload = await request(`/repos/${encoded}/commits/${headSha}/check-runs?filter=latest&per_page=100`, token);
-  const required = new Set(requiredChecks.map(({ name, appSlug }) => `${name}\0${appSlug}`));
+  const required = new Map(requiredChecks.map(({ name, appSlug, workflowPath }) => (
+    [`${name}\0${appSlug}`, workflowPath ?? null]
+  )));
+  const actionRuns = new Map();
   const checks = Array.isArray(checkPayload?.check_runs) ? await Promise.all(checkPayload.check_runs.map(async (check) => {
     const source = check.check_suite?.app?.slug ?? check.app?.slug ?? null;
+    const workflowPath = required.get(`${check.name}\0${source}`) ?? null;
+    let verifiedWorkflowPath = null;
+    if (source === "github-actions" && typeof workflowPath === "string" && check.head_sha === headSha) {
+      const runId = canonicalGithubActionsRunId(check.details_url, repository);
+      if (runId) {
+        if (!actionRuns.has(runId)) {
+          actionRuns.set(runId, request(`/repos/${encoded}/actions/runs/${runId}`, token));
+        }
+        const run = await actionRuns.get(runId);
+        if (String(run?.id ?? "") === runId && run?.head_sha === headSha
+          && githubWorkflowFilePath(run?.path) === workflowPath) {
+          verifiedWorkflowPath = workflowPath;
+        }
+      }
+    }
     const needsDiagnostic = check.status === "completed" && check.conclusion !== "success"
       && required.has(`${check.name}\0${source}`);
     let annotations = [];
@@ -543,6 +617,7 @@ async function evidenceResult(repository, headSha, policy, token, request) {
       createdAt: check.started_at,
       completedAt: check.completed_at,
       source,
+      ...(verifiedWorkflowPath ? { workflowPath: verifiedWorkflowPath } : {}),
       ...(diagnostic ? { diagnostic } : {}),
     };
   })) : [];
@@ -556,6 +631,7 @@ function sameFinding(left, right) {
 export async function buildTrustedRepairCandidate({
   controllerRequest,
   installationToken,
+  getChecksWriteToken,
   appId,
   publisherReleaseSha,
   generation,
@@ -633,7 +709,14 @@ export async function buildTrustedRepairCandidate({
       reference,
       expected,
     });
-    await assertLedgerAnchor({ request, token: installationToken, repository: change.repository, expected, snapshot });
+    await assertLedgerAnchor({
+      request,
+      token: installationToken,
+      getChecksWriteToken,
+      repository: change.repository,
+      expected,
+      snapshot,
+    });
     if (snapshot.tipSha) {
       if (snapshot.envelopes.length < 1) {
         throw new Error("The automatic repair contract lacks a signed ledger authorization");
@@ -670,7 +753,7 @@ export async function buildTrustedRepairCandidate({
   const pathResult = evaluateChange({
     plannedPaths: plan.scope,
     actualFiles,
-    protectedPaths: effectiveProtectedPaths(policy),
+    protectedPaths: effectiveProtectedPaths(policy, actualFiles),
     ...revision,
   });
   const checks = await evidenceResult(change.repository, change.headSha, policy, installationToken, request);
@@ -728,7 +811,7 @@ export async function buildTrustedRepairCandidate({
     repairKind,
     declaredScope: plan.scope,
     allowedPaths,
-    protectedPaths: protectedPathRules(policy),
+    protectedPaths: protectedPathRules(policy, actualFiles),
     instructions,
   };
 }
@@ -979,12 +1062,28 @@ function isSingleAllowedLedgerTransition(previous, current) {
   return additions === 1;
 }
 
-async function reconcileMissingLedgerAnchor({ request, token, repository, expected, snapshot, latest }) {
+async function reconcileMissingLedgerAnchor({
+  request,
+  token,
+  getChecksWriteToken,
+  repository,
+  expected,
+  snapshot,
+  latest,
+}) {
+  if (typeof getChecksWriteToken !== "function") return false;
   if (!snapshot.tipSha) return false;
   if (snapshot.parentCount === 0) {
     if (latest || snapshot.envelopes.length !== 1 || snapshot.claims.length !== 0
       || snapshot.dispatches.length !== 0 || snapshot.pushCredentials.length !== 0) return false;
-    await createLedgerAnchor({ request, token, repository, expected, tipSha: snapshot.tipSha, document: snapshot.document });
+    await createLedgerAnchor({
+      request,
+      token: await getChecksWriteToken(),
+      repository,
+      expected,
+      tipSha: snapshot.tipSha,
+      document: snapshot.document,
+    });
     return true;
   }
   if (snapshot.parentCount !== 1 || !latest || snapshot.parentSha == null) return false;
@@ -1002,11 +1101,18 @@ async function reconcileMissingLedgerAnchor({ request, token, repository, expect
   });
   if (latest.external_id !== expectedPreviousAnchor
     || !isSingleAllowedLedgerTransition(previous.document, snapshot.document)) return false;
-  await createLedgerAnchor({ request, token, repository, expected, tipSha: snapshot.tipSha, document: snapshot.document });
+  await createLedgerAnchor({
+    request,
+    token: await getChecksWriteToken(),
+    repository,
+    expected,
+    tipSha: snapshot.tipSha,
+    document: snapshot.document,
+  });
   return true;
 }
 
-async function assertLedgerAnchor({ request, token, repository, expected, snapshot }) {
+async function assertLedgerAnchor({ request, token, getChecksWriteToken, repository, expected, snapshot }) {
   const checks = await listAppChecks({
     request,
     token,
@@ -1023,7 +1129,15 @@ async function assertLedgerAnchor({ request, token, repository, expected, snapsh
   }
   const expectedExternalId = ledgerAnchorExternalId({ expected, tipSha: snapshot.tipSha, document: snapshot.document });
   if (latest?.external_id !== expectedExternalId) {
-    if (await reconcileMissingLedgerAnchor({ request, token, repository, expected, snapshot, latest })) return;
+    if (await reconcileMissingLedgerAnchor({
+      request,
+      token,
+      getChecksWriteToken,
+      repository,
+      expected,
+      snapshot,
+      latest,
+    })) return;
     throw new Error("Repair ledger tip does not match the latest App-authored anchor");
   }
 }
@@ -1047,7 +1161,7 @@ async function createLedgerAnchor({ request, token, repository, expected, tipSha
   return externalId;
 }
 
-async function ensureGrantCheck({ request, token, candidate, envelope }) {
+async function ensureGrantCheck({ request, token, getChecksWriteToken, candidate, envelope }) {
   const grantDigest = repairLedgerEntryDigest(envelope);
   const externalId = `changeplane:repair-grant:v3:${candidate.authorizationId}:${grantDigest}`;
   const checks = await listAppChecks({
@@ -1059,7 +1173,7 @@ async function ensureGrantCheck({ request, token, candidate, envelope }) {
     appId: candidate.appId,
   });
   if (checks.some((check) => check.external_id === externalId)) return externalId;
-  await request(`/repos/${encodedRepository(candidate.repository)}/check-runs`, token, {
+  await request(`/repos/${encodedRepository(candidate.repository)}/check-runs`, await getChecksWriteToken(), {
     method: "POST",
     body: {
       name: "ChangePlane / repair grant",
@@ -1076,29 +1190,39 @@ async function ensureGrantCheck({ request, token, candidate, envelope }) {
   return externalId;
 }
 
-async function appendStateTransition({ request, token, repository, reference, expected, snapshot, document, message }) {
+async function appendStateTransition({
+  request,
+  contentsToken,
+  checksToken,
+  repository,
+  reference,
+  expected,
+  snapshot,
+  document,
+  message,
+}) {
   const encoded = encodedRepository(repository);
-  const blob = await request(`/repos/${encoded}/git/blobs`, token, {
+  const blob = await request(`/repos/${encoded}/git/blobs`, contentsToken, {
     method: "POST",
     body: { content: `${canonicalJson(document)}\n`, encoding: "utf-8" },
   });
-  const tree = await request(`/repos/${encoded}/git/trees`, token, {
+  const tree = await request(`/repos/${encoded}/git/trees`, contentsToken, {
     method: "POST",
     body: { tree: [{ path: "ledger.json", mode: "100644", type: "blob", sha: blob?.sha }] },
   });
   if (!validSha(blob?.sha) || !validSha(tree?.sha) || !snapshot.tipSha) {
     throw new Error("Repair ledger transition cannot be persisted");
   }
-  const commit = await request(`/repos/${encoded}/git/commits`, token, {
+  const commit = await request(`/repos/${encoded}/git/commits`, contentsToken, {
     method: "POST",
     body: { message, tree: tree.sha, parents: [snapshot.tipSha] },
   });
   if (!validSha(commit?.sha)) throw new Error("GitHub returned an invalid repair ledger transition commit");
-  await request(`/repos/${encoded}/git/refs/${encodedPath(reference.replace(/^refs\//u, ""))}`, token, {
+  await request(`/repos/${encoded}/git/refs/${encodedPath(reference.replace(/^refs\//u, ""))}`, contentsToken, {
     method: "PATCH",
     body: { sha: commit.sha, force: false },
   });
-  await createLedgerAnchor({ request, token, repository, expected, tipSha: commit.sha, document });
+  await createLedgerAnchor({ request, token: checksToken, repository, expected, tipSha: commit.sha, document });
   return {
     ...snapshot,
     document,
@@ -1138,13 +1262,22 @@ export async function publishTrustedRepair({
   if (enabled !== true) throw new Error("Repair dispatch kill switch is off");
   if (!validPositiveInteger(generation)) throw new Error("Repair generation is invalid");
   const key = normalizedPrivateKey(privateKey);
-  const installationToken = await createInstallationAccessToken({
+  const nowMs = new Date(now).getTime();
+  const credentialOptions = {
     appId,
     privateKey: key,
     installationId: input.change.installationId,
     repositoryId: input.change.repositoryId,
     request,
-    now: new Date(now).getTime(),
+    now: nowMs,
+  };
+  const installationToken = await createInstallationAccessToken({
+    ...credentialOptions,
+  });
+  const getChecksWriteToken = deferredCredentialToken(createChecksWriteInstallationAccessToken, credentialOptions);
+  const getContentsWriteToken = deferredCredentialToken(createContentsWriteInstallationAccessToken, {
+    ...credentialOptions,
+    label: "Contents-only repair state credential",
   });
   const publicKey = createPublicKey(key);
   const keyId = repairLedgerKeyId(publicKey);
@@ -1152,6 +1285,7 @@ export async function publishTrustedRepair({
   const candidate = await buildTrustedRepairCandidate({
     controllerRequest: input,
     installationToken,
+    getChecksWriteToken,
     appId,
     publisherReleaseSha,
     generation,
@@ -1172,7 +1306,7 @@ export async function publishTrustedRepair({
     generation,
     baseSha: candidate.baseSha,
     publicKeys,
-    now: new Date(now).getTime(),
+    now: nowMs,
   };
   let snapshot = await readGitHubRepairLedger({
     request,
@@ -1181,7 +1315,14 @@ export async function publishTrustedRepair({
     reference,
     expected,
   });
-  await assertLedgerAnchor({ request, token: installationToken, repository: candidate.repository, expected, snapshot });
+  await assertLedgerAnchor({
+    request,
+    token: installationToken,
+    getChecksWriteToken,
+    repository: candidate.repository,
+    expected,
+    snapshot,
+  });
   let envelope = reconciliationEnvelope(snapshot.envelopes, candidate.authorizationId);
   let replayed = Boolean(envelope);
   if (!envelope) {
@@ -1194,9 +1335,13 @@ export async function publishTrustedRepair({
         generation,
         enabled,
         publishEntry: async (nextEnvelope) => {
+          const [contentsToken, checksToken] = await Promise.all([
+            getContentsWriteToken(),
+            getChecksWriteToken(),
+          ]);
           const persisted = await appendGitHubRepairLedger({
             request,
-            token: installationToken,
+            token: contentsToken,
             repository: candidate.repository,
             reference,
             expected,
@@ -1205,7 +1350,7 @@ export async function publishTrustedRepair({
           });
           await createLedgerAnchor({
             request,
-            token: installationToken,
+            token: checksToken,
             repository: candidate.repository,
             expected,
             tipSha: persisted.tipSha,
@@ -1220,7 +1365,14 @@ export async function publishTrustedRepair({
             reference,
             expected,
           });
-          await assertLedgerAnchor({ request, token: installationToken, repository: candidate.repository, expected, snapshot: persisted });
+          await assertLedgerAnchor({
+            request,
+            token: installationToken,
+            getChecksWriteToken,
+            repository: candidate.repository,
+            expected,
+            snapshot: persisted,
+          });
           return persisted.envelopes;
         },
         now,
@@ -1235,7 +1387,14 @@ export async function publishTrustedRepair({
         reference,
         expected,
       });
-      await assertLedgerAnchor({ request, token: installationToken, repository: candidate.repository, expected, snapshot });
+      await assertLedgerAnchor({
+        request,
+        token: installationToken,
+        getChecksWriteToken,
+        repository: candidate.repository,
+        expected,
+        snapshot,
+      });
       envelope = reconciliationEnvelope(snapshot.envelopes, candidate.authorizationId);
       if (!envelope) throw new Error("Repair ledger compare-and-swap lost to a different authorization");
       replayed = true;
@@ -1262,8 +1421,15 @@ export async function publishTrustedRepair({
     reference,
     expected,
   });
-  await assertLedgerAnchor({ request, token: installationToken, repository: candidate.repository, expected, snapshot });
-  await ensureGrantCheck({ request, token: installationToken, candidate, envelope });
+  await assertLedgerAnchor({
+    request,
+    token: installationToken,
+    getChecksWriteToken,
+    repository: candidate.repository,
+    expected,
+    snapshot,
+  });
+  await ensureGrantCheck({ request, token: installationToken, getChecksWriteToken, candidate, envelope });
   await assertLiveGrantHead({ request, token: installationToken, candidate });
   let dispatch = snapshot.dispatches.find((item) => item.authorizationId === entry.authorizationId);
   let reservedByThisInvocation = false;
@@ -1275,9 +1441,14 @@ export async function publishTrustedRepair({
     }, key);
     const document = ledgerDocument({ ...snapshot.document, dispatches: [...snapshot.dispatches, reservation] });
     try {
+      const [contentsToken, checksToken] = await Promise.all([
+        getContentsWriteToken(),
+        getChecksWriteToken(),
+      ]);
       snapshot = await appendStateTransition({
         request,
-        token: installationToken,
+        contentsToken,
+        checksToken,
         repository: candidate.repository,
         reference,
         expected,
@@ -1290,7 +1461,14 @@ export async function publishTrustedRepair({
     } catch (error) {
       if (error?.status !== 409 && error?.status !== 422) throw error;
       snapshot = await readGitHubRepairLedger({ request, token: installationToken, repository: candidate.repository, reference, expected });
-      await assertLedgerAnchor({ request, token: installationToken, repository: candidate.repository, expected, snapshot });
+      await assertLedgerAnchor({
+        request,
+        token: installationToken,
+        getChecksWriteToken,
+        repository: candidate.repository,
+        expected,
+        snapshot,
+      });
       dispatch = snapshot.dispatches.find((item) => item.authorizationId === entry.authorizationId);
       if (!dispatch || dispatch.grantDigest !== reservation.grantDigest) {
         throw new Error("Repair dispatch state compare-and-swap lost to another transition");
@@ -1300,7 +1478,7 @@ export async function publishTrustedRepair({
   let dispatched = false;
   if (reservedByThisInvocation) {
     await assertLiveGrantHead({ request, token: installationToken, candidate });
-    await request(`/repos/${encodedRepository(candidate.repository)}/dispatches`, installationToken, {
+    await request(`/repos/${encodedRepository(candidate.repository)}/dispatches`, await getContentsWriteToken(), {
       method: "POST",
       body: { event_type: "changeplane_repair", client_payload: envelope },
       expectJson: false,
@@ -1352,13 +1530,17 @@ export async function claimTrustedRepair({
   const publicKey = createPublicKey(key);
   const keyId = repairLedgerKeyId(publicKey);
   const publicKeys = { [keyId]: repairLedgerPublicKeyValue(publicKey) };
-  const token = await createInstallationAccessToken({
+  const nowMs = new Date(now).getTime();
+  const credentialOptions = {
     appId,
     privateKey: key,
     installationId: input.installationId,
     repositoryId: input.repositoryId,
     request,
-    now: new Date(now).getTime(),
+    now: nowMs,
+  };
+  const token = await createInstallationAccessToken({
+    ...credentialOptions,
   });
   const reference = repairLedgerReference({ pullRequestId: input.pullRequestId, generation });
   const expected = {
@@ -1372,7 +1554,7 @@ export async function claimTrustedRepair({
     generation,
     baseSha: input.baseSha,
     publicKeys,
-    now: new Date(now).getTime(),
+    now: nowMs,
   };
   let snapshot = await readGitHubRepairLedger({ request, token, repository: input.repository, reference, expected });
   await assertLedgerAnchor({ request, token, repository: input.repository, expected, snapshot });
@@ -1433,9 +1615,17 @@ export async function claimTrustedRepair({
   }, key);
   const document = ledgerDocument({ ...snapshot.document, claims: [...snapshot.claims, claim] });
   try {
+    const [contentsToken, checksToken] = await Promise.all([
+      createContentsWriteInstallationAccessToken({
+        ...credentialOptions,
+        label: "Contents-only repair state credential",
+      }).then((credential) => credential.token),
+      createChecksWriteInstallationAccessToken(credentialOptions).then((credential) => credential.token),
+    ]);
     snapshot = await appendStateTransition({
       request,
-      token,
+      contentsToken,
+      checksToken,
       repository: input.repository,
       reference,
       expected,
@@ -1552,9 +1742,29 @@ export async function issueTrustedRepairPushToken({
     pushCredentials: [...snapshot.pushCredentials, reservation],
   });
   try {
+    const [contentsToken, checksToken] = await Promise.all([
+      createContentsWriteInstallationAccessToken({
+        appId,
+        privateKey: key,
+        installationId: input.installationId,
+        repositoryId: input.repositoryId,
+        request,
+        now: nowMs,
+        label: "Contents-only repair state credential",
+      }).then((credential) => credential.token),
+      createChecksWriteInstallationAccessToken({
+        appId,
+        privateKey: key,
+        installationId: input.installationId,
+        repositoryId: input.repositoryId,
+        request,
+        now: nowMs,
+      }).then((credential) => credential.token),
+    ]);
     snapshot = await appendStateTransition({
       request,
-      token,
+      contentsToken,
+      checksToken,
       repository: input.repository,
       reference,
       expected,
