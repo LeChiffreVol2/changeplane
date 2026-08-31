@@ -52,6 +52,7 @@ import {
   validateRequiredChecks,
 } from "../src/lib/harness.js";
 import { githubRulesetReadiness } from "../src/lib/github-ruleset-readiness.js";
+import { buildRulesetPlan } from "../src/lib/github-ruleset-plan.js";
 import { buildSdlcAssurance } from "../src/lib/sdlc-assurance.js";
 import { verifyAssuranceProof } from "../src/lib/assurance-proof.js";
 import { runOriginBoundaryProof } from "../src/lib/assurance-lab.js";
@@ -67,6 +68,7 @@ import {
   repairLedgerKeyId,
   repairLedgerPublicKeyValue,
 } from "../server/repair-ledger.js";
+import { reconcileGuardState } from "../server/guard-reconciliation.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -355,7 +357,7 @@ const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
 const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
   actions: "read",
-  administration: "read",
+  administration: "write",
   contents: "write",
   pull_requests: "write",
   workflows: "write",
@@ -403,6 +405,9 @@ const ROUTE_METHODS = new Map([
   ["callback", ["GET"]],
   ["repos", ["GET"]],
   ["preflight", ["GET"]],
+  ["ruleset-plan", ["GET"]],
+  ["ruleset-apply", ["POST"]],
+  ["reconcile", ["POST"]],
   ["runtime", ["GET", "POST"]],
   ["byok", ["GET", "POST", "DELETE"]],
   ["install", ["POST"]],
@@ -419,6 +424,9 @@ const EXTERNAL_ACCESS_ACTIONS = new Set([
   "callback",
   "repos",
   "preflight",
+  "ruleset-plan",
+  "ruleset-apply",
+  "reconcile",
   "runtime",
   "proof",
   "guard-publish",
@@ -562,7 +570,7 @@ function readiness() {
   const mode = rolloutMode();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
   const sourceProvenance = hasSourceProvenance();
-  const checks = {
+  const operationalChecks = {
     githubClientId: Boolean(process.env.GITHUB_CLIENT_ID),
     githubClientSecret: Boolean(process.env.GITHUB_CLIENT_SECRET),
     githubAppSlug: mode === "controlled_canary"
@@ -575,8 +583,34 @@ function readiness() {
     sourceProvenance,
     canaryRepository: hasValidCanaryRepository(),
   };
+  const principalSeparation = guardPrincipalSeparation();
+  const commercialStore = commercialStoreIsConfigured();
+  const releaseBinding = /^[a-f0-9]{40}$/u.test(sourceSha ?? "")
+    ? sourceSha
+    : process.env.VERCEL === "1"
+      ? null
+      : "development";
+  const commercialStoreVerified = commercialStore
+    && releaseBinding !== null
+    && process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE === releaseBinding;
+  const legalRelease = process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED === "true"
+    && releaseBinding !== null
+    && process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE === releaseBinding;
+  const checks = {
+    ...operationalChecks,
+    guardPrincipalSeparated: principalSeparation === "separate_guard_app",
+    commercialStore,
+    commercialStoreVerified,
+    legalRelease,
+  };
+  const ready = Object.values(operationalChecks).every(Boolean);
   return {
-    ready: Object.values(checks).every(Boolean),
+    ready,
+    commercialReady: ready
+      && checks.guardPrincipalSeparated
+      && checks.commercialStoreVerified
+      && checks.legalRelease,
+    principalSeparation,
     checks,
     authMode: appSlug ? "github_app" : "oauth",
     rolloutMode: mode,
@@ -847,6 +881,39 @@ function guardPublisherIsConfigured() {
     const key = createPrivateKey(pem.trim());
     return key.asymmetricKeyType === "rsa"
       && (key.asymmetricKeyDetails?.modulusLength ?? 0) >= 2_048;
+  } catch {
+    return false;
+  }
+}
+
+function guardPrincipalSeparation() {
+  if (!guardPublisherIsConfigured()) return "guard_app_not_configured";
+  if (process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP === "true") {
+    return "shared_installer_guard";
+  }
+
+  const guard = configuredGuardPublisher();
+  const installerId = Number(process.env.GITHUB_APP_ID);
+  const installerSlug = githubAppSlug();
+  if (!Number.isSafeInteger(installerId) || installerId <= 0 || !installerSlug) {
+    return "installer_app_not_configured";
+  }
+  if (guard?.appId === installerId || guard?.appSlug === installerSlug) {
+    return "shared_installer_guard";
+  }
+  return "separate_guard_app";
+}
+
+function commercialStoreIsConfigured() {
+  if (process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED !== "true") return false;
+  try {
+    const url = new URL(process.env.CHANGEPLANE_DATABASE_URL ?? "");
+    return ["postgres:", "postgresql:"].includes(url.protocol)
+      && Boolean(url.hostname)
+      && Boolean(url.username)
+      && Boolean(url.password)
+      && url.pathname.length > 1
+      && url.searchParams.get("sslmode") === "require";
   } catch {
     return false;
   }
@@ -1142,7 +1209,9 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
     return {
       source: "unverified",
       state: "admin_required",
+      assuranceLevel: null,
       active: false,
+      queueCertified: false,
       strict: false,
       guardRequired: false,
       publisherBound: false,
@@ -1164,7 +1233,9 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
       return {
         source: "ruleset",
         state: "guard_run_required",
+        assuranceLevel: null,
         active: false,
+        queueCertified: false,
         strict: false,
         mergeQueueRequired: false,
         guardRequired: false,
@@ -1178,7 +1249,9 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
     if (missingEvidencePublisher) return {
       source: "ruleset",
       state: "evidence_run_required",
+      assuranceLevel: null,
       active: false,
+      queueCertified: false,
       strict: false,
       mergeQueueRequired: false,
       guardRequired: false,
@@ -1199,14 +1272,16 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
       return {
         source: "ruleset",
         state: "ruleset_ambiguous",
+        assuranceLevel: null,
         active: false,
+        queueCertified: false,
         strict: false,
         mergeQueueRequired: false,
         guardRequired: false,
         publisherBound: false,
         evidenceRequired: false,
         evidencePublisherBound: false,
-        nextAction: "Grant read-only Administration access and make one no-bypass default-branch merge-queue ruleset explicit, then recheck.",
+        nextAction: "Grant Ruleset Administration access, resolve ambiguous or bypass-bearing policy, then review a fresh Strict Head or Queue Certified plan.",
       };
     }
     throw error;
@@ -3885,13 +3960,14 @@ function guardRunMarker(check) {
 function assertGuardRunCanBegin(existing, incoming) {
   if (!existing) return "create";
   const current = guardRunMarker(existing);
-  if (existing.status === "completed" || current.phase === "complete") return "freeze";
+  const order = compareGuardRunOrder(incoming, current);
   if (existing.status === "in_progress"
     && current.phase === "begin"
-    && compareGuardRunOrder(incoming, current) === 0) {
+    && order === 0) {
     return "idempotent";
   }
-  throw new HttpError(409, "This exact revision already has an immutable in-progress evaluation lease. Push a new commit instead of starting a competing run.");
+  if (order > 0) return "replace";
+  throw new HttpError(409, "This exact revision already has a newer or completed evaluation generation.");
 }
 
 function assertGuardRunCanComplete(existing, incoming) {
@@ -4038,21 +4114,6 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
       repositoryId: repo.id,
       request: github,
     });
-    if (beginState === "freeze") {
-      await github(`/repos/${encodedRepository}/check-runs/${stable[0].id}`, writeCredential.token, {
-        method: "PATCH",
-        body: {
-          status: "completed",
-          conclusion: "action_required",
-          output: {
-            title: "New commit required",
-            summary: "This exact revision already completed one immutable ChangePlane evaluation. A rerun invalidated that result; push a new commit to obtain a fresh lease and assurance decision.",
-            text: stable[0].output.text,
-          },
-        },
-      });
-      throw new HttpError(409, "This exact revision already completed its immutable evaluation. The prior guard was invalidated; push a new commit before retrying.");
-    }
     for (const legacy of appChecks.filter((check) => (
       check?.external_id !== request.check.external_id
       && check?.status === "completed"
@@ -4877,6 +4938,203 @@ async function preflight(req, res) {
   });
 }
 
+function validateAssuranceLevel(value) {
+  if (value === "strict_head" || value === "queue_certified") return value;
+  throw new HttpError(400, "assuranceLevel must be strict_head or queue_certified.");
+}
+
+async function liveRulesetPlan(repository, assuranceLevel, session) {
+  const target = await requireRepositoryAdmin(repository, session);
+  const runtime = await readRepositoryRuntime(target.encodedRepository, target.repo, session.token);
+  if (runtime.content == null) {
+    throw new HttpError(409, "Merge the protected ChangePlane setup pull request before configuring the GitHub Ruleset.");
+  }
+  const rulesets = await readRepositoryRulesets(target.encodedRepository, session.token);
+  if (rulesets === null) {
+    throw new HttpError(409, "GitHub returned an ambiguous Ruleset inventory. Nothing was changed.");
+  }
+  const publishers = await enforcementPublisherAppIdentities(
+    target.encodedRepository,
+    target.repo,
+    session.token,
+    runtime.requiredChecks,
+  );
+  if (publishers.guard == null) {
+    throw new HttpError(409, "Run ChangePlane on one pull request so GitHub records the Guard App publisher, then retry. Nothing was changed.");
+  }
+  const missingEvidence = publishers.evidence.find(({ integrationId }) => integrationId == null);
+  if (missingEvidence) {
+    throw new HttpError(409, `Run ${missingEvidence.name} on one pull request so GitHub records its publisher, then retry. Nothing was changed.`);
+  }
+  return {
+    target,
+    runtime,
+    plan: buildRulesetPlan({
+      repository: {
+        id: target.repo.id,
+        fullName: target.repo.full_name,
+        defaultBranch: target.repo.default_branch,
+        defaultBranchSha: runtime.baseSha,
+      },
+      assuranceLevel,
+      guardIntegrationId: publishers.guard,
+      evidenceChecks: publishers.evidence,
+      rulesets,
+    }),
+  };
+}
+
+async function rulesetPlanStatus(req, res) {
+  const session = requireSession(req);
+  const repository = validateRepository(queryValue(req, "repository"));
+  const assuranceLevel = validateAssuranceLevel(queryValue(req, "assuranceLevel") ?? "strict_head");
+  const { plan } = await liveRulesetPlan(repository, assuranceLevel, session);
+  sendJson(res, 200, { plan });
+}
+
+async function applyRulesetPlan(req, res) {
+  assertOrigin(req);
+  const session = requireSession(req);
+  assertCsrf(req, session);
+  assertJsonRequest(req);
+  const body = await readJson(req);
+  const repository = validateRepository(body.repository);
+  const assuranceLevel = validateAssuranceLevel(body.assuranceLevel);
+  if (typeof body.planDigest !== "string" || !/^[a-f0-9]{64}$/u.test(body.planDigest)) {
+    throw new HttpError(400, "planDigest must be the exact digest shown in the approved Ruleset plan.");
+  }
+
+  const first = await liveRulesetPlan(repository, assuranceLevel, session);
+  if (first.plan.action === "none") {
+    sendJson(res, 200, {
+      repository,
+      state: "already_active",
+      enforcement: first.plan.readiness,
+      planDigest: first.plan.planDigest,
+    });
+    return;
+  }
+  if (first.plan.action !== "create") {
+    throw new HttpError(409, `${first.plan.summary} Nothing was changed.`);
+  }
+  if (first.plan.planDigest !== body.planDigest) {
+    throw new HttpError(409, "The repository revision, publishers, or Ruleset inventory changed after approval. Review the fresh plan; nothing was changed.");
+  }
+
+  // Rebuild immediately before mutation so an older browser approval cannot authorize newer policy bytes.
+  const fresh = await liveRulesetPlan(repository, assuranceLevel, session);
+  if (fresh.plan.action !== "create" || fresh.plan.planDigest !== body.planDigest) {
+    throw new HttpError(409, "The approved Ruleset plan became stale before apply. Review the fresh plan; nothing was changed.");
+  }
+  const created = await github(fresh.plan.mutation.path, session.token, {
+    method: fresh.plan.mutation.method,
+    body: fresh.plan.mutation.body,
+  });
+  if (!Number.isSafeInteger(created?.id) || created.id < 1
+    || created.name !== fresh.plan.mutation.body.name
+    || created.target !== "branch"
+    || created.enforcement !== "active") {
+    throw new HttpError(502, "GitHub returned an invalid Ruleset after apply. Inspect repository policy before retrying.");
+  }
+
+  const enforcement = await readGuardEnforcement(
+    fresh.target.encodedRepository,
+    fresh.target.repo,
+    session.token,
+    { isAdmin: true, requiredChecks: fresh.runtime.requiredChecks },
+  );
+  const requestedActive = enforcement.active
+    && (assuranceLevel === "strict_head" || enforcement.queueCertified);
+  sendJson(res, 200, {
+    repository,
+    state: requestedActive ? "applied" : "applied_reconciliation_required",
+    planDigest: fresh.plan.planDigest,
+    ruleset: {
+      id: created.id,
+      name: created.name,
+      url: `https://github.com/${repository}/rules/${created.id}`,
+    },
+    enforcement,
+  });
+}
+
+async function reconcileGuard(req, res) {
+  assertOrigin(req);
+  const session = requireSession(req);
+  assertCsrf(req, session);
+  assertJsonRequest(req);
+  const body = await readJson(req);
+  const repository = validateRepository(body.repository);
+  const checkRunId = Number(body.checkRunId);
+  if (!Number.isSafeInteger(checkRunId) || checkRunId < 1 || String(checkRunId) !== String(body.checkRunId)) {
+    throw new HttpError(400, "checkRunId must be one positive GitHub Check Run identifier.");
+  }
+  const target = await requireRepositoryAdmin(repository, session);
+  if (!Number.isSafeInteger(target.repo?.id) || target.repo.id < 1) {
+    throw new HttpError(502, "GitHub returned an invalid repository identity.");
+  }
+  const configuration = guardPublisherConfiguration();
+  const appJwt = createGitHubAppJwt({ appId: configuration.appId, privateKey: configuration.privateKey });
+  const installation = await github(`/repos/${target.encodedRepository}/installation`, appJwt);
+  if (!Number.isSafeInteger(installation?.id) || installation.id < 1
+    || installation.app_id !== configuration.appId
+    || installation.app_slug !== configuration.appSlug) {
+    throw new HttpError(403, "The repository is not bound to the configured Guard App.");
+  }
+  const readCredential = await createGuardReadInstallationAccessToken({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+    installationId: installation.id,
+    repositoryId: target.repo.id,
+    request: github,
+  });
+  const readCheck = () => github(
+    `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
+    readCredential.token,
+  );
+  let checkRun = await readCheck();
+  if (checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
+    throw new HttpError(409, "Only the configured Guard App Check can be reconciled. Nothing was changed.");
+  }
+  let reconciliation = reconcileGuardState({ checkRun, now: new Date().toISOString() });
+  if (reconciliation.patch == null) {
+    sendJson(res, 200, { repository, ...reconciliation });
+    return;
+  }
+
+  const writeCredential = await createChecksWriteInstallationAccessToken({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+    installationId: installation.id,
+    repositoryId: target.repo.id,
+    request: github,
+  });
+  checkRun = await readCheck();
+  reconciliation = reconcileGuardState({ checkRun, now: new Date().toISOString() });
+  if (reconciliation.patch == null) {
+    sendJson(res, 200, { repository, ...reconciliation });
+    return;
+  }
+  const published = await github(
+    `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
+    writeCredential.token,
+    { method: "PATCH", body: reconciliation.patch },
+  );
+  if (published?.id !== checkRunId
+    || published.status !== "completed"
+    || published.conclusion !== "action_required"
+    || decodeGuardRunMarker(published?.output?.text).phase !== "complete") {
+    throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
+  }
+  sendJson(res, 200, {
+    repository,
+    state: "reconciled",
+    checkRunId,
+    generation: reconciliation.generation,
+    conclusion: "action_required",
+  });
+}
+
 export async function prepareAutonomousHarness(repository, session, authorityAnchor = null) {
   const configuration = repairControllerConfiguration();
   if (!configuration.provisioningConfigured) {
@@ -5192,6 +5450,8 @@ export default async function handler(req, res) {
       const state = readiness();
       sendJson(res, state.ready ? 200 : 503, {
         status: state.ready ? "ready" : "configuration_required",
+        commercialReady: state.commercialReady,
+        principalSeparation: state.principalSeparation,
         checks: state.checks,
         authMode: state.authMode,
         rolloutMode: state.rolloutMode,
@@ -5235,6 +5495,9 @@ export default async function handler(req, res) {
     if (method === "GET" && action === "callback") return await callback(req, res);
     if (method === "GET" && action === "repos") return await repositories(req, res);
     if (method === "GET" && action === "preflight") return await preflight(req, res);
+    if (method === "GET" && action === "ruleset-plan") return await rulesetPlanStatus(req, res);
+    if (method === "POST" && action === "ruleset-apply") return await applyRulesetPlan(req, res);
+    if (method === "POST" && action === "reconcile") return await reconcileGuard(req, res);
     if (method === "GET" && action === "runtime") return await runtimeStatus(req, res);
     if (method === "GET" && action === "proof") return await assuranceProofStatus(req, res);
     if (method === "POST" && action === "guard-publish") return await guardPublish(req, res);

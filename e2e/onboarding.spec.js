@@ -616,7 +616,7 @@ test("Verify only installs with exact behavioral evidence and no provider-key in
   await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toBeVisible();
   await expect(page.locator(".install-result-facts")).toContainText("Verify only");
   await expect(page.locator(".activation-checklist")).toContainText("your coding agent");
-  await expect(page.locator(".activation-checklist")).toContainText("Require ChangePlane / guard from the dedicated App");
+  await expect(page.locator(".activation-checklist")).toContainText("Review the exact Strict Head Ruleset plan");
   expect(installPayload).toEqual({
     repository: "acme/agent-api",
     requiredCheck: { name: "CI / test", appSlug: "vercel" },
@@ -1067,7 +1067,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
   await expect(page.getByText("Exact-head merge protection is active.")).toBeVisible();
   await expect(page.getByText("Full · managed v13")).toBeVisible();
-  await expect(page.getByText("Merge blocking active", { exact: true })).toBeVisible();
+  await expect(page.getByText("Queue Certified active", { exact: true })).toBeVisible();
   await expect(page.getByText("Verify only is enforced by one verified GitHub Ruleset.")).toBeVisible();
   await expect(page.locator(".runtime-enforcement")).toContainText("one strict, no-bypass default-branch Ruleset requires Merge Queue");
   await expect(page.getByText(/No test PR is required/u)).toBeVisible();
@@ -1204,7 +1204,7 @@ test("a legacy enforce policy recovers through one reviewed Verify upgrade witho
   await expect(page.getByText(/narrow \.changeplane\.json change/u)).toBeVisible();
   await expect(page.getByText(/No autonomous credential was created/u)).toBeVisible();
   await expect(page.locator(".activation-checklist")).toContainText("Replace any legacy github-actions branch-policy binding");
-  await expect(page.locator(".activation-checklist")).toContainText("strict, no-bypass default-branch Ruleset");
+  await expect(page.locator(".activation-checklist")).toContainText("Strict Head Ruleset plan");
   expect(installPayload).toEqual({
     repository: "acme/legacy-service",
     requiredCheck,

@@ -7,11 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js tests/*.test.js",
+    "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js server/*.test.js tests/*.test.js",
     "test:e2e": "npm run build && playwright test",
-    "verify": "npm test && npm run prove:origin-boundary && npm run build && npm run audit:public",
+    "verify": "npm test && npm run prove:origin-boundary && npm run build && npm run audit:public && npm run audit:claims",
     "prove:origin-boundary": "node scripts/prove-origin-boundary.mjs",
     "audit:public": "node scripts/audit-public-data.mjs",
+    "audit:claims": "node scripts/audit-release-claims.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "preview": "vite preview"
   },
@@ -22,6 +23,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "@vitejs/plugin-react": "5.0.4",
     "libsodium-wrappers": "^0.8.4",
+    "pg": "^8.23.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "vite": "^6.4.3"

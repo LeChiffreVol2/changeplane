@@ -151,7 +151,7 @@ test("controlled canary remains bound to the verified GitHub App installation", 
   });
 });
 
-test("observe onboarding requires dedicated-App Checks write but keeps Actions Secrets optional", async () => {
+test("onboarding requires Ruleset administration and dedicated-App Checks write but keeps Actions Secrets optional", async () => {
   await withEnvironment({ GITHUB_APP_SLUG: "changeplane-test" }, async () => {
     const state = "s".repeat(32);
     const oauthCookie = seal({
@@ -179,7 +179,7 @@ test("observe onboarding requires dedicated-App Checks write but keeps Actions S
             return {
               installations: [{
                 id: 12345,
-                permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write" },
+                permissions: { actions: "read", administration: "write", contents: "write", pull_requests: "write", workflows: "write", checks: "write" },
               }],
             };
           },

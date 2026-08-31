@@ -294,6 +294,11 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_GUARD_APP_SLUG",
     "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
     "CHANGEPLANE_GUARD_REUSE_GITHUB_APP",
+    "CHANGEPLANE_COMMERCIAL_STORE_ENABLED",
+    "CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE",
+    "CHANGEPLANE_DATABASE_URL",
+    "CHANGEPLANE_LEGAL_RELEASE_APPROVED",
+    "CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE",
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_GIT_PROVIDER",
@@ -331,6 +336,11 @@ async function withOAuthEnvironment(callback) {
   delete process.env.GITHUB_APP_ID;
   delete process.env.GITHUB_APP_PRIVATE_KEY;
   delete process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP;
+  delete process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED;
+  delete process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE;
+  delete process.env.CHANGEPLANE_DATABASE_URL;
+  delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED;
+  delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE;
   try {
     return await callback();
   } finally {
@@ -2335,6 +2345,8 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
     assert.equal(response.statusCode, 503);
     assert.deepEqual(JSON.parse(response.body), {
       status: "configuration_required",
+      commercialReady: false,
+      principalSeparation: "installer_app_not_configured",
       checks: {
         githubClientId: true,
         githubClientSecret: true,
@@ -2342,6 +2354,10 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         sessionSecret: true,
         appOrigin: true,
         guardPublisher: true,
+        guardPrincipalSeparated: false,
+        commercialStore: false,
+        commercialStoreVerified: false,
+        legalRelease: false,
         sourceProvenance: false,
         canaryRepository: true,
       },
@@ -2386,6 +2402,8 @@ test("readiness exposes the exact Vercel source commit without secret values", a
     assert.equal(response.statusCode, 200);
     assert.deepEqual(JSON.parse(response.body), {
       status: "ready",
+      commercialReady: false,
+      principalSeparation: "installer_app_not_configured",
       checks: {
         githubClientId: true,
         githubClientSecret: true,
@@ -2393,6 +2411,10 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         sessionSecret: true,
         appOrigin: true,
         guardPublisher: true,
+        guardPrincipalSeparated: false,
+        commercialStore: false,
+        commercialStoreVerified: false,
+        legalRelease: false,
         sourceProvenance: true,
         canaryRepository: true,
       },
@@ -2440,7 +2462,7 @@ test("readiness and onboarding fail closed without the dedicated guard publisher
   });
 });
 
-test("readiness permits only explicit reuse of the reviewed GitHub App for guard publication", async () => {
+test("readiness marks explicit Installer App reuse as operational but not commercially ready", async () => {
   await withOAuthEnvironment(async () => {
     delete process.env.CHANGEPLANE_GUARD_APP_ID;
     delete process.env.CHANGEPLANE_GUARD_APP_SLUG;
@@ -2460,13 +2482,60 @@ test("readiness permits only explicit reuse of the reviewed GitHub App for guard
     const readyResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readyResponse);
     assert.equal(readyResponse.statusCode, 200);
-    assert.equal(JSON.parse(readyResponse.body).checks.guardPublisher, true);
+    const shared = JSON.parse(readyResponse.body);
+    assert.equal(shared.checks.guardPublisher, true);
+    assert.equal(shared.checks.guardPrincipalSeparated, false);
+    assert.equal(shared.commercialReady, false);
+    assert.equal(shared.principalSeparation, "shared_installer_guard");
 
     process.env.GITHUB_APP_SLUG = "github-actions";
     const unsafeResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, unsafeResponse);
     assert.equal(unsafeResponse.statusCode, 503);
     assert.equal(JSON.parse(unsafeResponse.body).checks.guardPublisher, false);
+  });
+});
+
+test("readiness becomes commercially ready only with distinct Apps, event storage, and legal approval", async () => {
+  await withOAuthEnvironment(async () => {
+    Object.assign(process.env, {
+      GITHUB_APP_ID: "111111",
+      GITHUB_APP_SLUG: "changeplane-installer",
+    });
+
+    const response = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, response);
+    const separatedOnly = JSON.parse(response.body);
+    assert.equal(response.statusCode, 200);
+    assert.equal(separatedOnly.checks.guardPrincipalSeparated, true);
+    assert.equal(separatedOnly.commercialReady, false);
+
+    Object.assign(process.env, {
+      CHANGEPLANE_COMMERCIAL_STORE_ENABLED: "true",
+      CHANGEPLANE_DATABASE_URL: "postgresql://changeplane:test@db.example/changeplane?sslmode=require",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true",
+    });
+    const unboundResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, unboundResponse);
+    const unbound = JSON.parse(unboundResponse.body);
+    assert.equal(unbound.checks.commercialStore, true);
+    assert.equal(unbound.checks.commercialStoreVerified, false);
+    assert.equal(unbound.checks.legalRelease, false);
+    assert.equal(unbound.commercialReady, false);
+
+    Object.assign(process.env, {
+      CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE: "development",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE: "development",
+    });
+    const commercialResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, commercialResponse);
+    const commercial = JSON.parse(commercialResponse.body);
+    assert.equal(commercial.checks.guardPrincipalSeparated, true);
+    assert.equal(commercial.checks.commercialStore, true);
+    assert.equal(commercial.checks.commercialStoreVerified, true);
+    assert.equal(commercial.checks.legalRelease, true);
+    assert.equal(commercial.commercialReady, true);
+    assert.equal(commercial.principalSeparation, "separate_guard_app");
   });
 });
 
@@ -3573,8 +3642,9 @@ test("runtime status refuses to call classic branch protection a high-assurance 
     });
     const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
     const calls = [];
+    let createdRuleset = null;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
       calls.push(`${requestUrl.pathname}${requestUrl.search}`);
       if (requestUrl.pathname === "/repos/alice/private-service") {
@@ -3607,7 +3677,19 @@ test("runtime status refuses to call classic branch protection a high-assurance 
         return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
       }
       if (requestUrl.pathname === "/repos/alice/private-service/rulesets") {
-        return { ok: true, status: 200, async json() { return []; } };
+        if (options.method === "POST") {
+          const submitted = JSON.parse(options.body);
+          createdRuleset = { id: 99, source_type: "Repository", ...submitted };
+          return { ok: true, status: 201, async json() { return createdRuleset; } };
+        }
+        return {
+          ok: true,
+          status: 200,
+          async json() { return createdRuleset ? [{ id: createdRuleset.id }] : []; },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/rulesets/99") {
+        return { ok: true, status: 200, async json() { return createdRuleset; } };
       }
       if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
         return {
@@ -3684,7 +3766,9 @@ test("runtime status refuses to call classic branch protection a high-assurance 
       assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
         source: "ruleset",
         state: "ruleset_required",
+        assuranceLevel: null,
         active: false,
+        queueCertified: false,
         strict: false,
         mergeQueueRequired: false,
         guardRequired: false,
@@ -3699,6 +3783,40 @@ test("runtime status refuses to call classic branch protection a high-assurance 
       assert.equal(sdlc.stages.find(({ id }) => id === "release").state, "action_required");
       assert.equal(sdlc.authority.contributesToPass, false);
       assert.equal(calls.some((call) => call.includes("/branches/main/protection")), false);
+
+      const planResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=ruleset-plan&repository=alice%2Fprivate-service&assuranceLevel=strict_head",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, planResponse);
+      assert.equal(planResponse.statusCode, 200, planResponse.body);
+      const plan = JSON.parse(planResponse.body).plan;
+      assert.equal(plan.action, "create");
+      assert.equal(plan.mutation.body.bypass_actors.length, 0);
+      assert.deepEqual(plan.mutation.body.conditions.ref_name.include, ["refs/heads/main"]);
+
+      const applyResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=ruleset-apply",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: {
+          repository: "alice/private-service",
+          assuranceLevel: "strict_head",
+          planDigest: plan.planDigest,
+        },
+      }, applyResponse);
+      assert.equal(applyResponse.statusCode, 200, applyResponse.body);
+      const applied = JSON.parse(applyResponse.body);
+      assert.equal(applied.state, "applied");
+      assert.equal(applied.enforcement.assuranceLevel, "strict_head");
+      assert.equal(applied.ruleset.id, 99);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -3863,7 +3981,9 @@ test("runtime status proves active merge blocking from one strict default-branch
       assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
         source: "ruleset",
         state: "active",
+        assuranceLevel: "queue_certified",
         active: true,
+        queueCertified: true,
         strict: true,
         mergeQueueRequired: true,
         guardRequired: true,
@@ -4396,7 +4516,7 @@ test("GitHub App onboarding installs first, then verifies the installation throu
                 id: 12345,
                 permissions: {
                   actions: "read",
-                  administration: "read",
+                  administration: "write",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
@@ -4476,7 +4596,7 @@ test("returning GitHub App users authorize without reopening installation settin
                 app_slug: "changeplane-test",
                 permissions: {
                   actions: "read",
-                  administration: "read",
+                  administration: "write",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
@@ -4592,12 +4712,12 @@ test("returning authorization keeps every eligible personal and organization ins
                 {
                   id: 1,
                   app_slug: "changeplane-test",
-                  permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
+                  permissions: { actions: "read", administration: "write", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
                 },
                 {
                   id: 2,
                   app_slug: "changeplane-test",
-                  permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
+                  permissions: { actions: "read", administration: "write", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
                 },
               ],
             };
@@ -4887,7 +5007,12 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       }
       if (url.pathname === `/repos/${fixture.repository}/check-runs/919` && method === "PATCH") {
         const payload = JSON.parse(options.body);
-        liveGuardCheck = { ...liveGuardCheck, ...payload, output: payload.output };
+        liveGuardCheck = {
+          ...liveGuardCheck,
+          ...payload,
+          conclusion: payload.status === "in_progress" ? null : payload.conclusion,
+          output: payload.output,
+        };
         return githubJsonResponse(liveGuardCheck);
       }
       throw new Error(`Unexpected guard publication request: ${method} ${url.pathname}${url.search}`);
@@ -5118,15 +5243,27 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       assert.equal(calls.some(({ method, path }) => method === "PATCH" && path === `/repos/${fixture.repository}/check-runs/919`), true);
       assert.equal(calls.some(({ options }) => options.headers?.authorization === "Bearer alice-token"), false);
 
-      const writesBeforeBeginReplay = calls.filter(({ method, path }) => (
+      const writesBeforeNextGeneration = calls.filter(({ method, path }) => (
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
       )).length;
-      const beginReplay = responseRecorder();
+      const nextClaims = {
+        ...JSON.parse(Buffer.from(oidcPayload, "base64url").toString("utf8")),
+        run_id: "8002",
+        jti: "changeplane-api-test-8002-1",
+      };
+      const nextPayload = Buffer.from(JSON.stringify(nextClaims)).toString("base64url");
+      const nextInput = `${oidcHeader}.${nextPayload}`;
+      const nextSignature = sign("RSA-SHA256", Buffer.from(nextInput), {
+        key: oidcPrivateKey,
+        padding: constants.RSA_PKCS1_PADDING,
+      }).toString("base64url");
+      const nextOidcToken = `${nextInput}.${nextSignature}`;
+      const nextBegin = responseRecorder();
       await handler({
         method: "POST",
         url: "/api/github?action=guard-publish",
         headers: {
-          authorization: `Bearer ${oidcToken}`,
+          authorization: `Bearer ${nextOidcToken}`,
           "content-type": "application/json",
         },
         body: {
@@ -5137,7 +5274,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           defaultBranch: "main",
           controllerSha: fixture.baseSha,
           gitRef: "refs/heads/main",
-          workflowRunId: 8001,
+          workflowRunId: 8002,
           workflowRunAttempt: 1,
           target: {
             type: "pull_request",
@@ -5148,20 +5285,20 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
             headRef: "agent/retry-fix",
           },
         },
-      }, beginReplay);
-      assert.equal(beginReplay.statusCode, 409, beginReplay.body);
-      assert.match(JSON.parse(beginReplay.body).error, /immutable evaluation|new commit/iu);
+      }, nextBegin);
+      assert.equal(nextBegin.statusCode, 200, nextBegin.body);
+      assert.deepEqual(JSON.parse(nextBegin.body).run, { id: 8002, attempt: 1 });
       assert.equal(calls.filter(({ method, path }) => (
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
-      )).length, writesBeforeBeginReplay + 1);
-      assert.equal(liveGuardCheck.status, "completed");
-      assert.equal(liveGuardCheck.conclusion, "action_required");
+      )).length, writesBeforeNextGeneration + 1);
+      assert.equal(liveGuardCheck.status, "in_progress");
+      assert.equal(liveGuardCheck.conclusion, null);
+      assert.equal(
+        liveGuardCheck.output.text,
+        "changeplane.guard-run/v1;run_id=8002;run_attempt=1;phase=begin",
+      );
 
-      const writesBeforeWorkflowMismatch = calls.filter(({ method, path }) => (
-        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
-      )).length;
-      evidenceWorkflowPath = ".github/workflows/spoof.yml@refs/heads/main";
-      const workflowMismatchResponse = responseRecorder();
+      const staleGenerationCompletion = responseRecorder();
       await handler({
         method: "POST",
         url: "/api/github?action=guard-publish",
@@ -5176,6 +5313,58 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           defaultBranch: "main",
           gitRef: "refs/heads/main",
           workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, staleGenerationCompletion);
+      assert.equal(staleGenerationCompletion.statusCode, 409, staleGenerationCompletion.body);
+      assert.match(JSON.parse(staleGenerationCompletion.body).error, /lease/iu);
+      assert.equal(liveGuardCheck.status, "in_progress");
+
+      const nextCompletion = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${nextOidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8002,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, nextCompletion);
+      assert.equal(nextCompletion.statusCode, 200, nextCompletion.body);
+      assert.equal(liveGuardCheck.status, "completed");
+      assert.equal(liveGuardCheck.conclusion, "success");
+
+      const writesBeforeWorkflowMismatch = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      evidenceWorkflowPath = ".github/workflows/spoof.yml@refs/heads/main";
+      const workflowMismatchResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${nextOidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8002,
           workflowRunAttempt: 1,
           passport,
           summary: fixture.guardCheck.output.summary,
@@ -5207,7 +5396,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
         method: "POST",
         url: "/api/github?action=guard-publish",
         headers: {
-          authorization: `Bearer ${oidcToken}`,
+          authorization: `Bearer ${nextOidcToken}`,
           "content-type": "application/json",
         },
         body: {
@@ -5216,7 +5405,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           repository: fixture.repository,
           defaultBranch: "main",
           gitRef: "refs/heads/main",
-          workflowRunId: 8001,
+          workflowRunId: 8002,
           workflowRunAttempt: 1,
           passport,
           summary: fixture.guardCheck.output.summary,
