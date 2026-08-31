@@ -97,7 +97,7 @@ The managed workflow cannot publish `ChangePlane / guard` with its repository `G
 
 The hosted controller accepts only the configured dedicated ChangePlane App ID and slug. Before mutation it verifies the GitHub-signed repository, default-branch workflow path and SHA, event, ref, run ID, and attempt; re-fetches the exact managed tree, policy, evidence Checks, default branch, and same-repository pull request or merge-group commit; and separates one exact-repository read token from a final `checks:write` token. The live verifier rejects the shared `github-actions` publisher, an arbitrary App publisher, a native Origin App publisher, and an Origin Check Run.
 
-This v13 code path is implemented and covered by local integration tests, but it has not yet been deployed or exercised against a protected canary repository. Historical v9 repair and legacy `github-actions` guard evidence does not prove this dedicated App/OIDC publisher. Tier 2 becomes live evidence only after a v13 canary records the dedicated App's returned Check Run and the verifier re-fetches it.
+This v13 code path is deployed from protected source and exercised against the public canary recorded in `evidence/changeplane-v13-production-release.json`. The exact-head canary published `ChangePlane / guard` from App ID `4334716` / slug `changeplane-guard`; a new commit required a fresh App-owned Check, and a protected test change completed as `action_required` while deterministic CI remained green. That proves the dedicated App/OIDC publication boundary for those exact GitHub revisions. It does not complete Tier 2's authenticated `VERIFIED_CURRENT` re-fetch or the required Merge Queue authority gate: the available personal-account public repository cannot enable GitHub Merge Queue, and ChangePlane reports `merge_queue_required`.
 
 ## Supported and unsupported Origin paths
 
@@ -110,6 +110,8 @@ This v13 code path is implemented and covered by local integration tests, but it
 The supported-through-GitHub label describes an architectural boundary backed by synthetic contract cases. It must not be presented as live Origin interoperability until the canary below is complete.
 
 ## Required real Cursor Origin canary
+
+**Current status: `BLOCKED_NO_SUBSCRIPTION`.** The repository owner confirmed on 2026-09-01 that no paid Cursor subscription with Origin Early Beta access is available. No Origin repository or mirror was created, no Origin API was called, and no live interoperability or competitive-win claim is made. The synthetic contract remains the only Origin-shaped evidence until access is available.
 
 A genuine interoperability claim requires a disposable, redacted canary with paid Early Beta access. It must:
 

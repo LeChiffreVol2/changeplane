@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-31T20:44:19Z",
+  "purpose": "Record the protected managed-v13 production release, the dedicated-App guard lifecycle, exact-head and protected-path canaries, and the remaining GitHub Merge Queue and Cursor Origin evidence boundaries.",
+  "sourceRelease": {
+    "pullRequest": 46,
+    "candidateCommit": "89a3df26a35d3acb0be9fa3da8a048b20c16190f",
+    "protectedCommit": "148a1f8270e42b30359bcdc1e61d166fa5160242",
+    "ciRunId": 33433190142,
+    "ciCheckRunId": 99623260645,
+    "previewDeploymentId": "dpl_9AuetJjiCxvZS2sb73A135Bkn8iH",
+    "productionDeploymentId": "dpl_9AN2WbCKPzQ8t6wrAK1op2P43pVT"
+  },
+  "liveCanaryHotfix": {
+    "failure": {
+      "productionRequestId": "bf00f6fcb05290386909c04b",
+      "status": 409,
+      "cause": "The freshness verifier ordered live GitHub Check Runs by the unsupported created_at field instead of started_at.",
+      "guardLeaseCheckRunId": 99632353354,
+      "guardLeasePublisherAppId": 4334716,
+      "guardLeasePublisherAppSlug": "changeplane-guard"
+    },
+    "pullRequest": 47,
+    "candidateCommit": "c15940255ad67846fc7ca4de8ca3db5c062004bb",
+    "protectedCommit": "efe91ebe57d78d5cca0be2209db9b0a7325fd3c4",
+    "ciRunId": 33436589167,
+    "ciCheckRunId": 99634407729,
+    "previewDeploymentId": "dpl_8ankKdxc5vGyD5bmHaQdajxpNCSR",
+    "productionDeploymentId": "dpl_7UZnuPBNLLftvJzGLe9DEUoQiMzc",
+    "previousKnownGoodDeploymentId": "dpl_9AN2WbCKPzQ8t6wrAK1op2P43pVT",
+    "readiness": {
+      "status": 200,
+      "requestId": "638cd82c1b7e1c9f1a90d3a0",
+      "cacheControl": "no-store",
+      "release": "efe91ebe57d7",
+      "state": "ready",
+      "guardPublisher": true,
+      "sourceProvenance": true,
+      "repairEnabled": false,
+      "repairConfigured": false
+    }
+  },
+  "guardPublisher": {
+    "githubAppName": "ChangePlane Guard",
+    "githubAppId": 4334716,
+    "githubAppSlug": "changeplane-guard",
+    "installationId": 147492050,
+    "credentialMode": "explicit_reviewed_github_app_reuse",
+    "privateKeyCopiedOrRecorded": false,
+    "canaryRepositoryAddedWithUserApproval": true
+  },
+  "publicCanary": {
+    "repository": "LeChiffreVol2/changeplane-v13-public-canary-20260901",
+    "repositoryId": 1352819427,
+    "setup": {
+      "pullRequest": 1,
+      "headCommit": "ba0138b6c279eaa633e2b655342dbc386aa3b98b",
+      "mergeCommit": "ea17d0e3d3fb19588ca7332a51b7e705bce5fd31",
+      "ciRunId": 33435084253,
+      "ciCheckRunId": 99629397350,
+      "managedVersion": 13,
+      "managedProfile": "verify-lite"
+    },
+    "exactHead": {
+      "pullRequest": 2,
+      "firstPassingHead": "58e0033042decb5b5f84422e69796e2a6b47c285",
+      "firstGuardCheckRunId": 99635569393,
+      "firstEvidenceCheckRunId": 99635492131,
+      "currentHead": "ad37b0685dd3cf58936f1d1bd71be11c78d6fd3e",
+      "currentGuardCheckRunId": 99637183953,
+      "currentEvidenceCheckRunId": 99637113069,
+      "guardConclusion": "success",
+      "publisherAppId": 4334716,
+      "publisherAppSlug": "changeplane-guard",
+      "staleTransitionObserved": true,
+      "oldSuccessRemainedBoundToOldHead": true,
+      "currentMergeableState": "clean"
+    },
+    "protectedPath": {
+      "pullRequest": 3,
+      "headCommit": "4e5ceccc9742833a80da9816bbe09bd30f595e67",
+      "evidenceCheckRunId": 99636624215,
+      "evidenceConclusion": "success",
+      "guardCheckRunId": 99636708435,
+      "guardConclusion": "action_required",
+      "guardTitle": "REVIEW_REQUIRED · enforce",
+      "currentMergeableState": "blocked"
+    },
+    "ruleset": {
+      "id": 21956682,
+      "name": "ChangePlane v13 publisher-bound delivery",
+      "enforcement": "active",
+      "bypassActors": [],
+      "strictRequiredStatusChecks": true,
+      "requiredChecks": [
+        {
+          "name": "CI / test",
+          "integrationId": 15368,
+          "appSlug": "github-actions"
+        },
+        {
+          "name": "ChangePlane / guard",
+          "integrationId": 4334716,
+          "appSlug": "changeplane-guard"
+        }
+      ],
+      "mergeQueueRequired": false,
+      "productReadinessState": "merge_queue_required",
+      "activeHighAssuranceGate": false,
+      "mergeQueueApiAttemptStatus": 422,
+      "mergeQueueBoundary": "GitHub Merge Queue is available for public organization-owned repositories, not this personal-account public canary."
+    }
+  },
+  "verification": {
+    "unitAndIntegration": "361/361",
+    "chromiumJourneys": "11/11",
+    "originSyntheticAssertions": "6/6",
+    "originSyntheticCases": "12/12",
+    "productionDependencyVulnerabilities": 0,
+    "publicDataFilesScanned": 108
+  },
+  "cursorOrigin": {
+    "realMirrorCanary": "BLOCKED_NO_SUBSCRIPTION",
+    "reason": "The owner confirmed that no paid Cursor subscription with Origin Early Beta access is available.",
+    "syntheticContractPassed": true,
+    "liveInteroperabilityClaim": false,
+    "beatsOriginInProductionClaim": false
+  },
+  "releaseBoundary": "Managed v13 and the dedicated GitHub App publisher are deployed and proven on exact GitHub revisions. A complete high-assurance Ruleset remains unproven until an eligible organization-owned repository supplies live Merge Queue evidence. Real Cursor Origin mirror interoperability remains unproven until paid Origin access is available. Autonomous repair remains disabled."
+}

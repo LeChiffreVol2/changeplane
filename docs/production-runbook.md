@@ -52,7 +52,7 @@ Completion may update only that stable Check and only when its ordered begin mar
 
 Require the dedicated-App `ChangePlane / guard` and every configured behavioral evidence Check with its expected integration ID in one strict, no-bypass default-branch Ruleset with Merge Queue. A missing, `in_progress`, or non-successful App guard blocks. `ChangePlane guard` remains useful operational telemetry and carries no merge authority. The installer never edits these settings.
 
-This lifecycle is implemented and covered by local automated tests in managed v13, but it is not deployed or protected-canary proven. Historical v9 records used a legacy `github-actions` guard and do not prove either the dedicated-App Ruleset policy or the begin/complete lease.
+This lifecycle is deployed and protected-canary proven for exact-head success, stale-head re-evaluation, and protected-test refusal in managed v13; see `evidence/changeplane-v13-production-release.json`. The canary's active no-bypass Ruleset binds both required Checks to their integration IDs, but ChangePlane correctly keeps high-assurance readiness inactive because a personal-account repository cannot enable GitHub Merge Queue. Historical v9 records used a legacy `github-actions` guard and do not prove either the v13 dedicated publisher or the remaining Merge Queue gate.
 
 ## Delivery path
 
