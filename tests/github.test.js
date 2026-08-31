@@ -293,6 +293,7 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_GUARD_APP_ID",
     "CHANGEPLANE_GUARD_APP_SLUG",
     "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
+    "CHANGEPLANE_GUARD_REUSE_GITHUB_APP",
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_GIT_PROVIDER",
@@ -329,6 +330,7 @@ async function withOAuthEnvironment(callback) {
   delete process.env.CHANGEPLANE_CONTROLLER_SECRET;
   delete process.env.GITHUB_APP_ID;
   delete process.env.GITHUB_APP_PRIVATE_KEY;
+  delete process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP;
   try {
     return await callback();
   } finally {
@@ -2435,6 +2437,36 @@ test("readiness and onboarding fail closed without the dedicated guard publisher
     const sessionResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
     assert.equal(JSON.parse(sessionResponse.body).configured, false);
+  });
+});
+
+test("readiness permits only explicit reuse of the reviewed GitHub App for guard publication", async () => {
+  await withOAuthEnvironment(async () => {
+    delete process.env.CHANGEPLANE_GUARD_APP_ID;
+    delete process.env.CHANGEPLANE_GUARD_APP_SLUG;
+    delete process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY;
+    Object.assign(process.env, {
+      GITHUB_APP_ID: "424242",
+      GITHUB_APP_SLUG: "changeplane-test",
+      GITHUB_APP_PRIVATE_KEY: TEST_GUARD_PRIVATE_KEY,
+    });
+
+    const closedResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, closedResponse);
+    assert.equal(closedResponse.statusCode, 503);
+    assert.equal(JSON.parse(closedResponse.body).checks.guardPublisher, false);
+
+    process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP = "true";
+    const readyResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readyResponse);
+    assert.equal(readyResponse.statusCode, 200);
+    assert.equal(JSON.parse(readyResponse.body).checks.guardPublisher, true);
+
+    process.env.GITHUB_APP_SLUG = "github-actions";
+    const unsafeResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, unsafeResponse);
+    assert.equal(unsafeResponse.statusCode, 503);
+    assert.equal(JSON.parse(unsafeResponse.body).checks.guardPublisher, false);
   });
 });
 

@@ -18,6 +18,7 @@ const ENVIRONMENT_NAMES = [
   "CHANGEPLANE_GUARD_APP_ID",
   "CHANGEPLANE_GUARD_APP_SLUG",
   "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
+  "CHANGEPLANE_GUARD_REUSE_GITHUB_APP",
 ];
 
 function responseRecorder() {
@@ -46,6 +47,7 @@ async function withEnvironment(values, callback) {
   if (values.GITHUB_APP_SLUG == null) delete process.env.GITHUB_APP_SLUG;
   if (values.CHANGEPLANE_CANARY_REPOSITORY == null) delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
   if (values.CHANGEPLANE_SELF_SERVE_ENABLED == null) delete process.env.CHANGEPLANE_SELF_SERVE_ENABLED;
+  if (values.CHANGEPLANE_GUARD_REUSE_GITHUB_APP == null) delete process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP;
   try {
     return await callback();
   } finally {

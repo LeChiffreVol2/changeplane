@@ -803,9 +803,25 @@ function githubAppSlug() {
   return /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u.test(value) ? value : null;
 }
 
+function guardPublisherEnvironment() {
+  if (process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP === "true") {
+    return {
+      appId: process.env.GITHUB_APP_ID,
+      appSlug: process.env.GITHUB_APP_SLUG,
+      privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+    };
+  }
+  return {
+    appId: process.env.CHANGEPLANE_GUARD_APP_ID,
+    appSlug: process.env.CHANGEPLANE_GUARD_APP_SLUG,
+    privateKey: process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY,
+  };
+}
+
 function configuredGuardPublisher() {
-  const appSlug = process.env.CHANGEPLANE_GUARD_APP_SLUG;
-  const appId = Number(process.env.CHANGEPLANE_GUARD_APP_ID);
+  const environment = guardPublisherEnvironment();
+  const appSlug = environment.appSlug;
+  const appId = Number(environment.appId);
   if (
     typeof appSlug !== "string"
     || !/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u.test(appSlug)
@@ -822,7 +838,7 @@ function configuredGuardPublisher() {
 
 function guardPublisherIsConfigured() {
   const publisher = configuredGuardPublisher();
-  const privateKey = process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY;
+  const { privateKey } = guardPublisherEnvironment();
   if (!publisher || typeof privateKey !== "string" || !privateKey.includes("PRIVATE KEY")) return false;
   try {
     const pem = privateKey.includes("\\n") && !privateKey.includes("\n")
@@ -3536,7 +3552,7 @@ const GUARD_PULL_REQUEST_EVENTS = Object.freeze([
 
 function guardPublisherConfiguration() {
   const publisher = configuredGuardPublisher();
-  const privateKey = process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY;
+  const { privateKey } = guardPublisherEnvironment();
   if (!publisher || !guardPublisherIsConfigured()) {
     throw new HttpError(503, "The dedicated ChangePlane guard publisher is not configured.");
   }

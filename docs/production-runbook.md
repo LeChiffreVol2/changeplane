@@ -69,6 +69,7 @@ CI intentionally does not call a Vercel deployment. Before merge, use the same-r
 | `GITHUB_CLIENT_ID` | Vercel Production only | No | Connector owner; rotate with the paired GitHub credential. |
 | `GITHUB_CLIENT_SECRET` | Vercel Production only | Yes | Connector owner; revoke/rotate in GitHub after suspected disclosure. |
 | `GITHUB_APP_SLUG` | Vercel Production only | No | Connector owner; unset means the explicitly limited OAuth observe fallback. |
+| `CHANGEPLANE_GUARD_REUSE_GITHUB_APP` | Vercel Production only | No | Guard-publisher owner; exact `true` intentionally reuses `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, and `GITHUB_APP_PRIVATE_KEY` so a non-exportable Vercel sensitive value is not duplicated. Use only after the App's reviewed permissions cover both roles. Any other value selects the dedicated guard variables below. |
 | `CHANGEPLANE_GUARD_APP_ID` | Vercel Production only | No | Guard-publisher owner; positive ID of the dedicated ChangePlane App. May intentionally reuse `GITHUB_APP_ID` only when the reviewed App owns both controller and guard permissions. |
 | `CHANGEPLANE_GUARD_APP_SLUG` | Vercel Production only | No | Guard-publisher owner; exact lowercase slug paired with the guard App ID. `github-actions` is rejected. |
 | `CHANGEPLANE_GUARD_APP_PRIVATE_KEY` | Vercel Production only | Yes | Guard-publisher owner; rotate after suspected disclosure and redeploy. Never expose to a workflow or repository secret. May intentionally reuse `GITHUB_APP_PRIVATE_KEY` only for the same reviewed App. |
