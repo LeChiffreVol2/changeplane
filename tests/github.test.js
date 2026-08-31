@@ -140,7 +140,7 @@ function assuranceProofApiFixture(overrides = {}) {
     conclusion: "success",
     app: { id: evidence.publisherAppId, slug: evidence.source },
     details_url: `https://github.com/${repository}/actions/runs/7001`,
-    created_at: "2026-08-30T23:59:00Z",
+    started_at: "2026-08-30T23:59:00Z",
     completed_at: evidence.completedAt,
   };
   const pullRequest = {
@@ -5198,7 +5198,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           id: fixture.evidenceCheck.id + 1,
           status: "completed",
           conclusion: "failure",
-          created_at: "2026-08-31T00:01:00Z",
+          started_at: "2026-08-31T00:01:00Z",
           completed_at: "2026-08-31T00:02:00Z",
         },
       ];
@@ -5537,7 +5537,7 @@ test("live assurance proof requires the passport Check Run to remain the latest 
         ...fixture.evidenceCheck,
         id: fixture.evidenceCheck.id + 1,
         conclusion: "failure",
-        created_at: "2026-08-31T00:01:00Z",
+        started_at: "2026-08-31T00:01:00Z",
         completed_at: "2026-08-31T00:02:00Z",
       }),
       verdict: "INVALID",
@@ -5549,7 +5549,7 @@ test("live assurance proof requires the passport Check Run to remain the latest 
         id: fixture.evidenceCheck.id + 1,
         status: "in_progress",
         conclusion: null,
-        created_at: fixture.evidenceCheck.created_at,
+        started_at: fixture.evidenceCheck.started_at,
         completed_at: null,
       }),
       verdict: "INVALID",
@@ -5559,7 +5559,7 @@ test("live assurance proof requires the passport Check Run to remain the latest 
       newer: (fixture) => ({
         ...fixture.evidenceCheck,
         id: fixture.evidenceCheck.id + 1,
-        created_at: "2026-08-31T00:01:00Z",
+        started_at: "2026-08-31T00:01:00Z",
         completed_at: "2026-08-31T00:02:00Z",
       }),
       verdict: "INVALID",
@@ -5571,7 +5571,7 @@ test("live assurance proof requires the passport Check Run to remain the latest 
         id: fixture.evidenceCheck.id + 1,
         app: { id: 999999, slug: "lookalike-ci" },
         conclusion: "failure",
-        created_at: "2026-08-31T00:01:00Z",
+        started_at: "2026-08-31T00:01:00Z",
         completed_at: "2026-08-31T00:02:00Z",
       }),
       verdict: "VERIFIED_CURRENT",

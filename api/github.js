@@ -3610,19 +3610,19 @@ function newestEligibleEvidenceCheck(checks, item) {
     && check?.app?.slug === publisher
   ));
   let newest = null;
-  let newestCreatedAt = null;
+  let newestStartedAt = null;
   for (const check of eligible) {
     if (!Number.isSafeInteger(check?.id) || check.id <= 0) {
       throw new TypeError("GitHub returned an invalid eligible Check Run identifier.");
     }
-    const createdAt = Date.parse(check.created_at ?? "");
-    if (!Number.isFinite(createdAt)) {
-      throw new TypeError("GitHub returned an eligible Check Run without a valid created_at timestamp.");
+    const startedAt = Date.parse(check.started_at ?? check.completed_at ?? "");
+    if (!Number.isFinite(startedAt)) {
+      throw new TypeError("GitHub returned an eligible Check Run without a valid started_at or completed_at timestamp.");
     }
-    if (newest === null || createdAt > newestCreatedAt
-      || (createdAt === newestCreatedAt && check.id > newest.id)) {
+    if (newest === null || startedAt > newestStartedAt
+      || (startedAt === newestStartedAt && check.id > newest.id)) {
       newest = check;
-      newestCreatedAt = createdAt;
+      newestStartedAt = startedAt;
     }
   }
   return newest;
