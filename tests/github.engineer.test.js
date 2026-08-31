@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
 import handler, { seal } from "../api/github.js";
 
 const SECRET = "engineer-test-secret-that-is-longer-than-thirty-two-characters";
+const TEST_GUARD_PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  .privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 const ENVIRONMENT_NAMES = [
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
@@ -12,6 +15,9 @@ const ENVIRONMENT_NAMES = [
   "CHANGEPLANE_APP_ORIGIN",
   "CHANGEPLANE_CANARY_REPOSITORY",
   "CHANGEPLANE_SELF_SERVE_ENABLED",
+  "CHANGEPLANE_GUARD_APP_ID",
+  "CHANGEPLANE_GUARD_APP_SLUG",
+  "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
 ];
 
 function responseRecorder() {
@@ -32,6 +38,9 @@ async function withEnvironment(values, callback) {
     GITHUB_CLIENT_SECRET: "client-secret",
     CHANGEPLANE_SESSION_SECRET: SECRET,
     CHANGEPLANE_APP_ORIGIN: "https://changeplane.example",
+    CHANGEPLANE_GUARD_APP_ID: "424242",
+    CHANGEPLANE_GUARD_APP_SLUG: "changeplane-test",
+    CHANGEPLANE_GUARD_APP_PRIVATE_KEY: TEST_GUARD_PRIVATE_KEY,
     ...values,
   });
   if (values.GITHUB_APP_SLUG == null) delete process.env.GITHUB_APP_SLUG;
@@ -140,7 +149,7 @@ test("controlled canary remains bound to the verified GitHub App installation", 
   });
 });
 
-test("observe onboarding requires Checks read but keeps Actions Secrets optional", async () => {
+test("observe onboarding requires dedicated-App Checks write but keeps Actions Secrets optional", async () => {
   await withEnvironment({ GITHUB_APP_SLUG: "changeplane-test" }, async () => {
     const state = "s".repeat(32);
     const oauthCookie = seal({
@@ -168,7 +177,7 @@ test("observe onboarding requires Checks read but keeps Actions Secrets optional
             return {
               installations: [{
                 id: 12345,
-                permissions: { administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "read" },
+                permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write" },
               }],
             };
           },

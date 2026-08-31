@@ -1,4 +1,6 @@
-# Reference workflow for manual evaluation. The self-serve installer generates its own trusted workflow.
+# Reviewed source template only; this file is not directly installable or executable.
+# Use the installer, which vendors the release-pinned managed workflow to
+# .github/workflows/changeplane.yml. This template is not evidence of a live run.
 name: ChangePlane
 
 on:
@@ -11,14 +13,17 @@ on:
   deployment_status:
 
 permissions:
-  checks: write
+  actions: read
+  checks: read
   contents: read
   deployments: read
+  id-token: write
   pull-requests: write
   statuses: read
 
 jobs:
   guard:
+    name: ChangePlane guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:

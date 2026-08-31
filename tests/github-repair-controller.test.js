@@ -161,6 +161,7 @@ function sha(counter) {
 }
 
 function fakeGitHub(policy, {
+  mutateCredentialResponse,
   failDispatchResponseOnce = false,
   failDispatchBeforeAcceptOnce = false,
   failLedgerAnchorOnce = false,
@@ -179,11 +180,16 @@ function fakeGitHub(policy, {
   const blobs = new Map();
   const trees = new Map();
   const commits = new Map();
-  const checks = structuredClone(initialChecks);
+  const checks = structuredClone(initialChecks).map((check) => (
+    check?.app?.slug === "github-actions" && !check.details_url
+      ? { ...check, details_url: `https://github.com/${REPOSITORY}/actions/runs/${10_000 + check.id}` }
+      : check
+  ));
   const dispatches = [];
   const tokenRequests = [];
   const workflowRuns = new Map();
   const requests = [];
+  let pushCredentialReserved = false;
   let livePullRequestBody = pullRequestBody;
   let livePullRequestTitle = pullRequestTitle;
   let livePullRequestFiles = structuredClone(pullRequestFiles);
@@ -197,19 +203,27 @@ function fakeGitHub(policy, {
 
   const request = async (path, token, options = {}) => {
     const method = options.method ?? "GET";
-    requests.push({ method, path });
+    requests.push({ method, path, token });
     if (path === `/app/installations/${INSTALLATION_ID}/access_tokens` && method === "POST") {
       tokenRequests.push(structuredClone(options.body));
       const contentsOnly = canonicalJson(options.body.permissions) === canonicalJson({ contents: "write" });
-      if (contentsOnly && losePushTokenResponseOnce) {
+      if (contentsOnly && pushCredentialReserved && losePushTokenResponseOnce) {
         losePushTokenResponseOnce = false;
         throw error(504, "push credential response lost");
       }
-      return {
-        token: contentsOnly ? "ghs_contents_only_secret_token" : "installation-token",
+      const checksOnly = canonicalJson(options.body.permissions) === canonicalJson({ checks: "write" });
+      const secretsOnly = canonicalJson(options.body.permissions) === canonicalJson({ secrets: "write" });
+      const response = {
+        token: contentsOnly
+          ? (pushCredentialReserved ? "ghs_contents_only_secret_token" : "repair-state-contents-token")
+          : (checksOnly ? "repair-checks-token" : (secretsOnly ? "repository-secrets-token" : "installation-token")),
         expires_at: "2026-07-19T01:00:00.000Z",
+        permissions: structuredClone(options.body.permissions),
         repositories: [{ id: REPOSITORY_ID }],
       };
+      return typeof mutateCredentialResponse === "function"
+        ? mutateCredentialResponse(response, structuredClone(options.body), { pushCredentialReserved })
+        : response;
     }
     if (path === `/repositories/${REPOSITORY_ID}`) {
       return { id: REPOSITORY_ID, full_name: REPOSITORY, default_branch: "main", archived: false, disabled: false };
@@ -255,6 +269,14 @@ function fakeGitHub(policy, {
       return check;
     }
     if (path === "/repos/acme/payments/git/blobs" && method === "POST") {
+      try {
+        const document = JSON.parse(options.body.content);
+        if (Array.isArray(document.pushCredentials) && document.pushCredentials.length > 0) {
+          pushCredentialReserved = true;
+        }
+      } catch {
+        // Non-ledger blobs are irrelevant to the credential fixture.
+      }
       const id = sha(objectCounter++);
       blobs.set(id, Buffer.from(options.body.content).toString("base64"));
       return { sha: id };
@@ -312,7 +334,13 @@ function fakeGitHub(policy, {
       return null;
     }
     if (path.startsWith("/repos/acme/payments/actions/runs/")) {
-      return workflowRuns.get(Number(path.split("/").at(-1)));
+      const runId = Number(path.split("/").at(-1));
+      const check = checks.find((candidate) => candidate.details_url?.includes(`/actions/runs/${runId}`));
+      return workflowRuns.get(runId) ?? {
+        id: runId,
+        head_sha: check?.head_sha,
+        path: ".github/workflows/ci.yml",
+      };
     }
     throw new Error(`Unhandled fake GitHub request: ${method} ${path}`);
   };
@@ -385,7 +413,7 @@ async function claimedRepairFixture({ claimGrant = true, ...githubOptions } = {}
   return { claim, github, privateKey, published, request };
 }
 
-test("GitHub App JWT and repository token stay narrowly scoped", async () => {
+test("GitHub App JWT and repository tokens stay narrowly scoped", async () => {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const jwt = createGitHubAppJwt({ appId: APP_ID, privateKey, now: Date.parse("2026-07-19T00:00:00.000Z") });
   const [header, payload, signature] = jwt.split(".");
@@ -405,8 +433,8 @@ test("GitHub App JWT and repository token stay narrowly scoped", async () => {
   assert.deepEqual(github.tokenRequests[0].repository_ids, [REPOSITORY_ID]);
   assert.deepEqual(github.tokenRequests[0].permissions, {
     actions: "read",
-    checks: "write",
-    contents: "write",
+    checks: "read",
+    contents: "read",
     pull_requests: "read",
   });
 
@@ -424,6 +452,96 @@ test("GitHub App JWT and repository token stay narrowly scoped", async () => {
   });
 });
 
+test("repair read credentials reject widened permissions, bad expiry, and wrong repository scope", async (t) => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const now = Date.parse("2026-07-19T00:00:00.000Z");
+  const permissions = {
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    pull_requests: "read",
+  };
+  const baseline = {
+    token: "ghs_repair_read_only",
+    expires_at: new Date(now + (60 * 60 * 1_000)).toISOString(),
+    permissions,
+    repositories: [{ id: REPOSITORY_ID }],
+  };
+  for (const [name, response] of [
+    ["widened permissions", { ...baseline, permissions: { ...permissions, contents: "write" } }],
+    ["extra permission", { ...baseline, permissions: { ...permissions, deployments: "read" } }],
+    ["missing permission response", { ...baseline, permissions: undefined }],
+    ["overlong expiry", { ...baseline, expires_at: new Date(now + (66 * 60 * 1_000)).toISOString() }],
+    ["wrong repository", { ...baseline, repositories: [{ id: REPOSITORY_ID + 1 }] }],
+  ]) {
+    await t.test(name, async () => {
+      await assert.rejects(createInstallationAccessToken({
+        appId: APP_ID,
+        privateKey,
+        installationId: INSTALLATION_ID,
+        repositoryId: REPOSITORY_ID,
+        request: async () => response,
+        now,
+      }), /read-only repair credential/u);
+    });
+  }
+});
+
+test("publisher never mints write authority before candidate validation", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const { policy, request } = fixtureRequest();
+  const github = fakeGitHub(policy, { pullRequestHeadSha: NEXT_HEAD_SHA });
+  await assert.rejects(publishTrustedRepair({
+    controllerRequest: request,
+    appId: APP_ID,
+    privateKey,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    enabled: true,
+    expectedRepository: REPOSITORY,
+    request: github.request,
+    now: new Date("2026-07-19T00:00:00.000Z"),
+  }), /stale|live pull request/u);
+  assert.deepEqual(github.tokenRequests.map(({ permissions: value }) => value), [{
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    pull_requests: "read",
+  }]);
+  assert.equal(github.refs.size, 0);
+  assert.equal(github.dispatches.length, 0);
+});
+
+for (const [name, targetPermissions, widenedPermissions, message] of [
+  ["repair state", { contents: "write" }, { contents: "write", checks: "write" }, /Contents-only repair state credential/u],
+  ["Check publication", { checks: "write" }, { checks: "write", contents: "write" }, /Checks-only repair credential/u],
+]) {
+  test(`${name} credential fails closed when GitHub widens its returned permissions`, async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { policy, request } = fixtureRequest();
+    const github = fakeGitHub(policy, {
+      mutateCredentialResponse(response, body) {
+        return canonicalJson(body.permissions) === canonicalJson(targetPermissions)
+          ? { ...response, permissions: widenedPermissions }
+          : response;
+      },
+    });
+    await assert.rejects(publishTrustedRepair({
+      controllerRequest: request,
+      appId: APP_ID,
+      privateKey,
+      publisherReleaseSha: RELEASE_SHA,
+      generation: 1,
+      enabled: true,
+      expectedRepository: REPOSITORY,
+      request: github.request,
+      now: new Date("2026-07-19T00:00:00.000Z"),
+    }), message);
+    assert.equal(github.refs.size, 0);
+    assert.equal(github.dispatches.length, 0);
+  });
+}
+
 test("automatic first-head contract authorizes bounded evidence repair before its receipt exists", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const title = "Make checkout retries idempotent";
@@ -432,7 +550,7 @@ test("automatic first-head contract authorizes bounded evidence repair before it
   const policy = {
     version: 1,
     protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
   };
   const diagnostic = "Checkout race failed\nExpected one charge, observed two";
   const { request } = automaticFixture({
@@ -490,6 +608,22 @@ test("automatic first-head contract authorizes bounded evidence repair before it
     diagnostic,
   }]);
   assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
+
+  github.workflowRuns.set(10_091, {
+    id: 10_091,
+    head_sha: HEAD_SHA,
+    path: ".github/workflows/spoof.yml",
+  });
+  await assert.rejects(buildTrustedRepairCandidate({
+    controllerRequest: request,
+    installationToken: "installation-token",
+    appId: APP_ID,
+    publisherReleaseSha: RELEASE_SHA,
+    generation: 1,
+    publicKeys: ledgerPublicKeys(privateKey),
+    expectedRepository: REPOSITORY,
+    request: github.request,
+  }), /no longer authorizes autonomous repair/u);
 });
 
 test("automatic repair fails closed when the contract includes protected evidence source", async () => {
@@ -500,7 +634,7 @@ test("automatic repair fails closed when the contract includes protected evidenc
   const policy = {
     version: 1,
     protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
   };
   const { request } = automaticFixture({
     contract,
@@ -600,7 +734,7 @@ test("signed generation ledger preserves the first-head contract across a later 
   const policy = {
     version: 1,
     protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
   };
   const instructions = [{
     code: "EVIDENCE_FAILED",
@@ -653,6 +787,7 @@ test("signed generation ledger preserves the first-head contract across a later 
     id: 191,
     name: "checkout-race",
     head_sha: NEXT_HEAD_SHA,
+    details_url: `https://github.com/${REPOSITORY}/actions/runs/10191`,
     status: "completed",
     conclusion: "failure",
     app: { slug: "github-actions" },
@@ -687,7 +822,7 @@ test("signed generation ledger rejects rebinding to an expanded contract", async
   const policy = {
     version: 1,
     protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions" }] },
+    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
   };
   const evidenceInstruction = [{
     code: "EVIDENCE_FAILED",
@@ -743,6 +878,7 @@ test("signed generation ledger rejects rebinding to an expanded contract", async
     id: 192,
     name: "checkout-race",
     head_sha: NEXT_HEAD_SHA,
+    details_url: `https://github.com/${REPOSITORY}/actions/runs/10192`,
     status: "completed",
     conclusion: "failure",
     app: { slug: "github-actions" },
@@ -832,6 +968,16 @@ test("publisher persists one signed grant, anchors every tip, and server-claims 
   assert.equal(github.dispatches.length, 1);
   assert.equal(github.checks.some((check) => check.name === "ChangePlane / repair grant" && check.head_sha === HEAD_SHA), true);
   assert.equal(github.checks.filter((check) => check.name === "ChangePlane / repair ledger").length, 2);
+  assert.equal(github.tokenRequests.some(({ permissions }) => (
+    permissions.checks === "write" && permissions.contents === "write"
+  )), false);
+  assert.equal(github.requests.filter(({ method, path }) => (
+    method === "POST" && path === "/repos/acme/payments/check-runs"
+  )).every(({ token }) => token === "repair-checks-token"), true);
+  assert.equal(github.requests.filter(({ method, path }) => (
+    ["POST", "PATCH"].includes(method)
+      && (path.startsWith("/repos/acme/payments/git/") || path === "/repos/acme/payments/dispatches")
+  )).every(({ token }) => token === "repair-state-contents-token"), true);
 
   await assert.rejects(publishTrustedRepair({
     controllerRequest: request,
@@ -932,6 +1078,9 @@ test("publisher persists one signed grant, anchors every tip, and server-claims 
 
 test("claimed grant mints one exact-repository Contents-only push credential", async () => {
   const fixture = await claimedRepairFixture();
+  const contentsWritesBeforeIssue = fixture.github.tokenRequests.filter(
+    ({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" }),
+  ).length;
   const options = {
     claimRequest: fixture.claim,
     appId: APP_ID,
@@ -969,11 +1118,17 @@ test("claimed grant mints one exact-repository Contents-only push credential", a
     ...options,
     now: new Date("2026-07-19T00:03:00.000Z"),
   }), /already reserved|refusing to re-mint/u);
-  assert.equal(fixture.github.tokenRequests.filter(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })).length, 1);
+  assert.equal(fixture.github.tokenRequests.filter(
+    ({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" }),
+  ).length, contentsWritesBeforeIssue + 2);
 });
 
 test("unclaimed signed grant cannot mint a push credential", async () => {
   const fixture = await claimedRepairFixture({ claimGrant: false });
+  const contentsWrites = () => fixture.github.tokenRequests.filter(
+    ({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" }),
+  ).length;
+  const contentsWritesBeforeIssue = contentsWrites();
   await assert.rejects(issueTrustedRepairPushToken({
     claimRequest: fixture.claim,
     appId: APP_ID,
@@ -986,7 +1141,7 @@ test("unclaimed signed grant cannot mint a push credential", async () => {
     request: fixture.github.request,
     now: new Date("2026-07-19T00:01:00.000Z"),
   }), /has not been claimed/u);
-  assert.equal(fixture.github.tokenRequests.some(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })), false);
+  assert.equal(contentsWrites(), contentsWritesBeforeIssue);
 });
 
 test("push credential mint fails closed for disabled, wrong-generation, and stale grants", async () => {
@@ -1003,15 +1158,22 @@ test("push credential mint fails closed for disabled, wrong-generation, and stal
     request: fixture.github.request,
     now: new Date("2026-07-19T00:02:00.000Z"),
   };
+  const contentsWrites = () => fixture.github.tokenRequests.filter(
+    ({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" }),
+  ).length;
+  const contentsWritesBeforeFailures = contentsWrites();
   await assert.rejects(issueTrustedRepairPushToken({ ...options, enabled: false }), /kill switch/u);
   await assert.rejects(issueTrustedRepairPushToken({ ...options, generation: 2 }), /generation/u);
   fixture.github.setPullRequest({ headSha: NEXT_HEAD_SHA });
   await assert.rejects(issueTrustedRepairPushToken(options), /live pull-request revision/u);
-  assert.equal(fixture.github.tokenRequests.some(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })), false);
+  assert.equal(contentsWrites(), contentsWritesBeforeFailures);
 });
 
 test("lost push-token response burns the signed reservation and cannot re-mint", async () => {
   const fixture = await claimedRepairFixture({ losePushTokenResponseOnce: true });
+  const contentsWritesBeforeIssue = fixture.github.tokenRequests.filter(
+    ({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" }),
+  ).length;
   const options = {
     claimRequest: fixture.claim,
     appId: APP_ID,
@@ -1031,7 +1193,9 @@ test("lost push-token response burns the signed reservation and cannot re-mint",
     ...options,
     now: new Date("2026-07-19T00:03:00.000Z"),
   }), /already reserved|refusing to re-mint/u);
-  assert.equal(fixture.github.tokenRequests.filter(({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" })).length, 1);
+  assert.equal(fixture.github.tokenRequests.filter(
+    ({ permissions }) => canonicalJson(permissions) === canonicalJson({ contents: "write" }),
+  ).length, contentsWritesBeforeIssue + 2);
 });
 
 test("push-token client keeps rejected response bodies and credentials out of errors", async () => {

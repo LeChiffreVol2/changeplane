@@ -4,12 +4,15 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH,
+  assertUniqueOpenPullRequestHead,
   canonicalJson,
   assertTrustedPullRequestBase,
   assurancePassportOutputs,
+  beginDedicatedGuard,
   bindPreview,
   buildAgentHandback,
   buildAssurancePassport,
+  buildProofLocator,
   buildMergeGroupReceipt,
   buildReceipt,
   checkDiagnostic,
@@ -22,23 +25,25 @@ import {
   inferPlan,
   githubRetryDelayMs,
   findCurrentRemediationRequest,
-  parseBoundReceipt,
   parseAssurancePassportIntegrity,
   parseAgentDispatch,
   parseMode,
   parsePlan,
   parseRemediationComments,
+  publishDedicatedGuard,
   remediationIdempotencyKey,
   renderReceiptComment,
   renderMergeGroupReceipt,
   resolveMergeGroup,
   resolvePullRequestNumber,
+  resolveRevisionContract,
   sanitizePreviewUrl,
   shouldDispatchAgentWebhook,
   shouldFailDecision,
   validateAgentWebhookUrl,
   verifyAssurancePassportAgainstCheck,
   verifyAssurancePassportIntegrity,
+  validateActionEvidencePolicy,
 } from "./index.js";
 
 function passportReceipt(overrides = {}) {
@@ -63,6 +68,20 @@ function passportReceipt(overrides = {}) {
   };
 }
 
+function passingPassportEvidence(overrides = {}) {
+  return {
+    name: "CI / verify",
+    expectedSource: "github-actions",
+    source: "github-actions",
+    checkRunId: 808,
+    publisherAppId: 15368,
+    status: "COMPLETED",
+    conclusion: "SUCCESS",
+    completedAt: "2026-08-20T00:01:00Z",
+    ...overrides,
+  };
+}
+
 test("GitHub Actions test imports do not execute the Action entrypoint", () => {
   const result = spawnSync(process.execPath, [
     "--input-type=module",
@@ -80,11 +99,43 @@ test("GitHub Actions test imports do not execute the Action entrypoint", () => {
   assert.equal(result.stderr, "");
 });
 
+test("trusted enforce action refuses PASS-capable evaluation without strict behavioral Check policy", () => {
+  assert.equal(validateActionEvidencePolicy({
+    evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
+  }, "enforce"), true);
+  assert.throws(
+    () => validateActionEvidencePolicy({ evidence: { requiredChecks: [] } }, "enforce"),
+    /at least one exact behavioral Check/u,
+  );
+  assert.throws(
+    () => validateActionEvidencePolicy({
+      evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml", extra: true }] },
+    }, "enforce"),
+    /contain only/u,
+  );
+  assert.throws(
+    () => validateActionEvidencePolicy({
+      evidence: { requiredChecks: [{ name: "test", appSlug: "GitHub-Actions" }] },
+    }, "enforce"),
+    /lowercase GitHub App slug/u,
+  );
+  assert.throws(
+    () => validateActionEvidencePolicy({
+      evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions" }] },
+    }, "enforce"),
+    /exact .*workflowPath/u,
+  );
+});
+
 test("pinned guard workflows request merge-group checks on exact queue revisions", () => {
   for (const path of ["../examples/changeplane-observe.yml", "../examples/changeplane-repair-guard.yml"]) {
     const workflow = readFileSync(new URL(path, import.meta.url), "utf8");
     assert.match(workflow, /merge_group:\n\s+types: \[checks_requested\]/u);
     assert.match(workflow, /github\.event\.merge_group\.head_sha/u);
+    assert.match(workflow, /checks: read/u);
+    assert.match(workflow, /actions: read/u);
+    assert.match(workflow, /id-token: write/u);
+    assert.doesNotMatch(workflow, /checks: write/u);
   }
   const observe = readFileSync(new URL("../examples/changeplane-observe.yml", import.meta.url), "utf8");
   assert.match(observe, /types: \[opened, synchronize, reopened, edited\]/u);
@@ -95,6 +146,211 @@ test("pinned guard workflows request merge-group checks on exact queue revisions
   const mergeQueueStep = repair.match(/- name: Evaluate the merge queue without repair authority\n([\s\S]*)$/u)?.[1] ?? "";
   assert.match(mergeQueueStep, /INPUT_AGENT_DISPATCH: none/u);
   assert.doesNotMatch(mergeQueueStep, /CONTROLLER_HMAC|CONTROLLER_INSTALLATION_ID|WEBHOOK/u);
+});
+
+test("dedicated guard publication exchanges GitHub OIDC and rejects shared Actions authority", async () => {
+  const passport = buildAssurancePassport(passportReceipt({
+    mode: "enforce",
+    decision: "PASS",
+    reason: "ALL_GUARANTEES_SATISFIED",
+    evidence: [passingPassportEvidence()],
+  }));
+  const original = {
+    requestUrl: process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
+    requestToken: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+    runId: process.env.GITHUB_RUN_ID,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    gitRef: process.env.GITHUB_REF,
+  };
+  Object.assign(process.env, {
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/oidc/token",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "github-oidc-request-token-long-enough",
+    GITHUB_RUN_ID: "8001",
+    GITHUB_RUN_ATTEMPT: "2",
+    GITHUB_REF: "refs/heads/main",
+  });
+  const calls = [];
+  const fetchImpl = async (input, options = {}) => {
+    const url = new URL(String(input));
+    calls.push({ url, options });
+    if (url.hostname.endsWith(".actions.githubusercontent.com")) {
+      assert.equal(url.searchParams.get("audience"), "https://changeplane.vercel.app/guard-publisher/v1");
+      assert.equal(options.headers.authorization, "Bearer github-oidc-request-token-long-enough");
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { value: "x".repeat(120) }; },
+      };
+    }
+    const body = JSON.parse(options.body);
+    assert.equal(body.passport.digest, passport.digest);
+    assert.equal(body.defaultBranch, "main");
+    assert.equal(body.gitRef, "refs/heads/main");
+    assert.equal(body.workflowRunId, 8001);
+    assert.equal(body.workflowRunAttempt, 2);
+    assert.equal(options.headers.authorization, `Bearer ${"x".repeat(120)}`);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication",
+          passportDigest: passport.digest,
+          check: {
+            id: 909,
+            name: "ChangePlane / guard",
+            headSha: passport.target.headSha,
+            conclusion: "success",
+            publisherAppId: 424242,
+            publisherAppSlug: "changeplane",
+          },
+        };
+      },
+    };
+  };
+  try {
+    const published = await publishDedicatedGuard({
+      repository: "acme/payments",
+      defaultBranch: "main",
+      passport,
+      summary: "trusted summary",
+      fetchImpl,
+    });
+    assert.equal(published.app.slug, "changeplane");
+    assert.equal(calls.length, 2);
+
+    const sharedPublisher = async (input, options) => {
+      const response = await fetchImpl(input, options);
+      if (new URL(String(input)).hostname === "changeplane.vercel.app") {
+        const value = await response.json();
+        return {
+          ...response,
+          async json() {
+            return {
+              ...value,
+              check: {
+                ...value.check,
+                publisherAppId: 15368,
+                publisherAppSlug: "github-actions",
+              },
+            };
+          },
+        };
+      }
+      return response;
+    };
+    await assert.rejects(
+      () => publishDedicatedGuard({
+        repository: "acme/payments",
+        defaultBranch: "main",
+        passport,
+        summary: "trusted summary",
+        fetchImpl: sharedPublisher,
+      }),
+      /invalid proof/u,
+    );
+  } finally {
+    for (const [name, value] of Object.entries({
+      ACTIONS_ID_TOKEN_REQUEST_URL: original.requestUrl,
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: original.requestToken,
+      GITHUB_RUN_ID: original.runId,
+      GITHUB_RUN_ATTEMPT: original.runAttempt,
+      GITHUB_REF: original.gitRef,
+    })) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("dedicated guard begin invalidates the stable exact-head gate before evaluation", async () => {
+  const original = {
+    requestUrl: process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
+    requestToken: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+    runId: process.env.GITHUB_RUN_ID,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    gitRef: process.env.GITHUB_REF,
+  };
+  Object.assign(process.env, {
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/oidc/token",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "github-oidc-request-token-long-enough",
+    GITHUB_RUN_ID: "8100",
+    GITHUB_RUN_ATTEMPT: "3",
+    GITHUB_REF: "refs/pull/42/merge",
+  });
+  const target = {
+    type: "pull_request",
+    pullRequestNumber: 42,
+    baseSha: "a".repeat(40),
+    headSha: "b".repeat(40),
+    baseRef: "main",
+    headRef: "agent/change",
+  };
+  const calls = [];
+  const fetchImpl = async (input, options = {}) => {
+    const url = new URL(String(input));
+    calls.push({ url, options });
+    if (url.hostname.endsWith(".actions.githubusercontent.com")) {
+      return { ok: true, status: 200, async json() { return { value: "o".repeat(120) }; } };
+    }
+    const body = JSON.parse(options.body);
+    assert.deepEqual(body, {
+      schemaVersion: 1,
+      type: "changeplane.guard-publication-begin",
+      repository: "acme/payments",
+      repositoryId: 4242,
+      defaultBranch: "main",
+      controllerSha: "a".repeat(40),
+      workflowRunId: 8100,
+      workflowRunAttempt: 3,
+      gitRef: "refs/pull/42/merge",
+      target,
+    });
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-begin",
+          check: {
+            id: 1001,
+            name: "ChangePlane / guard",
+            headSha: target.headSha,
+            status: "in_progress",
+            publisherAppId: 424242,
+            publisherAppSlug: "changeplane",
+          },
+          run: { id: 8100, attempt: 3 },
+          previousContractDigest: null,
+        };
+      },
+    };
+  };
+  try {
+    const result = await beginDedicatedGuard({
+      repository: "acme/payments",
+      repositoryId: 4242,
+      defaultBranch: "main",
+      controllerSha: "a".repeat(40),
+      target,
+      fetchImpl,
+    });
+    assert.equal(result.check.status, "in_progress");
+    assert.equal(calls.length, 2);
+  } finally {
+    for (const [name, value] of Object.entries({
+      ACTIONS_ID_TOKEN_REQUEST_URL: original.requestUrl,
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: original.requestToken,
+      GITHUB_RUN_ID: original.runId,
+      GITHUB_RUN_ATTEMPT: original.runAttempt,
+      GITHUB_REF: original.gitRef,
+    })) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
 
 test("builds bounded exact-check diagnostics from output and annotations", () => {
@@ -126,7 +382,7 @@ test("enforce evidence excludes legacy commit statuses without querying them", a
     const checks = await evidenceSnapshot(
       "acme/payments",
       "a".repeat(40),
-      { evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions" }] } },
+      { evidence: { requiredChecks: [{ name: "test", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] } },
       "token",
       { includeCommitStatuses: false },
     );
@@ -141,29 +397,42 @@ test("enforce evidence excludes legacy commit statuses without querying them", a
 test("retains the exact Check Run and publisher identities for portable assurance", async () => {
   const originalFetch = globalThis.fetch;
   const headSha = "a".repeat(40);
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    async json() {
-      return {
-        check_runs: [{
-          id: 808,
-          name: "validate",
-          status: "completed",
-          conclusion: "success",
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(input);
+    requested.push(url.pathname);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        if (url.pathname.endsWith("/check-runs")) {
+          return {
+            check_runs: [{
+              id: 808,
+              name: "validate",
+              status: "completed",
+              conclusion: "success",
+              head_sha: headSha,
+              details_url: "https://github.com/acme/payments/actions/runs/9001/job/7001",
+              started_at: "2026-08-20T00:00:00Z",
+              completed_at: "2026-08-20T00:01:00Z",
+              app: { id: 15368, slug: "github-actions" },
+            }],
+          };
+        }
+        return {
+          id: 9001,
           head_sha: headSha,
-          started_at: "2026-08-20T00:00:00Z",
-          completed_at: "2026-08-20T00:01:00Z",
-          app: { id: 15368, slug: "github-actions" },
-        }],
-      };
-    },
-  });
+          path: ".github/workflows/ci.yml",
+        };
+      },
+    };
+  };
   try {
     assert.deepEqual(await evidenceSnapshot(
       "acme/payments",
       headSha,
-      { evidence: { requiredChecks: [{ name: "validate", appSlug: "github-actions" }] } },
+      { evidence: { requiredChecks: [{ name: "validate", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] } },
       "token",
       { includeCommitStatuses: false },
     ), [{
@@ -173,9 +442,89 @@ test("retains the exact Check Run and publisher identities for portable assuranc
       createdAt: "2026-08-20T00:00:00Z",
       completedAt: "2026-08-20T00:01:00Z",
       source: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
       checkRunId: 808,
       publisherAppId: 15368,
     }]);
+    assert.deepEqual(requested, [
+      `/repos/acme/payments/commits/${headSha}/check-runs`,
+      "/repos/acme/payments/actions/runs/9001",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fails closed when github-actions details URL or workflow-run head provenance is not exact", async () => {
+  const originalFetch = globalThis.fetch;
+  const headSha = "a".repeat(40);
+  const policy = {
+    evidence: {
+      requiredChecks: [{
+        name: "validate",
+        appSlug: "github-actions",
+        workflowPath: ".github/workflows/ci.yml",
+      }],
+    },
+  };
+  const cases = [
+    {
+      detailsUrl: "https://github.com/other/payments/actions/runs/9001/job/7001",
+      runHeadSha: headSha,
+      expectedRequests: 1,
+    },
+    {
+      detailsUrl: "https://github.com/acme/payments/actions/runs/9001/job/7001",
+      runHeadSha: "b".repeat(40),
+      expectedRequests: 2,
+    },
+    {
+      detailsUrl: "https://github.com/acme/payments/actions/runs/9001/job/7001?attempt=1",
+      runHeadSha: headSha,
+      expectedRequests: 1,
+    },
+  ];
+  try {
+    for (const scenario of cases) {
+      const requested = [];
+      globalThis.fetch = async (input) => {
+        const url = new URL(input);
+        requested.push(url.pathname);
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            if (url.pathname.endsWith("/check-runs")) {
+              return {
+                check_runs: [{
+                  id: 808,
+                  name: "validate",
+                  status: "completed",
+                  conclusion: "success",
+                  head_sha: headSha,
+                  details_url: scenario.detailsUrl,
+                  app: { id: 15368, slug: "github-actions" },
+                }],
+              };
+            }
+            return {
+              id: 9001,
+              head_sha: scenario.runHeadSha,
+              path: ".github/workflows/ci.yml",
+            };
+          },
+        };
+      };
+      const checks = await evidenceSnapshot(
+        "acme/payments",
+        headSha,
+        policy,
+        "token",
+        { includeCommitStatuses: false },
+      );
+      assert.equal("workflowPath" in checks[0], false);
+      assert.equal(requested.length, scenario.expectedRequests);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -258,6 +607,108 @@ test("round-trips a maximum-bound assurance passport within the shared encoded l
     assurance_passport: canonicalJson(passport),
     assurance_passport_digest: passport.digest,
   });
+});
+
+test("rejects enforce PASS passports that are not semantically backed by behavioral evidence", () => {
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({
+      mode: "enforce",
+      decision: "PASS",
+      reason: "ALL_GUARANTEES_SATISFIED",
+      evidence: [],
+    })),
+    /assurance passport is invalid/u,
+  );
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({
+      mode: "enforce",
+      decision: "PASS",
+      reason: "ALL_GUARANTEES_SATISFIED",
+      evidence: [passingPassportEvidence({ conclusion: "FAILURE" })],
+    })),
+    /assurance passport is invalid/u,
+  );
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({
+      mode: "enforce",
+      decision: "PASS",
+      reason: "ELIGIBLE",
+      evidence: [passingPassportEvidence()],
+    })),
+    /assurance passport is invalid/u,
+  );
+  assert.throws(
+    () => buildAssurancePassport(passportReceipt({
+      mode: "enforce",
+      decision: "PASS",
+      reason: "ALL_GUARANTEES_SATISFIED",
+      evidence: [passingPassportEvidence({ expectedSource: "Any", source: "lookalike-ci" })],
+    })),
+    /assurance passport is invalid/u,
+  );
+
+  const passport = buildAssurancePassport(passportReceipt({
+    mode: "enforce",
+    decision: "PASS",
+    reason: "ALL_GUARANTEES_SATISFIED",
+    evidence: [passingPassportEvidence()],
+  }));
+  assert.equal(passport.decision.behavioralEvidencePassed, true);
+});
+
+test("requires one passport marker and matching receipt bindings before live authentication", () => {
+  const passport = buildAssurancePassport(passportReceipt());
+  const encoded = Buffer.from(canonicalJson(passport)).toString("base64url");
+  const passportMarker = `<!-- changeplane-assurance-passport:v1 digest=${passport.digest} payload=${encoded} -->`;
+  assert.throws(
+    () => parseAssurancePassportIntegrity(`${passportMarker}\n${passportMarker}`),
+    /assurance passport is invalid/u,
+  );
+
+  const mismatchedReceipt = `<!-- changeplane-receipt:v2 contract=${"0".repeat(64)} input=${passport.binding.inputDigest} head=${passport.target.headSha} -->\n${passportMarker}`;
+  const liveCheck = {
+    id: 909,
+    name: "ChangePlane / guard",
+    head_sha: passport.target.headSha,
+    status: "completed",
+    conclusion: "neutral",
+    output: { summary: mismatchedReceipt },
+    app: { id: 15368, slug: "github-actions" },
+  };
+  assert.throws(
+    () => verifyAssurancePassportAgainstCheck(
+      passport,
+      liveCheck,
+      { appId: 15368, appSlug: "github-actions" },
+    ),
+    /does not authenticate/u,
+  );
+});
+
+test("builds a redacted proof locator only from the published exact-head guard", () => {
+  const passport = buildAssurancePassport(passportReceipt());
+  assert.deepEqual(buildProofLocator(passport, {
+    id: 909,
+    name: "ChangePlane / guard",
+    head_sha: passport.target.headSha,
+  }), {
+    schemaVersion: 1,
+    type: "changeplane.assurance-proof-locator",
+    repositoryId: 4242,
+    targetType: "pull_request",
+    pullRequestNumber: 42,
+    headSha: passport.target.headSha,
+    checkRunId: 909,
+    passportDigest: passport.digest,
+  });
+  assert.throws(
+    () => buildProofLocator(passport, {
+      id: 909,
+      name: "ChangePlane / guard",
+      head_sha: "9".repeat(40),
+    }),
+    /cannot locate/u,
+  );
 });
 
 test("rejects policy paths and evidence states that cannot round-trip through the passport schema", () => {
@@ -361,6 +812,36 @@ test("binds a zero-touch contract from the first observed head", () => {
     goal: "Prevent duplicate charges",
   });
   assert.throws(() => inferPlan(Array.from({ length: 51 }, (_, index) => ({ path: `src/${index}.js` }))), /up to 50/u);
+});
+
+test("uses only the dedicated-App digest to freeze one exact-head contract", () => {
+  const headSha = "a".repeat(40);
+  const boundPlan = { scope: ["src/bound.js"], goal: "Bound once" };
+  const sameHead = resolveRevisionContract({
+    body: '<!-- changeplane {"scope":["src/edited.js"]} -->',
+    title: "Edited later",
+    actualFiles: [{ path: "src/edited.js" }],
+    boundContractDigest: digest(boundPlan),
+    headSha,
+  });
+  assert.deepEqual(sameHead.plan, { scope: ["src/edited.js"] });
+  assert.equal(sameHead.boundContractDigest, digest(boundPlan));
+  assert.notEqual(sameHead.boundContractDigest, sameHead.contractDigest);
+
+  const newHead = resolveRevisionContract({
+    body: '<!-- changeplane {"scope":["src/new.js"]} -->',
+    title: "New revision",
+    actualFiles: [{ path: "src/new.js" }],
+    headSha: "b".repeat(40),
+  });
+  assert.deepEqual(newHead.plan, { scope: ["src/new.js"] });
+  assert.equal(newHead.boundContractDigest, newHead.contractDigest);
+  assert.throws(() => resolveRevisionContract({
+    body: '<!-- changeplane {"scope":["src/new.js"]} -->',
+    actualFiles: [{ path: "src/new.js" }],
+    boundContractDigest: "forged",
+    headSha,
+  }), /authenticated exact-head contract binding/u);
 });
 
 test("canonical digest is stable across object key order", () => {
@@ -749,6 +1230,30 @@ test("discovers concurrent open pull requests with shared files in one advisory 
   }
 });
 
+test("refuses commit-scoped assurance when one exact head belongs to multiple open pull requests", async () => {
+  const originalFetch = globalThis.fetch;
+  const headSha = "a".repeat(40);
+  const pull = {
+    number: 41,
+    state: "open",
+    head: { sha: headSha, ref: "agent/fix", repo: { full_name: "acme/payments" } },
+    base: { sha: "b".repeat(40), ref: "main", repo: { full_name: "acme/payments" } },
+  };
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    async json() { return [pull, { ...pull, number: 42, head: { ...pull.head, ref: "agent/copy" } }]; },
+  });
+  try {
+    await assert.rejects(
+      () => assertUniqueOpenPullRequestHead("acme/payments", pull, "token"),
+      /multiple or mismatched open pull requests/u,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps a missing or unreadable preview advisory", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, status: 200, async json() { return []; } });
@@ -1013,7 +1518,7 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   assert.match(markdown, /https:\/\/preview\.example\/pr\/42.*Preview.*bound to.*bbbbbbbbbbbb/);
   assert.match(markdown, /Preview provenance.*revision.*bbbbbbbbbbbb.*deployment.*11.*status.*101.*deploy-bot.*deploy:preview.*environment override.*Pull request 42.*informational only/s);
   assert.match(markdown, /changeplane-agent-handback:v1.*Agent handback.*Proposal only.*docs\/retries\.md.*cannot push, merge, publish a Check, or issue PASS/su);
-  assert.match(markdown, /Independent authority.*Assurance passport.*authenticity still requires the live.*Authoring agent.*Deterministic harness.*Trusted controller.*GitHub/su);
+  assert.match(markdown, /Independent authority.*Assurance passport.*live correspondence requires the exact.*policy, evidence, and target on GitHub.*Authoring agent.*Deterministic harness.*Trusted controller.*GitHub/su);
   assert.match(markdown, /Concurrent change risk.*#43.*Retry worker.*src\/payments\/retry\.js.*Advisory only/s);
   assert.equal(receipt.preview.deploymentId, 11);
 
@@ -1110,18 +1615,6 @@ test("renders an exact revision-bound observe receipt with one next actor", () =
   );
 });
 
-test("reads only the trusted revision-bound receipt marker", () => {
-  const body = `<!-- changeplane-receipt:v2 contract=${"a".repeat(64)} input=${"b".repeat(64)} head=${"c".repeat(40)} -->`;
-  assert.deepEqual(parseBoundReceipt([
-    { user: { login: "octocat" }, body },
-    { user: { login: "github-actions[bot]" }, body },
-  ]), {
-    contractDigest: "a".repeat(64),
-    inputDigest: "b".repeat(64),
-    headSha: "c".repeat(40),
-  });
-});
-
 test("labels an empty-evidence PASS as scope-only assurance", () => {
   const receipt = buildReceipt({
     repository: "acme/payments",
@@ -1208,20 +1701,4 @@ test("publishes merge-queue assurance on the merge-group SHA", () => {
   assert.equal(passport.target.type, "merge_group");
   assert.equal(passport.target.pullRequestNumber, null);
   assert.equal(passport.target.headSha, headSha);
-});
-
-test("round-trips an automatic contract only from the trusted receipt author", () => {
-  const plan = { goal: "Prevent duplicate charges", scope: ["src/payments/retry.js"] };
-  const encoded = Buffer.from(canonicalJson(plan)).toString("base64url");
-  const body = [
-    `<!-- changeplane-receipt:v2 contract=${digest(plan)} input=${"b".repeat(64)} head=${"c".repeat(40)} -->`,
-    `<!-- changeplane-contract:v1 source=first-head plan=${encoded} -->`,
-  ].join("\n");
-  assert.deepEqual(parseBoundReceipt([{ user: { login: "github-actions[bot]" }, body }]), {
-    contractDigest: digest(plan),
-    inputDigest: "b".repeat(64),
-    headSha: "c".repeat(40),
-    contractSource: "first-head",
-    plan,
-  });
 });

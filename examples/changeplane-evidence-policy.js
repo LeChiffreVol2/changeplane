@@ -1,4 +1,7 @@
 const DEFAULT_EVIDENCE_PROTECTED_PATHS = Object.freeze([
+  ".changeplane.json",
+  ".github/workflows/**",
+  "changeplane/**",
   "test/**",
   "tests/**",
   "spec/**",
@@ -68,6 +71,43 @@ const EVIDENCE_CONTROL_FILES = new Set([
   "Makefile",
 ].map((fileName) => fileName.toLowerCase()));
 
+const IMMUTABLE_EVIDENCE_PREFIXES = Object.freeze([
+  ".github/workflows",
+  "changeplane",
+]);
+
+function normalizedEvidencePath(value) {
+  if (typeof value !== "string" || !value || value.includes("\\") || value.startsWith("/")) return null;
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "..")) return null;
+  const normalized = segments.filter((segment) => segment !== ".").join("/");
+  return normalized || null;
+}
+
+function actualEvidenceControlPaths(actualFiles) {
+  if (!Array.isArray(actualFiles)) {
+    throw new Error("Actual files must be an array before evidence controls are evaluated");
+  }
+  const protectedPaths = [];
+  for (const file of actualFiles) {
+    const candidates = typeof file === "string"
+      ? [file]
+      : file && typeof file === "object" && !Array.isArray(file)
+        ? [file.path ?? file.filename, file.previousPath ?? file.previousFilename ?? file.previous_filename]
+        : [];
+    if (candidates.length === 0 || typeof candidates[0] !== "string") {
+      throw new Error("Every actual file needs a repository path before evidence controls are evaluated");
+    }
+    for (const candidate of candidates) {
+      if (candidate == null) continue;
+      const normalized = normalizedEvidencePath(candidate);
+      if (!normalized) throw new Error("Actual evidence-control paths must be safe repository paths");
+      if (isEvidenceControlPath(normalized)) protectedPaths.push(normalized);
+    }
+  }
+  return protectedPaths;
+}
+
 function validPathRule(rule) {
   if (typeof rule !== "string" || !rule || rule.length > 300 || rule.includes("\\") || rule.startsWith("/")) return false;
   const base = rule.endsWith("/**") ? rule.slice(0, -3) : rule;
@@ -87,22 +127,30 @@ export function evidenceProtectedPaths(policy) {
   ])].sort();
 }
 
-export function effectiveProtectedPaths(policy) {
+export function effectiveProtectedPaths(policy, actualFiles = []) {
   const requireApproval = policy?.protectedPaths?.requireApproval;
   const block = policy?.protectedPaths?.block;
   if (!Array.isArray(requireApproval) || !Array.isArray(block)) {
     throw new Error("Policy protectedPaths must define requireApproval and block arrays");
   }
   return {
-    requireApproval: [...new Set([...requireApproval, ...evidenceProtectedPaths(policy)])].sort(),
+    requireApproval: [...new Set([
+      ...requireApproval,
+      ...evidenceProtectedPaths(policy),
+      ...actualEvidenceControlPaths(actualFiles),
+    ])].sort(),
     block: [...new Set(block)].sort(),
   };
 }
 
 export function isEvidenceControlPath(value) {
-  if (typeof value !== "string" || !value || value.includes("\\") || value.startsWith("/")) return true;
-  const segments = value.split("/");
-  if (segments.some((segment) => !segment || segment === "." || segment === "..")) return true;
+  const normalized = normalizedEvidencePath(value);
+  if (!normalized) return true;
+  if (normalized === ".changeplane.json"
+    || IMMUTABLE_EVIDENCE_PREFIXES.some((prefix) => (
+      normalized === prefix || normalized.startsWith(`${prefix}/`)
+    ))) return true;
+  const segments = normalized.split("/");
   if (segments.slice(0, -1).some((segment) => EVIDENCE_DIRECTORIES.has(segment.toLowerCase()))) return true;
 
   const fileName = segments.at(-1);

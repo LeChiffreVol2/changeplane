@@ -13,6 +13,7 @@ import {
   planAutonomousDecision,
 } from "../src/lib/changeplane.js";
 import { effectiveProtectedPaths } from "../examples/changeplane-evidence-policy.js";
+import { githubWorkflowFilePath, validateRequiredChecks } from "../src/lib/harness.js";
 
 const API_VERSION = "2022-11-28";
 export const EVALUATOR_VERSION = "0.4.0";
@@ -51,6 +52,8 @@ const ASSURANCE_EVIDENCE_CONCLUSIONS = new Set([
 const GITHUB_APP_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u;
 const WRITE_PERMISSIONS = new Set(["admin", "maintain", "write"]);
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
+const DEFAULT_GUARD_PUBLISHER_URL = "https://changeplane.vercel.app/api/github?action=guard-publish";
+const GUARD_PUBLISHER_AUDIENCE = "https://changeplane.vercel.app/guard-publisher/v1";
 
 export class PublicationError extends Error {}
 
@@ -64,6 +67,11 @@ export function parseMode(value) {
     throw new Error("mode must be observe or enforce.");
   }
   return mode;
+}
+
+export function validateActionEvidencePolicy(policy, mode) {
+  validateRequiredChecks(policy?.evidence?.requiredChecks, { mode });
+  return true;
 }
 
 export function parseAgentDispatch(value, webhookUrl = "") {
@@ -159,6 +167,28 @@ export function inferPlan(actualFiles, title = "") {
   }
   const goal = String(title ?? "").trim().slice(0, 500);
   return validatePlan({ scope, ...(goal ? { goal } : {}) });
+}
+
+/**
+ * Bind one contract to one exact pull-request head. Only a digest returned by
+ * the dedicated-App guard lease can freeze an earlier contract; shared bot
+ * comments are display-only and never authorize evaluation inputs.
+ */
+export function resolveRevisionContract({ body, title, actualFiles, boundContractDigest = null, headSha } = {}) {
+  if (!exactSha(headSha)) throw new Error("The contract revision must be an exact full SHA.");
+  const declaredPlan = parsePlan(body, { optional: true });
+  const plan = declaredPlan ?? inferPlan(actualFiles, title);
+  const contractSource = declaredPlan ? "declared" : "first-head";
+  const contractDigest = digest(plan);
+  if (boundContractDigest != null && !validSha256(boundContractDigest)) {
+    throw new Error("The authenticated exact-head contract binding is invalid.");
+  }
+  return Object.freeze({
+    plan,
+    contractSource,
+    contractDigest,
+    boundContractDigest: boundContractDigest ?? contractDigest,
+  });
 }
 
 export function canonicalJson(value) {
@@ -449,6 +479,33 @@ export async function discoverOpenPullRequestOverlaps(repository, currentNumber,
   }
 }
 
+export async function assertUniqueOpenPullRequestHead(repository, pullRequest, token) {
+  const headSha = pullRequest?.head?.sha;
+  if (!exactSha(headSha) || !Number.isSafeInteger(pullRequest?.number)) {
+    throw new Error("The pull-request target is invalid.");
+  }
+  const payload = await api(
+    `/repos/${repository}/commits/${encodeURIComponent(headSha)}/pulls?per_page=100`,
+    token,
+  );
+  if (!Array.isArray(payload) || payload.length >= 100) {
+    throw new Error("ChangePlane cannot prove that this exact head belongs to one open pull request.");
+  }
+  const supported = payload.filter((candidate) => (
+    candidate?.state === "open"
+    && candidate?.head?.sha === headSha
+    && candidate?.head?.repo?.full_name === repository
+    && candidate?.base?.repo?.full_name === repository
+  ));
+  if (supported.length !== 1 || supported[0]?.number !== pullRequest.number
+    || supported[0]?.base?.sha !== pullRequest.base?.sha
+    || supported[0]?.head?.ref !== pullRequest.head?.ref
+    || supported[0]?.base?.ref !== pullRequest.base?.ref) {
+    throw new Error("One exact head is associated with multiple or mismatched open pull requests. Push a unique commit before ChangePlane can repair or publish PASS.");
+  }
+  return true;
+}
+
 function mergeEvaluation(pathResult, evidenceResult, extraReasons = []) {
   const reasons = [...pathResult.reasons, ...evidenceResult.reasons, ...extraReasons];
   const decision = pathResult.decision === DECISION.BLOCKED
@@ -485,6 +542,28 @@ export function checkDiagnostic(check, annotations = []) {
   return sections.join("\n").slice(0, 6_000);
 }
 
+function canonicalGithubActionsRunId(detailsUrl, repository) {
+  if (typeof detailsUrl !== "string"
+    || typeof repository !== "string"
+    || !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(repository)) return null;
+  let parsed;
+  try {
+    parsed = new URL(detailsUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:"
+    || parsed.hostname !== "github.com"
+    || parsed.port
+    || parsed.username
+    || parsed.password
+    || parsed.search
+    || parsed.hash) return null;
+  const repositoryPath = repository.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = parsed.pathname.match(new RegExp(`^/${repositoryPath}/actions/runs/([1-9][0-9]{0,19})(?:/job/[1-9][0-9]{0,19})?$`, "u"));
+  return match?.[1] ?? null;
+}
+
 export async function evidenceSnapshot(repository, headSha, policy, token, { includeCommitStatuses = true } = {}) {
   const [checkRuns, combinedStatus] = await Promise.all([
     api(`/repos/${repository}/commits/${encodeURIComponent(headSha)}/check-runs?filter=latest&per_page=100`, token),
@@ -496,8 +575,30 @@ export async function evidenceSnapshot(repository, headSha, policy, token, { inc
   const required = requiredChecks.map((item) => (
     typeof item === "string" ? { name: item, appSlug: null } : item
   ));
+  const actionsRuns = new Map();
   const checks = Array.isArray(checkRuns?.check_runs) ? await Promise.all(checkRuns.check_runs.map(async (check) => {
     const source = check.app?.slug ?? null;
+    const needsWorkflowProvenance = source === "github-actions"
+      && required.some((item) => (
+        item.name === check.name
+        && item.appSlug === source
+        && typeof item.workflowPath === "string"
+      ));
+    let workflowPath = null;
+    if (needsWorkflowProvenance && check.head_sha === headSha) {
+      const runId = canonicalGithubActionsRunId(check.details_url, repository);
+      if (runId) {
+        if (!actionsRuns.has(runId)) {
+          actionsRuns.set(runId, api(`/repos/${repository}/actions/runs/${runId}`, token).catch(() => null));
+        }
+        const run = await actionsRuns.get(runId);
+        if (String(run?.id ?? "") === runId
+          && run?.head_sha === headSha
+          && githubWorkflowFilePath(run?.path) != null) {
+          workflowPath = githubWorkflowFilePath(run.path);
+        }
+      }
+    }
     const needsDiagnostic = check.status === "completed"
       && check.conclusion !== "success"
       && required.some((item) => item.name === check.name && (!item.appSlug || item.appSlug === source));
@@ -518,6 +619,7 @@ export async function evidenceSnapshot(repository, headSha, policy, token, { inc
       createdAt: check.started_at,
       completedAt: check.completed_at,
       source,
+      ...(workflowPath ? { workflowPath } : {}),
       ...(Number.isSafeInteger(check.id) && check.id > 0 ? { checkRunId: check.id } : {}),
       ...(Number.isSafeInteger(check.app?.id) && check.app.id > 0 ? { publisherAppId: check.app.id } : {}),
       ...(diagnostic ? { diagnostic } : {}),
@@ -666,21 +768,240 @@ export function headCheckPayload(receipt, markdown) {
   };
 }
 
-async function publishHeadCheck(repository, token, receipt, markdown) {
-  const payload = headCheckPayload(receipt, markdown);
-  const existing = await api(
-    `/repos/${repository}/commits/${encodeURIComponent(receipt.headSha)}/check-runs?check_name=${encodeURIComponent(CHECK_NAME)}&filter=latest&per_page=100`,
-    token,
-  );
-  const run = Array.isArray(existing?.check_runs)
-    ? existing.check_runs.find((candidate) => candidate.external_id === payload.external_id)
-    : undefined;
-  if (run?.id) {
-    const { head_sha: _headSha, ...updatePayload } = payload;
-    await api(`/repos/${repository}/check-runs/${run.id}`, token, { method: "PATCH", body: updatePayload });
-  } else {
-    await api(`/repos/${repository}/check-runs`, token, { method: "POST", body: payload });
+function validatedGuardPublisherUrl(value = DEFAULT_GUARD_PUBLISHER_URL) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("The dedicated guard publisher URL is invalid.");
   }
+  if (
+    parsed.protocol !== "https:"
+    || parsed.username
+    || parsed.password
+    || parsed.hash
+    || parsed.origin !== "https://changeplane.vercel.app"
+    || parsed.pathname !== "/api/github"
+    || parsed.searchParams.size !== 1
+    || parsed.searchParams.get("action") !== "guard-publish"
+  ) {
+    throw new Error("The dedicated guard publisher must use the fixed ChangePlane production endpoint.");
+  }
+  return parsed.href;
+}
+
+async function githubOidcToken(audience, fetchImpl = fetch) {
+  const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  let parsed;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    throw new Error("GitHub OIDC is unavailable for dedicated guard publication.");
+  }
+  if (
+    parsed.protocol !== "https:"
+    || parsed.username
+    || parsed.password
+    || !(parsed.hostname === "actions.githubusercontent.com"
+      || parsed.hostname.endsWith(".actions.githubusercontent.com"))
+    || typeof requestToken !== "string"
+    || requestToken.length < 20
+  ) {
+    throw new Error("GitHub OIDC is unavailable for dedicated guard publication.");
+  }
+  parsed.searchParams.set("audience", audience);
+  const response = await fetchImpl(parsed, {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${requestToken}`,
+    },
+  });
+  if (!response.ok) throw new Error(`GitHub OIDC token request failed (${response.status}).`);
+  const payload = await response.json();
+  if (typeof payload?.value !== "string" || payload.value.length < 100 || payload.value.length > 20_000) {
+    throw new Error("GitHub returned an invalid OIDC token.");
+  }
+  return payload.value;
+}
+
+function guardWorkflowIdentity() {
+  const workflowRunId = Number(process.env.GITHUB_RUN_ID);
+  const workflowRunAttempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+  const gitRef = process.env.GITHUB_REF;
+  if (!Number.isSafeInteger(workflowRunId) || workflowRunId <= 0
+    || !Number.isSafeInteger(workflowRunAttempt) || workflowRunAttempt <= 0
+    || typeof gitRef !== "string" || !/^refs\/(?:heads|pull)\/[A-Za-z0-9._/-]{1,240}$/u.test(gitRef)
+    || gitRef.includes("..") || gitRef.includes("//")) {
+    throw new Error("The GitHub workflow run identity is unavailable.");
+  }
+  return Object.freeze({ workflowRunId, workflowRunAttempt, gitRef });
+}
+
+function guardTarget(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || !["pull_request", "merge_group"].includes(value.type)
+    || !exactSha(value.baseSha) || !exactSha(value.headSha)
+    || typeof value.baseRef !== "string" || typeof value.headRef !== "string"
+    || value.baseRef.length === 0 || value.baseRef.length > 240
+    || value.headRef.length === 0 || value.headRef.length > 240
+    || !/^(?:refs\/heads\/)?[A-Za-z0-9._/-]+$/u.test(value.baseRef)
+    || !/^(?:refs\/heads\/)?[A-Za-z0-9._/-]+$/u.test(value.headRef)
+    || value.baseRef.includes("..") || value.baseRef.includes("//")
+    || value.headRef.includes("..") || value.headRef.includes("//")
+    || (value.type === "pull_request"
+      ? !Number.isSafeInteger(value.pullRequestNumber) || value.pullRequestNumber <= 0
+      : value.pullRequestNumber !== null)) {
+    throw new Error("The exact guard target is invalid.");
+  }
+  return Object.freeze({
+    type: value.type,
+    pullRequestNumber: value.pullRequestNumber,
+    baseSha: value.baseSha,
+    headSha: value.headSha,
+    baseRef: value.baseRef,
+    headRef: value.headRef,
+  });
+}
+
+/**
+ * Supersede any prior App-owned PASS before reading mutable evaluation inputs.
+ * The matching workflow job remains the independent GitHub-owned liveness gate.
+ */
+export async function beginDedicatedGuard({
+  repository,
+  repositoryId,
+  defaultBranch,
+  controllerSha,
+  target,
+  publisherUrl = process.env.INPUT_GUARD_PUBLISHER_URL || DEFAULT_GUARD_PUBLISHER_URL,
+  fetchImpl = fetch,
+} = {}) {
+  if (typeof repository !== "string" || !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(repository)) {
+    throw new Error("The guard publication repository is invalid.");
+  }
+  if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) {
+    throw new Error("The guard publication repository ID is invalid.");
+  }
+  if (typeof defaultBranch !== "string" || defaultBranch.length === 0 || defaultBranch.length > 200
+    || !/^[A-Za-z0-9._/-]+$/u.test(defaultBranch) || defaultBranch.startsWith("/")
+    || defaultBranch.endsWith("/") || defaultBranch.includes("..") || defaultBranch.includes("//")) {
+    throw new Error("The trusted default branch is invalid.");
+  }
+  if (!exactSha(controllerSha)) throw new Error("The trusted controller revision is unavailable.");
+  const exactTarget = guardTarget(target);
+  const identity = guardWorkflowIdentity();
+  const endpoint = validatedGuardPublisherUrl(publisherUrl);
+  const oidcToken = await githubOidcToken(GUARD_PUBLISHER_AUDIENCE, fetchImpl);
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${oidcToken}`,
+      "content-type": "application/json",
+    },
+    body: canonicalJson({
+      schemaVersion: 1,
+      type: "changeplane.guard-publication-begin",
+      repository,
+      repositoryId,
+      defaultBranch,
+      controllerSha,
+      ...identity,
+      target: exactTarget,
+    }),
+  });
+  if (!response.ok) throw new Error(`Dedicated guard invalidation failed (${response.status}).`);
+  const result = await response.json();
+  if (result?.schemaVersion !== 1
+    || result?.type !== "changeplane.guard-publication-begin"
+    || !validPositiveId(result?.check?.id)
+    || result.check.name !== CHECK_NAME
+    || result.check.headSha !== exactTarget.headSha
+    || result.check.status !== "in_progress"
+    || !validPositiveId(result.check.publisherAppId)
+    || typeof result.check.publisherAppSlug !== "string"
+    || !GITHUB_APP_SLUG.test(result.check.publisherAppSlug)
+    || result.check.publisherAppSlug === "github-actions"
+    || result?.run?.id !== identity.workflowRunId
+    || result?.run?.attempt !== identity.workflowRunAttempt
+    || (result.previousContractDigest !== null && !validSha256(result.previousContractDigest))) {
+    throw new Error("The dedicated guard publisher returned an invalid begin proof.");
+  }
+  return result;
+}
+
+export async function publishDedicatedGuard({
+  repository,
+  defaultBranch,
+  passport,
+  summary,
+  publisherUrl = process.env.INPUT_GUARD_PUBLISHER_URL || DEFAULT_GUARD_PUBLISHER_URL,
+  fetchImpl = fetch,
+} = {}) {
+  const verifiedPassport = verifyAssurancePassportIntegrity(passport);
+  if (typeof repository !== "string" || repository !== verifiedPassport.target.repository) {
+    throw new Error("The guard publication repository does not match the assurance passport.");
+  }
+  if (typeof defaultBranch !== "string" || defaultBranch.length === 0 || defaultBranch.length > 200
+    || !/^[A-Za-z0-9._/-]+$/u.test(defaultBranch) || defaultBranch.startsWith("/")
+    || defaultBranch.endsWith("/") || defaultBranch.includes("..") || defaultBranch.includes("//")) {
+    throw new Error("The trusted default branch is invalid.");
+  }
+  if (typeof summary !== "string" || summary.length === 0 || summary.length > 65_535) {
+    throw new Error("The guard publication summary is invalid.");
+  }
+  const { workflowRunId, workflowRunAttempt, gitRef } = guardWorkflowIdentity();
+  const endpoint = validatedGuardPublisherUrl(publisherUrl);
+  const oidcToken = await githubOidcToken(GUARD_PUBLISHER_AUDIENCE, fetchImpl);
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${oidcToken}`,
+      "content-type": "application/json",
+    },
+    body: canonicalJson({
+      schemaVersion: 1,
+      type: "changeplane.guard-publication-request",
+      repository,
+      defaultBranch,
+      gitRef,
+      workflowRunId,
+      workflowRunAttempt,
+      passport: verifiedPassport,
+      summary,
+    }),
+  });
+  if (!response.ok) throw new Error(`Dedicated guard publication failed (${response.status}).`);
+  const result = await response.json();
+  const expectedConclusion = expectedGuardConclusion(verifiedPassport);
+  if (
+    result?.schemaVersion !== 1
+    || result?.type !== "changeplane.guard-publication"
+    || result.passportDigest !== verifiedPassport.digest
+    || !validPositiveId(result?.check?.id)
+    || result.check.name !== CHECK_NAME
+    || result.check.headSha !== verifiedPassport.target.headSha
+    || result.check.conclusion !== expectedConclusion
+    || !validPositiveId(result.check.publisherAppId)
+    || typeof result.check.publisherAppSlug !== "string"
+    || !GITHUB_APP_SLUG.test(result.check.publisherAppSlug)
+    || result.check.publisherAppSlug === "github-actions"
+  ) {
+    throw new Error("The dedicated guard publisher returned an invalid proof.");
+  }
+  return {
+    id: result.check.id,
+    name: result.check.name,
+    head_sha: result.check.headSha,
+    status: "completed",
+    conclusion: result.check.conclusion,
+    app: {
+      id: result.check.publisherAppId,
+      slug: result.check.publisherAppSlug,
+    },
+  };
 }
 
 function validAssurancePolicyPath(value) {
@@ -719,22 +1040,10 @@ async function readPolicy(repository, baseSha, path, token) {
   }
   const requiredChecks = policy.evidence?.requiredChecks ?? [];
   const timeoutSeconds = policy.evidence?.timeoutSeconds ?? 0;
-  const invalidRequiredCheck = (requirement) => {
-    const name = typeof requirement === "string" ? requirement : requirement?.name;
-    const appSlug = typeof requirement === "object" && !Array.isArray(requirement) ? requirement?.appSlug : null;
-    return typeof name !== "string"
-      || !name.trim()
-      || name.length > 100
-      || name.trim() === CHECK_NAME
-      || (typeof requirement === "object" && (
-        Array.isArray(requirement)
-        || typeof appSlug !== "string"
-        || !/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u.test(appSlug)
-        || Object.keys(requirement).some((key) => key !== "name" && key !== "appSlug")
-      ));
-  };
-  if (!Array.isArray(requiredChecks) || requiredChecks.length > 20 || requiredChecks.some(invalidRequiredCheck)) {
-    throw new Error(`Policy ${path} evidence.requiredChecks must contain at most 20 check names or { name, appSlug } entries and cannot include ${CHECK_NAME}.`);
+  try {
+    validateRequiredChecks(requiredChecks);
+  } catch (error) {
+    throw new Error(`Policy ${path} has invalid evidence.requiredChecks: ${error instanceof Error ? error.message : "invalid policy"}`);
   }
   if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 0 || timeoutSeconds > 240) {
     throw new Error(`Policy ${path} evidence.timeoutSeconds must be an integer from 0 to 240.`);
@@ -761,7 +1070,6 @@ function safeMarkdown(value) {
 const REMEDIATION_MARKER = /<!-- changeplane-remediation:v1 input=([a-f0-9]{64}) attempt=(\d+) id=([a-f0-9]{64}) -->/u;
 const RECEIPT_MARKER = "<!-- changeplane-receipt:v2";
 const RECEIPT_STATE = /<!-- changeplane-receipt:v2 contract=([a-f0-9]{64}) input=([a-f0-9]{64}) head=([a-f0-9]{40}) -->/u;
-const CONTRACT_STATE = /<!-- changeplane-contract:v1 source=(declared|first-head) plan=([A-Za-z0-9_-]+) -->/u;
 const ASSURANCE_PASSPORT_STATE = /<!-- changeplane-assurance-passport:v1 digest=([a-f0-9]{64}) payload=([A-Za-z0-9_-]+) -->/u;
 
 function assuranceAuthorityMap() {
@@ -847,33 +1155,6 @@ function expectedGuardConclusion(passport) {
 
 function encodedContract(plan) {
   return Buffer.from(canonicalJson(plan)).toString("base64url");
-}
-
-function decodedContract(value) {
-  try {
-    return validatePlan(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
-  } catch {
-    throw new Error("The trusted ChangePlane contract marker is invalid.");
-  }
-}
-
-export function parseBoundReceipt(comments, trustedLogin = "github-actions[bot]") {
-  if (!Array.isArray(comments)) throw new TypeError("comments must be an array");
-  for (const comment of comments) {
-    if (comment?.user?.login !== trustedLogin) continue;
-    const body = String(comment?.body ?? "");
-    const match = body.match(RECEIPT_STATE);
-    if (match) {
-      const contract = body.match(CONTRACT_STATE);
-      return {
-        contractDigest: match[1],
-        inputDigest: match[2],
-        headSha: match[3],
-        ...(contract ? { contractSource: contract[1], plan: decodedContract(contract[2]) } : {}),
-      };
-    }
-  }
-  return undefined;
 }
 
 export function verifyAssurancePassportIntegrity(passport, markerDigest = passport?.digest) {
@@ -974,6 +1255,11 @@ export function verifyAssurancePassportIntegrity(passport, markerDigest = passpo
         ? [UNKNOWN_ASSURANCE_VALUE, LEGACY_COMMIT_STATUS].includes(item.actualPublisher)
         : GITHUB_APP_SLUG.test(item.actualPublisher))
       && (item.actualPublisher !== LEGACY_COMMIT_STATUS || item.expectedPublisher === ANY_ASSURANCE_PUBLISHER)
+      && (decision?.mode !== "enforce" || (
+        item.expectedPublisher !== ANY_ASSURANCE_PUBLISHER
+        && GITHUB_APP_SLUG.test(item.expectedPublisher)
+        && item.actualPublisher !== LEGACY_COMMIT_STATUS
+      ))
       && (item.status !== "MISSING" || (
         item.actualPublisher === UNKNOWN_ASSURANCE_VALUE
         && item.checkRunId === null
@@ -989,6 +1275,15 @@ export function verifyAssurancePassportIntegrity(passport, markerDigest = passpo
   const evidencePassed = Array.isArray(passport.evidence)
     ? assuranceEvidencePassed(passport.evidence)
     : false;
+  const decisionSemanticsValid = decision?.mode !== "enforce"
+    || decision.outcome !== AUTONOMOUS_DECISION.PASS
+    || (
+      decision.reason === "ALL_GUARANTEES_SATISFIED"
+      && decision.evidenceCount > 0
+      && decision.assuranceLevel === "BEHAVIORAL"
+      && decision.behavioralEvidencePassed === true
+      && evidencePassed
+    );
   if (
     !exactKeys(passport, ["schemaVersion", "type", "target", "binding", "decision", "evidence", "authority", "verification", "digest"])
     || passport.schemaVersion !== 1
@@ -998,6 +1293,7 @@ export function verifyAssurancePassportIntegrity(passport, markerDigest = passpo
     || !validDecision
     || !validEvidence
     || decision?.behavioralEvidencePassed !== evidencePassed
+    || !decisionSemanticsValid
     || canonicalJson(passport.authority) !== canonicalJson(assuranceAuthorityMap())
     || canonicalJson(passport.verification) !== canonicalJson({
       localIntegrity: "SHA256_ONLY",
@@ -1016,8 +1312,10 @@ export function verifyAssurancePassportIntegrity(passport, markerDigest = passpo
 
 export function parseAssurancePassportIntegrity(markdown) {
   if (typeof markdown !== "string") throw new TypeError("markdown must be a string");
-  const match = markdown.match(ASSURANCE_PASSPORT_STATE);
-  if (!match) return undefined;
+  const matches = [...markdown.matchAll(new RegExp(ASSURANCE_PASSPORT_STATE.source, "gu"))];
+  if (matches.length === 0) return undefined;
+  if (matches.length !== 1) throw new Error("The ChangePlane assurance passport is invalid.");
+  const match = matches[0];
   if (match[2].length > MAX_ASSURANCE_PASSPORT_ENCODED_LENGTH) {
     throw new Error("The ChangePlane assurance passport is too large.");
   }
@@ -1045,7 +1343,19 @@ export function verifyAssurancePassportAgainstCheck(passport, liveCheck, expecte
   }
   const summary = liveCheck?.output?.summary;
   const expectedMarker = assurancePassportMarker(verifiedPassport);
-  const liveMarker = typeof summary === "string" ? summary.match(ASSURANCE_PASSPORT_STATE)?.[0] : null;
+  const passportMarkers = typeof summary === "string"
+    ? [...summary.matchAll(new RegExp(ASSURANCE_PASSPORT_STATE.source, "gu"))]
+    : [];
+  const receiptMarkers = typeof summary === "string"
+    ? [...summary.matchAll(new RegExp(RECEIPT_STATE.source, "gu"))]
+    : [];
+  const liveMarker = passportMarkers[0]?.[0] ?? null;
+  const receiptMarkerValid = verifiedPassport.target.type === "merge_group"
+    ? receiptMarkers.length === 0
+    : receiptMarkers.length === 1
+      && receiptMarkers[0][1] === verifiedPassport.binding.contractDigest
+      && receiptMarkers[0][2] === verifiedPassport.binding.inputDigest
+      && receiptMarkers[0][3] === verifiedPassport.target.headSha;
   if (
     !validPositiveId(liveCheck?.id)
     || liveCheck.name !== CHECK_NAME
@@ -1055,7 +1365,9 @@ export function verifyAssurancePassportAgainstCheck(passport, liveCheck, expecte
     || liveCheck.app?.id !== expectedPublisher.appId
     || liveCheck.app?.slug !== expectedPublisher.appSlug
     || typeof summary !== "string"
+    || passportMarkers.length !== 1
     || liveMarker !== expectedMarker
+    || !receiptMarkerValid
   ) {
     throw new Error("The live GitHub Check does not authenticate this assurance passport.");
   }
@@ -1074,6 +1386,27 @@ export function assurancePassportOutputs(passport, liveCheckPublished = false) {
   return {
     assurance_passport: canonicalJson(verifiedPassport),
     assurance_passport_digest: verifiedPassport.digest,
+  };
+}
+
+export function buildProofLocator(passport, publishedCheck) {
+  const verifiedPassport = verifyAssurancePassportIntegrity(passport);
+  if (
+    !validPositiveId(publishedCheck?.id)
+    || publishedCheck.name !== CHECK_NAME
+    || publishedCheck.head_sha !== verifiedPassport.target.headSha
+  ) {
+    throw new Error("The published GitHub Check cannot locate this assurance proof.");
+  }
+  return {
+    schemaVersion: 1,
+    type: "changeplane.assurance-proof-locator",
+    repositoryId: verifiedPassport.target.repositoryId,
+    targetType: verifiedPassport.target.type,
+    pullRequestNumber: verifiedPassport.target.pullRequestNumber,
+    headSha: verifiedPassport.target.headSha,
+    checkRunId: publishedCheck.id,
+    passportDigest: verifiedPassport.digest,
   };
 }
 
@@ -1516,7 +1849,7 @@ export function renderReceiptComment(receipt) {
     "",
     "### Independent authority",
     "",
-    `Assurance passport \`${passport.digest.slice(0, 12)}\` binds this decision to the exact head. Its SHA-256 detects changes; authenticity still requires the live \`${CHECK_NAME}\` on GitHub. The passport carries no credential or merge authority.`,
+    `Assurance passport \`${passport.digest.slice(0, 12)}\` binds this decision to the exact head. Its SHA-256 detects changes; live correspondence requires the exact \`${CHECK_NAME}\`, policy, evidence, and target on GitHub. The passport carries no credential or merge authority.`,
     "",
     "| Plane | Owns | Cannot do |",
     "| --- | --- | --- |",
@@ -1797,11 +2130,27 @@ async function runMergeGroup({ event, repository, token, mode }) {
   if (process.env.INPUT_TRUSTED_CONTROLLER_SHA !== target.baseSha) {
     throw new Error("The merge-group controller is not bound to its trusted default-branch base.");
   }
+  try {
+    await beginDedicatedGuard({
+      repository,
+      repositoryId: Number(event.repository?.id),
+      defaultBranch: target.defaultBranch,
+      controllerSha: target.baseSha,
+      target: {
+        type: "merge_group",
+        pullRequestNumber: null,
+        baseSha: target.baseSha,
+        headSha: target.headSha,
+        baseRef: target.baseRef,
+        headRef: target.headRef,
+      },
+    });
+  } catch (error) {
+    throw new PublicationError(`The previous merge-group guard could not be invalidated: ${error instanceof Error ? error.message : error}`);
+  }
   const policyPath = process.env.INPUT_POLICY_PATH || ".changeplane.json";
   const policy = await readPolicy(repository, target.baseSha, policyPath, token);
-  if (mode === "enforce" && (policy.evidence?.requiredChecks ?? []).some((requirement) => typeof requirement === "string")) {
-    throw new Error("Enforce mode requires every evidence.requiredChecks entry to declare its expected GitHub App with { name, appSlug }.");
-  }
+  validateActionEvidencePolicy(policy, mode);
   const plan = {
     scope: [...new Set(target.actualFiles.flatMap(({ path, previousPath }) => [path, previousPath]).filter(Boolean))].sort(),
   };
@@ -1824,7 +2173,7 @@ async function runMergeGroup({ event, repository, token, mode }) {
   const pathResult = evaluateChange({
     plannedPaths: plan.scope,
     actualFiles: target.actualFiles,
-    protectedPaths: effectiveProtectedPaths(policy),
+    protectedPaths: effectiveProtectedPaths(policy, target.actualFiles),
     approval: undefined,
     ...revision,
   });
@@ -1852,8 +2201,15 @@ async function runMergeGroup({ event, repository, token, mode }) {
   if (await defaultBranchSha(repository, target.defaultBranch, token) !== target.baseSha) {
     throw new Error("The trusted default branch changed during merge-group evaluation.");
   }
+  let proofLocator;
   try {
-    await publishHeadCheck(repository, token, receipt, markdown);
+    const publishedCheck = await publishDedicatedGuard({
+      repository,
+      defaultBranch: target.defaultBranch,
+      passport: assurancePassport,
+      summary: markdown,
+    });
+    proofLocator = buildProofLocator(assurancePassport, publishedCheck);
   } catch (error) {
     throw new PublicationError(`Exact merge-group Check could not be published: ${error instanceof Error ? error.message : error}`);
   }
@@ -1864,6 +2220,7 @@ async function runMergeGroup({ event, repository, token, mode }) {
   for (const [name, value] of Object.entries(assurancePassportOutputs(assurancePassport, true))) {
     writeOutput(name, value);
   }
+  writeOutput("proof_locator", canonicalJson(proofLocator));
   writeOutput("actual_files", target.actualFiles.length);
   writeOutput("finding_count", result.reasons.length);
   console.log(`ChangePlane ${autonomousPlan.decision} (${mode}) for ${repository} merge group ${target.headSha.slice(0, 7)}`);
@@ -1905,6 +2262,26 @@ export async function run() {
     throw new Error("ChangePlane supports same-repository pull requests only.");
   }
   const trustedBase = await trustedDefaultBranch(repository, token);
+  let guardLease;
+  try {
+    guardLease = await beginDedicatedGuard({
+      repository,
+      repositoryId: Number(event.repository?.id),
+      defaultBranch: trustedBase.defaultBranch,
+      controllerSha,
+      target: {
+        type: "pull_request",
+        pullRequestNumber: number,
+        baseSha: pullRequest.base.sha,
+        headSha: pullRequest.head.sha,
+        baseRef: pullRequest.base.ref,
+        headRef: pullRequest.head.ref,
+      },
+    });
+  } catch (error) {
+    throw new PublicationError(`The previous exact-head guard could not be invalidated: ${error instanceof Error ? error.message : error}`);
+  }
+  await assertUniqueOpenPullRequestHead(repository, pullRequest, token);
   assertTrustedPullRequestBase({
     pullRequest,
     eventPullRequest: event.pull_request,
@@ -1926,14 +2303,15 @@ export async function run() {
   }));
   const advisories = await discoverOpenPullRequestOverlaps(repository, number, actualFiles, token);
   const comments = await listPages(`/repos/${repository}/issues/${number}/comments`, token);
-  const boundReceipt = parseBoundReceipt(comments);
-  const declaredPlan = parsePlan(pullRequest.body, { optional: true });
-  const plan = declaredPlan ?? boundReceipt?.plan ?? inferPlan(actualFiles, pullRequest.title);
-  const contractSource = declaredPlan
-    ? "declared"
-    : boundReceipt?.contractSource ?? "first-head";
+  const contract = resolveRevisionContract({
+    body: pullRequest.body,
+    title: pullRequest.title,
+    actualFiles,
+    boundContractDigest: guardLease.previousContractDigest,
+    headSha: pullRequest.head.sha,
+  });
+  const { plan, contractSource, contractDigest, boundContractDigest } = contract;
   const policyDigest = digest(policy);
-  const contractDigest = digest(plan);
   const inputDigest = digest({ plan, files: actualFiles });
   const revision = {
     baseSha: pullRequest.base.sha,
@@ -1949,18 +2327,15 @@ export async function run() {
   const pathResult = evaluateChange({
     plannedPaths: plan.scope,
     actualFiles,
-    protectedPaths: effectiveProtectedPaths(policy),
+    protectedPaths: effectiveProtectedPaths(policy, actualFiles),
     approval,
     ...revision,
   });
-  if (mode === "enforce" && (policy.evidence?.requiredChecks ?? []).some((requirement) => typeof requirement === "string")) {
-    throw new Error("Enforce mode requires every evidence.requiredChecks entry to declare its expected GitHub App with { name, appSlug }.");
-  }
+  validateActionEvidencePolicy(policy, mode);
   const evidenceResult = await waitForEvidence(repository, pullRequest.head.sha, policy, token, {
     includeCommitStatuses: mode !== "enforce",
   });
   const preview = await discoverPreview(repository, pullRequest.head.sha, token);
-  const boundContractDigest = boundReceipt?.contractDigest ?? contractDigest;
   const contractReasons = boundContractDigest !== contractDigest
     ? [{
       code: "CONTRACT_CHANGED_AFTER_BINDING",
@@ -2120,8 +2495,15 @@ export async function run() {
     controllerSha,
   });
   let headCheckPublished = false;
+  let proofLocator;
   try {
-    await publishHeadCheck(repository, token, receipt, receiptComment);
+    const publishedCheck = await publishDedicatedGuard({
+      repository,
+      defaultBranch: trustedBase.defaultBranch,
+      passport: assurancePassport,
+      summary: receiptComment,
+    });
+    proofLocator = buildProofLocator(assurancePassport, publishedCheck);
     headCheckPublished = true;
   } catch (error) {
     const message = safeMarkdown(error instanceof Error ? error.message : error);
@@ -2136,6 +2518,7 @@ export async function run() {
   for (const [name, value] of Object.entries(assurancePassportOutputs(assurancePassport, headCheckPublished))) {
     writeOutput(name, value);
   }
+  if (headCheckPublished) writeOutput("proof_locator", canonicalJson(proofLocator));
   writeOutput("actual_files", actualFiles.length);
   writeOutput("finding_count", result.reasons.length);
   if (publicationFailures.length > 0) {
@@ -2159,34 +2542,10 @@ export async function reportFailure(error) {
   writeOutput("mode", mode);
   writeOutput("decision", "INDETERMINATE");
 
-  let fallbackPublished = false;
-  try {
-    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-    const repository = process.env.GITHUB_REPOSITORY;
-    const token = process.env.INPUT_TOKEN;
-    if (!repository || !token) throw new Error("The fallback Check target is unavailable.");
-    const mergeGroupHead = event.action === "checks_requested" ? event.merge_group?.head_sha : null;
-    const target = exactSha(mergeGroupHead)
-      ? { number: null, headSha: mergeGroupHead, targetType: "merge_group" }
-      : await resolvePullRequestNumber(event, repository, token);
-    if ((!target.number && target.targetType !== "merge_group") || !exactSha(target.headSha)) {
-      throw new Error("The fallback Check could not be bound to one exact revision.");
-    }
-    const receipt = {
-      repository,
-      pullRequestNumber: target.number,
-      targetType: target.targetType ?? "pull_request",
-      mode,
-      decision: "INDETERMINATE",
-      headSha: target.headSha,
-      inputDigest: digest({ headSha: target.headSha, message }),
-    };
-    await publishHeadCheck(repository, token, receipt, markdown);
-    fallbackPublished = true;
-  } catch (publishError) {
-    console.error(`::warning title=ChangePlane Check publication failed::${workflowCommandValue(publishError instanceof Error ? publishError.message : publishError)}`);
-  }
-
+  // A repository workflow never owns guard publication authority. If the
+  // trusted evaluation cannot produce a complete passport, the dedicated App
+  // publishes nothing and GitHub's required Check remains unsatisfied.
+  const fallbackPublished = false;
   console.error(`::error title=ChangePlane indeterminate::${workflowCommandValue(message)}`);
   if (shouldFailAction(error, mode, fallbackPublished)) process.exitCode = 1;
 }

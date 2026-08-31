@@ -51,10 +51,21 @@ test("rejects attempts to repair by weakening tests or evidence controls", () =>
     "tests/payments/retry.js",
     "package.json",
     "playwright.config.ts",
+    ".changeplane.json",
+    ".github/workflows/ci.yml",
+    "changeplane/action/index.js",
   ]) {
     const unsafePatch = patch.replaceAll("src/payments/retry.js", filePath);
     assert.throws(
-      () => validatePatchProposal(unsafePatch, ["src/payments/**", "tests/**", "package.json", "playwright.config.ts"]),
+      () => validatePatchProposal(unsafePatch, [
+        "src/payments/**",
+        "tests/**",
+        "package.json",
+        "playwright.config.ts",
+        ".changeplane.json",
+        ".github/workflows/**",
+        "changeplane/**",
+      ]),
       /protected evidence or test control/u,
       filePath,
     );

@@ -32,6 +32,10 @@ inputs:
   trusted_controller_sha:
     description: Exact checked-out default-branch controller revision.
     required: true
+  guard_publisher_url:
+    description: Fixed ChangePlane production endpoint that exchanges a GitHub OIDC attestation for a dedicated-App guard publication.
+    required: false
+    default: https://changeplane.vercel.app/api/github?action=guard-publish
 outputs:
   mode:
     description: Active harness mode.
@@ -43,6 +47,8 @@ outputs:
     description: Machine-readable exact-head assurance passport, emitted only after the live GitHub Check is published. Its digest proves local integrity; consumers must still verify that Check and publisher.
   assurance_passport_digest:
     description: Domain-separated SHA-256 digest emitted only after the live exact-head GitHub Check is published.
+  proof_locator:
+    description: Redacted locator for re-verifying the published guard, evidence, trusted policy, and current GitHub target without carrying authority.
   actual_files:
     description: Number of changed files evaluated.
   finding_count:
