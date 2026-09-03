@@ -3,6 +3,7 @@ const KNOWN_NON_BRANCH_TARGETS = new Set(["tag", "push", "repository"]);
 
 const NEXT_ACTION = Object.freeze({
   active: "No action is required; one active default-branch GitHub Ruleset has no bypasses, requires merge queue and strict status checks, and binds the ChangePlane guard plus every behavioral evidence check to its expected publisher.",
+  strict_head: "Strict Head is active. Add Merge Queue to this same Ruleset only when this repository needs Queue Certified assurance.",
   ruleset_required: "Add an active branch ruleset targeting the default branch, then recheck this repository.",
   ruleset_ambiguous: "Make every active branch ruleset target explicit, remove bypass actors, and verify its rule shapes in GitHub, then recheck.",
   strict_required: "In one active default-branch ruleset, require status checks and require branches to be up to date before merging, then recheck.",
@@ -44,7 +45,13 @@ function readiness(state, facts = {}) {
   return {
     source: "ruleset",
     state,
-    active: state === "active",
+    assuranceLevel: state === "active"
+      ? "queue_certified"
+      : state === "strict_head"
+        ? "strict_head"
+        : null,
+    active: state === "active" || state === "strict_head",
+    queueCertified: state === "active",
     strict: facts.strict === true,
     mergeQueueRequired: facts.mergeQueueRequired === true,
     guardRequired: facts.guardRequired === true,
@@ -330,6 +337,11 @@ export function githubRulesetReadiness(
     facts.evidencePublisherBound,
   ].filter(Boolean).length;
   const complete = (facts) => score(facts) === 6;
+  const completeStrictHead = (facts) => facts.strict
+    && facts.guardRequired
+    && facts.publisherBound
+    && facts.evidenceRequired
+    && facts.evidencePublisherBound;
   const best = applicable.reduce((selected, facts) => (
     selected == null || score(facts) > score(selected) ? facts : selected
   ), null) ?? emptyFacts;
@@ -339,11 +351,12 @@ export function githubRulesetReadiness(
   const active = applicable.find(complete);
   if (active) return readiness("active", active);
   if (!best.strict) return readiness("strict_required", best);
-  if (!best.mergeQueueRequired) return readiness("merge_queue_required", best);
   if (!best.guardRequired) return readiness("guard_required", best);
   if (!best.publisherBound) return readiness("publisher_binding_required", best);
   if (!best.evidenceRequired) return readiness("evidence_required", best);
-  return readiness("evidence_publisher_binding_required", best);
+  if (!best.evidencePublisherBound) return readiness("evidence_publisher_binding_required", best);
+  if (completeStrictHead(best)) return readiness("strict_head", best);
+  return readiness("ruleset_ambiguous", best);
 }
 
 export const rulesetEnforcementState = githubRulesetReadiness;

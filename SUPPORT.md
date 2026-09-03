@@ -4,6 +4,8 @@ ChangePlane currently supports the hosted GitHub.com product described in the [R
 
 For product questions or non-sensitive defects, open a GitHub issue with the browser version, affected product step, request ID, and a description that contains no private repository content or credentials.
 
+An accepted design partner receives one private support channel, named owner, business hours, time zone, and escalation path in its signed order form. Until those fields are complete, only community support is offered and the legal release gate remains closed. Support staff request redacted request IDs and state transitions only; customers must not paste private source, prompts, patches, cookies, tokens, provider keys, or upstream response bodies into the channel.
+
 For suspected vulnerabilities, use the repository's private security-advisory channel or contact the repository owner privately as described in [SECURITY.md](SECURITY.md). Do not place tokens, provider keys, cookies, private source, prompts, patches, customer data, or full upstream responses in a public issue.
 
 ## Safe first checks

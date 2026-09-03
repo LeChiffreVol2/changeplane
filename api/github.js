@@ -33,6 +33,7 @@ import {
   encodeGuardRunMarker,
   stableGuardCheckExternalId,
   validateGuardBeginBody,
+  validateGuardReconciliationBody,
   validateGuardPublishBody,
   verifyGitHubActionsOidcToken,
 } from "../server/github-guard-controller.js";
@@ -52,6 +53,7 @@ import {
   validateRequiredChecks,
 } from "../src/lib/harness.js";
 import { githubRulesetReadiness } from "../src/lib/github-ruleset-readiness.js";
+import { buildRulesetPlan } from "../src/lib/github-ruleset-plan.js";
 import { buildSdlcAssurance } from "../src/lib/sdlc-assurance.js";
 import { verifyAssuranceProof } from "../src/lib/assurance-proof.js";
 import { runOriginBoundaryProof } from "../src/lib/assurance-lab.js";
@@ -67,6 +69,7 @@ import {
   repairLedgerKeyId,
   repairLedgerPublicKeyValue,
 } from "../server/repair-ledger.js";
+import { reconcileGuardState } from "../server/guard-reconciliation.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -355,7 +358,7 @@ const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
 const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
   actions: "read",
-  administration: "read",
+  administration: "write",
   contents: "write",
   pull_requests: "write",
   workflows: "write",
@@ -403,6 +406,9 @@ const ROUTE_METHODS = new Map([
   ["callback", ["GET"]],
   ["repos", ["GET"]],
   ["preflight", ["GET"]],
+  ["ruleset-plan", ["GET"]],
+  ["ruleset-apply", ["POST"]],
+  ["reconcile", ["POST"]],
   ["runtime", ["GET", "POST"]],
   ["byok", ["GET", "POST", "DELETE"]],
   ["install", ["POST"]],
@@ -419,6 +425,9 @@ const EXTERNAL_ACCESS_ACTIONS = new Set([
   "callback",
   "repos",
   "preflight",
+  "ruleset-plan",
+  "ruleset-apply",
+  "reconcile",
   "runtime",
   "proof",
   "guard-publish",
@@ -506,8 +515,39 @@ function configuredCanaryRepository() {
   }
 }
 
+function configuredAlphaRepositories() {
+  const value = process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON;
+  if (value == null || value === "") return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 5) return null;
+    const repositories = parsed.map(validateRepository);
+    if (new Set(repositories.map((repository) => repository.toLowerCase())).size !== repositories.length) {
+      return null;
+    }
+    return repositories;
+  } catch {
+    return null;
+  }
+}
+
+function currentReleaseBinding() {
+  const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
+  if (/^[a-f0-9]{40}$/u.test(sourceSha ?? "")) return sourceSha;
+  return process.env.VERCEL === "1" ? null : "development";
+}
+
+function legalReleaseApproved() {
+  const releaseBinding = currentReleaseBinding();
+  return process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED === "true"
+    && releaseBinding !== null
+    && process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE === releaseBinding;
+}
+
 function rolloutMode() {
-  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true") return "self_serve";
+  if (process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON) return "private_alpha";
+  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true"
+    && (process.env.VERCEL !== "1" || legalReleaseApproved())) return "self_serve";
   return process.env.CHANGEPLANE_CANARY_REPOSITORY || process.env.VERCEL === "1"
     ? "controlled_canary"
     : "self_serve";
@@ -515,7 +555,32 @@ function rolloutMode() {
 
 function hasValidCanaryRepository() {
   if (rolloutMode() === "self_serve") return true;
+  if (rolloutMode() === "private_alpha") return Boolean(configuredAlphaRepositories());
   return Boolean(configuredCanaryRepository());
+}
+
+function allowedRolloutRepositories() {
+  const mode = rolloutMode();
+  if (mode === "self_serve") return null;
+  if (mode === "private_alpha") return configuredAlphaRepositories();
+  const canary = configuredCanaryRepository();
+  return canary ? [canary] : null;
+}
+
+function assertRepositoryRolloutScope(repository, { external = false } = {}) {
+  const allowed = allowedRolloutRepositories();
+  if (rolloutMode() === "self_serve") return;
+  if (!allowed) {
+    const variable = rolloutMode() === "private_alpha"
+      ? "CHANGEPLANE_ALPHA_REPOSITORIES_JSON"
+      : "CHANGEPLANE_CANARY_REPOSITORY";
+    throw new HttpError(503, `${variable} must contain the exact approved repository scope. No ${external ? "external" : "GitHub"} request was made.`);
+  }
+  if (!allowed.some((candidate) => candidate.toLowerCase() === repository.toLowerCase())) {
+    throw new HttpError(403, rolloutMode() === "private_alpha"
+      ? "This repository is outside the invite-only alpha allowlist. Nothing was changed."
+      : "This release can access only its approved test repository. Choose the repository shown in the installer or ask the release owner to update CHANGEPLANE_CANARY_REPOSITORY. Nothing was changed.");
+  }
 }
 
 function repairControllerConfiguration() {
@@ -562,10 +627,10 @@ function readiness() {
   const mode = rolloutMode();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
   const sourceProvenance = hasSourceProvenance();
-  const checks = {
+  const operationalChecks = {
     githubClientId: Boolean(process.env.GITHUB_CLIENT_ID),
     githubClientSecret: Boolean(process.env.GITHUB_CLIENT_SECRET),
-    githubAppSlug: mode === "controlled_canary"
+    githubAppSlug: mode !== "self_serve"
       ? Boolean(appSlug)
       : process.env.GITHUB_APP_SLUG == null || Boolean(appSlug),
     sessionSecret: typeof process.env.CHANGEPLANE_SESSION_SECRET === "string"
@@ -575,8 +640,28 @@ function readiness() {
     sourceProvenance,
     canaryRepository: hasValidCanaryRepository(),
   };
+  const principalSeparation = guardPrincipalSeparation();
+  const commercialStore = commercialStoreIsConfigured();
+  const releaseBinding = currentReleaseBinding();
+  const commercialStoreVerified = commercialStore
+    && releaseBinding !== null
+    && process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE === releaseBinding;
+  const legalRelease = legalReleaseApproved();
+  const checks = {
+    ...operationalChecks,
+    guardPrincipalSeparated: principalSeparation === "separate_guard_app",
+    commercialStore,
+    commercialStoreVerified,
+    legalRelease,
+  };
+  const ready = Object.values(operationalChecks).every(Boolean);
   return {
-    ready: Object.values(checks).every(Boolean),
+    ready,
+    commercialReady: ready
+      && checks.guardPrincipalSeparated
+      && checks.commercialStoreVerified
+      && checks.legalRelease,
+    principalSeparation,
     checks,
     authMode: appSlug ? "github_app" : "oauth",
     rolloutMode: mode,
@@ -791,7 +876,7 @@ function oauthIsConfigured() {
     && process.env.CHANGEPLANE_SESSION_SECRET.length >= 32
     && configuredAppOrigin()
     && guardPublisherIsConfigured()
-    && (rolloutMode() !== "controlled_canary" || appSlug)
+    && (rolloutMode() === "self_serve" || appSlug)
     && (process.env.GITHUB_APP_SLUG == null || appSlug)
     && hasValidCanaryRepository()
   );
@@ -847,6 +932,39 @@ function guardPublisherIsConfigured() {
     const key = createPrivateKey(pem.trim());
     return key.asymmetricKeyType === "rsa"
       && (key.asymmetricKeyDetails?.modulusLength ?? 0) >= 2_048;
+  } catch {
+    return false;
+  }
+}
+
+function guardPrincipalSeparation() {
+  if (!guardPublisherIsConfigured()) return "guard_app_not_configured";
+  if (process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP === "true") {
+    return "shared_installer_guard";
+  }
+
+  const guard = configuredGuardPublisher();
+  const installerId = Number(process.env.GITHUB_APP_ID);
+  const installerSlug = githubAppSlug();
+  if (!Number.isSafeInteger(installerId) || installerId <= 0 || !installerSlug) {
+    return "installer_app_not_configured";
+  }
+  if (guard?.appId === installerId || guard?.appSlug === installerSlug) {
+    return "shared_installer_guard";
+  }
+  return "separate_guard_app";
+}
+
+function commercialStoreIsConfigured() {
+  if (process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED !== "true") return false;
+  try {
+    const url = new URL(process.env.CHANGEPLANE_DATABASE_URL ?? "");
+    return ["postgres:", "postgresql:"].includes(url.protocol)
+      && Boolean(url.hostname)
+      && Boolean(url.username)
+      && Boolean(url.password)
+      && url.pathname.length > 1
+      && url.searchParams.get("sslmode") === "require";
   } catch {
     return false;
   }
@@ -993,14 +1111,7 @@ async function installationRepositories(session) {
 }
 
 async function requireWritableRepository(repository, session) {
-  const controlledCanary = rolloutMode() === "controlled_canary";
-  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
-  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
-    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
-  }
-  if (canaryRepository && repository.toLowerCase() !== canaryRepository.toLowerCase()) {
-    throw new HttpError(403, "This release can access only its approved test repository. Choose the repository shown in the installer or ask the release owner to update CHANGEPLANE_CANARY_REPOSITORY. Nothing was changed.");
-  }
+  assertRepositoryRolloutScope(repository);
   const encodedRepository = encodeRepository(repository);
   const repo = session.authMode === "github_app"
     ? (await installationRepositories(session)).find((candidate) => candidate?.full_name?.toLowerCase() === repository.toLowerCase())
@@ -1142,7 +1253,9 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
     return {
       source: "unverified",
       state: "admin_required",
+      assuranceLevel: null,
       active: false,
+      queueCertified: false,
       strict: false,
       guardRequired: false,
       publisherBound: false,
@@ -1164,7 +1277,9 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
       return {
         source: "ruleset",
         state: "guard_run_required",
+        assuranceLevel: null,
         active: false,
+        queueCertified: false,
         strict: false,
         mergeQueueRequired: false,
         guardRequired: false,
@@ -1178,7 +1293,9 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
     if (missingEvidencePublisher) return {
       source: "ruleset",
       state: "evidence_run_required",
+      assuranceLevel: null,
       active: false,
+      queueCertified: false,
       strict: false,
       mergeQueueRequired: false,
       guardRequired: false,
@@ -1199,14 +1316,16 @@ async function readGuardEnforcement(encodedRepository, repo, token, { isAdmin, r
       return {
         source: "ruleset",
         state: "ruleset_ambiguous",
+        assuranceLevel: null,
         active: false,
+        queueCertified: false,
         strict: false,
         mergeQueueRequired: false,
         guardRequired: false,
         publisherBound: false,
         evidenceRequired: false,
         evidencePublisherBound: false,
-        nextAction: "Grant read-only Administration access and make one no-bypass default-branch merge-queue ruleset explicit, then recheck.",
+        nextAction: "Grant Ruleset Administration access, resolve ambiguous or bypass-bearing policy, then review a fresh Strict Head or Queue Certified plan.",
       };
     }
     throw error;
@@ -3071,11 +3190,15 @@ async function callback(req, res) {
 
 async function repositories(req, res) {
   const session = requireSession(req);
-  const controlledCanary = rolloutMode() === "controlled_canary";
-  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
-  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
-    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
+  const mode = rolloutMode();
+  const allowedRepositories = allowedRolloutRepositories();
+  if (mode !== "self_serve" && !allowedRepositories) {
+    const variable = mode === "private_alpha"
+      ? "CHANGEPLANE_ALPHA_REPOSITORIES_JSON"
+      : "CHANGEPLANE_CANARY_REPOSITORY";
+    throw new HttpError(503, `${variable} must contain the exact approved repository scope. No GitHub request was made.`);
   }
+  const canaryRepository = mode === "controlled_canary" ? allowedRepositories[0] : null;
   const repos = [];
   if (canaryRepository) {
     const { repo } = await requireWritableRepository(canaryRepository, session);
@@ -3093,7 +3216,9 @@ async function repositories(req, res) {
   sendJson(res, 200, {
     repositories: repos
       .filter((repo) => repo?.permissions?.push || repo?.permissions?.admin)
-      .filter((repo) => !canaryRepository || repo?.full_name?.toLowerCase() === canaryRepository.toLowerCase())
+      .filter((repo) => !allowedRepositories || allowedRepositories.some(
+        (allowed) => repo?.full_name?.toLowerCase() === allowed.toLowerCase(),
+      ))
       .map((repo) => ({
         fullName: repo.full_name,
         private: Boolean(repo.private),
@@ -3579,13 +3704,15 @@ function guardPolicyEvidenceMatches(passport, requiredChecks) {
 }
 
 function assertGuardPublisherRolloutScope(repository) {
-  if (rolloutMode() !== "controlled_canary") return;
-  const canaryRepository = configuredCanaryRepository();
-  if (!canaryRepository) {
-    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No external request was made.");
-  }
-  if (repository.toLowerCase() !== canaryRepository.toLowerCase()) {
-    throw new HttpError(403, "This guard publisher can access only its approved canary repository. No external request was made.");
+  try {
+    assertRepositoryRolloutScope(repository, { external: true });
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 403) {
+      throw new HttpError(403, rolloutMode() === "private_alpha"
+        ? "This guard publisher can access only an invited alpha repository. No external request was made."
+        : "This guard publisher can access only its approved canary repository. No external request was made.");
+    }
+    throw error;
   }
 }
 
@@ -3885,13 +4012,14 @@ function guardRunMarker(check) {
 function assertGuardRunCanBegin(existing, incoming) {
   if (!existing) return "create";
   const current = guardRunMarker(existing);
-  if (existing.status === "completed" || current.phase === "complete") return "freeze";
+  const order = compareGuardRunOrder(incoming, current);
   if (existing.status === "in_progress"
     && current.phase === "begin"
-    && compareGuardRunOrder(incoming, current) === 0) {
+    && order === 0) {
     return "idempotent";
   }
-  throw new HttpError(409, "This exact revision already has an immutable in-progress evaluation lease. Push a new commit instead of starting a competing run.");
+  if (order > 0) return "replace";
+  throw new HttpError(409, "This exact revision already has a newer or completed evaluation generation.");
 }
 
 function assertGuardRunCanComplete(existing, incoming) {
@@ -4038,21 +4166,6 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
       repositoryId: repo.id,
       request: github,
     });
-    if (beginState === "freeze") {
-      await github(`/repos/${encodedRepository}/check-runs/${stable[0].id}`, writeCredential.token, {
-        method: "PATCH",
-        body: {
-          status: "completed",
-          conclusion: "action_required",
-          output: {
-            title: "New commit required",
-            summary: "This exact revision already completed one immutable ChangePlane evaluation. A rerun invalidated that result; push a new commit to obtain a fresh lease and assurance decision.",
-            text: stable[0].output.text,
-          },
-        },
-      });
-      throw new HttpError(409, "This exact revision already completed its immutable evaluation. The prior guard was invalidated; push a new commit before retrying.");
-    }
     for (const legacy of appChecks.filter((check) => (
       check?.external_id !== request.check.external_id
       && check?.status === "completed"
@@ -4103,6 +4216,181 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
   });
 }
 
+async function guardReconciliationSweep({ body, oidcToken, configuration, repository }, res) {
+  let claims;
+  try {
+    claims = await verifyGitHubActionsOidcToken({
+      token: oidcToken,
+      audience: GUARD_PUBLISHER_AUDIENCE,
+      repository,
+      repositoryId: body?.repositoryId,
+      defaultBranch: body?.defaultBranch,
+      workflowPath: GUARD_WORKFLOW_PATH,
+      workflowSha: body?.controllerSha,
+      ref: body?.gitRef,
+      allowedEventNames: ["schedule", "workflow_dispatch"],
+    });
+  } catch {
+    throw new HttpError(403, "GitHub OIDC guard reconciliation authentication failed.");
+  }
+
+  const encodedRepository = encodeRepository(repository);
+  const appJwt = createGitHubAppJwt({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+  });
+  const installation = await github(`/repos/${encodedRepository}/installation`, appJwt);
+  if (!Number.isSafeInteger(installation?.id) || installation.id <= 0
+    || installation.app_id !== configuration.appId
+    || installation.app_slug !== configuration.appSlug) {
+    throw new HttpError(403, "The repository is not bound to the configured ChangePlane App.");
+  }
+  const readCredential = await createGuardReadInstallationAccessToken({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+    installationId: installation.id,
+    repositoryId: body?.repositoryId,
+    request: github,
+  });
+  const repo = await github(`/repos/${encodedRepository}`, readCredential.token);
+  if (repo?.full_name !== repository || repo.id !== body?.repositoryId
+    || repo.default_branch !== body?.defaultBranch) {
+    throw new HttpError(409, "The live repository identity does not match the reconciliation request.");
+  }
+  const { workflowSha } = await guardManagedBase(
+    encodedRepository,
+    repo.default_branch,
+    body?.controllerSha,
+    readCredential.token,
+  );
+  let request;
+  try {
+    request = validateGuardReconciliationBody(body, {
+      oidcClaims: claims,
+      expectedWorkflowSha: workflowSha,
+    });
+  } catch {
+    throw new HttpError(409, "The guard reconciliation request is stale or outside the trusted workflow boundary.");
+  }
+
+  const pulls = await github(
+    `/repos/${encodedRepository}/pulls?state=open&sort=updated&direction=desc&per_page=50`,
+    readCredential.token,
+  );
+  if (!Array.isArray(pulls) || pulls.length >= 50) {
+    throw new HttpError(409, "The open pull-request inventory is invalid or exceeds the bounded reconciliation sweep.");
+  }
+  const seenHeads = new Set();
+  const candidates = [];
+  for (const pull of pulls) {
+    if (pull?.state !== "open" || pull?.merged === true
+      || pull?.head?.repo?.id !== repo.id || pull?.head?.repo?.full_name !== repository
+      || pull?.base?.repo?.id !== repo.id || pull?.base?.repo?.full_name !== repository
+      || pull?.base?.ref !== repo.default_branch
+      || !Number.isSafeInteger(pull?.number) || pull.number <= 0
+      || !/^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? "")) {
+      continue;
+    }
+    if (seenHeads.has(pull.head.sha)) {
+      throw new HttpError(409, "One exact head belongs to multiple open pull requests; reconciliation stopped without mutation.");
+    }
+    seenHeads.add(pull.head.sha);
+    const checks = guardAppChecks(
+      await listGuardChecks(encodedRepository, pull.head.sha, readCredential.token),
+      configuration,
+      pull.head.sha,
+    );
+    const expectedExternalId = stableGuardCheckExternalId({
+      repositoryId: repo.id,
+      targetType: "pull_request",
+      headSha: pull.head.sha,
+    });
+    const stable = checks.filter((item) => item?.external_id === expectedExternalId);
+    if (stable.length > 1) {
+      throw new HttpError(409, "The dedicated guard reconciliation target is ambiguous; nothing was changed.");
+    }
+    for (const check of stable.filter((item) => item?.status === "in_progress")) {
+      let reconciliation;
+      try {
+        reconciliation = reconcileGuardState({ checkRun: check, now: new Date().toISOString() });
+      } catch {
+        throw new HttpError(409, "An in-progress Guard has a malformed reconciliation state; nothing was changed.");
+      }
+      candidates.push({ pullRequestNumber: pull.number, headSha: pull.head.sha, check, reconciliation });
+    }
+  }
+
+  const required = candidates.filter(({ reconciliation }) => reconciliation.state === "reconcile_required");
+  const finalBaseRef = await github(
+    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(request.defaultBranch)}`,
+    readCredential.token,
+  );
+  if (finalBaseRef?.object?.sha !== workflowSha) {
+    throw new HttpError(409, "The trusted default branch changed before guard reconciliation.");
+  }
+  const revalidated = [];
+  for (const candidate of required) {
+    const [pull, check] = await Promise.all([
+      github(`/repos/${encodedRepository}/pulls/${candidate.pullRequestNumber}`, readCredential.token),
+      github(`/repos/${encodedRepository}/check-runs/${candidate.check.id}`, readCredential.token),
+    ]);
+    if (pull?.state !== "open" || pull?.merged === true
+      || pull?.head?.sha !== candidate.headSha
+      || pull?.head?.repo?.id !== repo.id || pull?.base?.repo?.id !== repo.id
+      || check?.name !== GUARD_CHECK_NAME || check?.head_sha !== candidate.headSha
+      || check?.external_id !== stableGuardCheckExternalId({
+        repositoryId: repo.id,
+        targetType: "pull_request",
+        headSha: candidate.headSha,
+      })
+      || check?.app?.id !== configuration.appId || check?.app?.slug !== configuration.appSlug) {
+      throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
+    }
+    let reconciliation;
+    try {
+      reconciliation = reconcileGuardState({ checkRun: check, now: new Date().toISOString() });
+    } catch {
+      throw new HttpError(409, "A reconciliation target became malformed before mutation; nothing was changed.");
+    }
+    if (reconciliation.state !== "reconcile_required") {
+      throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
+    }
+    revalidated.push({ check, reconciliation });
+  }
+
+  if (revalidated.length > 0) {
+    const writeCredential = await createChecksWriteInstallationAccessToken({
+      appId: configuration.appId,
+      privateKey: configuration.privateKey,
+      installationId: installation.id,
+      repositoryId: repo.id,
+      request: github,
+    });
+    for (const { check, reconciliation } of revalidated) {
+      const published = await github(`/repos/${encodedRepository}/check-runs/${check.id}`, writeCredential.token, {
+        method: "PATCH",
+        body: reconciliation.patch,
+      });
+      if (published?.id !== check.id || published?.name !== GUARD_CHECK_NAME
+        || published?.head_sha !== check.head_sha || published?.status !== "completed"
+        || published?.conclusion !== "action_required"
+        || published?.external_id !== check.external_id
+        || published?.app?.id !== configuration.appId || published?.app?.slug !== configuration.appSlug) {
+        throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
+      }
+    }
+  }
+
+  sendJson(res, 200, {
+    schemaVersion: 1,
+    type: "changeplane.guard-reconciliation-sweep",
+    scannedHeads: seenHeads.size,
+    inProgress: candidates.length,
+    reconciled: revalidated.length,
+    withinWindow: candidates.length - revalidated.length,
+  });
+}
+
 async function guardPublish(req, res) {
   const configuration = guardPublisherConfiguration();
   const oidcToken = guardPublisherBearer(req);
@@ -4117,6 +4405,9 @@ async function guardPublish(req, res) {
   assertGuardPublisherRolloutScope(repository);
   if (body?.type === "changeplane.guard-publication-begin") {
     return guardBegin({ body, oidcToken, configuration, repository }, res);
+  }
+  if (body?.type === "changeplane.guard-reconciliation-sweep") {
+    return guardReconciliationSweep({ body, oidcToken, configuration, repository }, res);
   }
   let passport;
   try {
@@ -4877,6 +5168,203 @@ async function preflight(req, res) {
   });
 }
 
+function validateAssuranceLevel(value) {
+  if (value === "strict_head" || value === "queue_certified") return value;
+  throw new HttpError(400, "assuranceLevel must be strict_head or queue_certified.");
+}
+
+async function liveRulesetPlan(repository, assuranceLevel, session) {
+  const target = await requireRepositoryAdmin(repository, session);
+  const runtime = await readRepositoryRuntime(target.encodedRepository, target.repo, session.token);
+  if (runtime.content == null) {
+    throw new HttpError(409, "Merge the protected ChangePlane setup pull request before configuring the GitHub Ruleset.");
+  }
+  const rulesets = await readRepositoryRulesets(target.encodedRepository, session.token);
+  if (rulesets === null) {
+    throw new HttpError(409, "GitHub returned an ambiguous Ruleset inventory. Nothing was changed.");
+  }
+  const publishers = await enforcementPublisherAppIdentities(
+    target.encodedRepository,
+    target.repo,
+    session.token,
+    runtime.requiredChecks,
+  );
+  if (publishers.guard == null) {
+    throw new HttpError(409, "Run ChangePlane on one pull request so GitHub records the Guard App publisher, then retry. Nothing was changed.");
+  }
+  const missingEvidence = publishers.evidence.find(({ integrationId }) => integrationId == null);
+  if (missingEvidence) {
+    throw new HttpError(409, `Run ${missingEvidence.name} on one pull request so GitHub records its publisher, then retry. Nothing was changed.`);
+  }
+  return {
+    target,
+    runtime,
+    plan: buildRulesetPlan({
+      repository: {
+        id: target.repo.id,
+        fullName: target.repo.full_name,
+        defaultBranch: target.repo.default_branch,
+        defaultBranchSha: runtime.baseSha,
+      },
+      assuranceLevel,
+      guardIntegrationId: publishers.guard,
+      evidenceChecks: publishers.evidence,
+      rulesets,
+    }),
+  };
+}
+
+async function rulesetPlanStatus(req, res) {
+  const session = requireSession(req);
+  const repository = validateRepository(queryValue(req, "repository"));
+  const assuranceLevel = validateAssuranceLevel(queryValue(req, "assuranceLevel") ?? "strict_head");
+  const { plan } = await liveRulesetPlan(repository, assuranceLevel, session);
+  sendJson(res, 200, { plan });
+}
+
+async function applyRulesetPlan(req, res) {
+  assertOrigin(req);
+  const session = requireSession(req);
+  assertCsrf(req, session);
+  assertJsonRequest(req);
+  const body = await readJson(req);
+  const repository = validateRepository(body.repository);
+  const assuranceLevel = validateAssuranceLevel(body.assuranceLevel);
+  if (typeof body.planDigest !== "string" || !/^[a-f0-9]{64}$/u.test(body.planDigest)) {
+    throw new HttpError(400, "planDigest must be the exact digest shown in the approved Ruleset plan.");
+  }
+
+  const first = await liveRulesetPlan(repository, assuranceLevel, session);
+  if (first.plan.action === "none") {
+    sendJson(res, 200, {
+      repository,
+      state: "already_active",
+      enforcement: first.plan.readiness,
+      planDigest: first.plan.planDigest,
+    });
+    return;
+  }
+  if (first.plan.action !== "create") {
+    throw new HttpError(409, `${first.plan.summary} Nothing was changed.`);
+  }
+  if (first.plan.planDigest !== body.planDigest) {
+    throw new HttpError(409, "The repository revision, publishers, or Ruleset inventory changed after approval. Review the fresh plan; nothing was changed.");
+  }
+
+  // Rebuild immediately before mutation so an older browser approval cannot authorize newer policy bytes.
+  const fresh = await liveRulesetPlan(repository, assuranceLevel, session);
+  if (fresh.plan.action !== "create" || fresh.plan.planDigest !== body.planDigest) {
+    throw new HttpError(409, "The approved Ruleset plan became stale before apply. Review the fresh plan; nothing was changed.");
+  }
+  const created = await github(fresh.plan.mutation.path, session.token, {
+    method: fresh.plan.mutation.method,
+    body: fresh.plan.mutation.body,
+  });
+  if (!Number.isSafeInteger(created?.id) || created.id < 1
+    || created.name !== fresh.plan.mutation.body.name
+    || created.target !== "branch"
+    || created.enforcement !== "active") {
+    throw new HttpError(502, "GitHub returned an invalid Ruleset after apply. Inspect repository policy before retrying.");
+  }
+
+  const enforcement = await readGuardEnforcement(
+    fresh.target.encodedRepository,
+    fresh.target.repo,
+    session.token,
+    { isAdmin: true, requiredChecks: fresh.runtime.requiredChecks },
+  );
+  const requestedActive = enforcement.active
+    && (assuranceLevel === "strict_head" || enforcement.queueCertified);
+  sendJson(res, 200, {
+    repository,
+    state: requestedActive ? "applied" : "applied_reconciliation_required",
+    planDigest: fresh.plan.planDigest,
+    ruleset: {
+      id: created.id,
+      name: created.name,
+      url: `https://github.com/${repository}/rules/${created.id}`,
+    },
+    enforcement,
+  });
+}
+
+async function reconcileGuard(req, res) {
+  assertOrigin(req);
+  const session = requireSession(req);
+  assertCsrf(req, session);
+  assertJsonRequest(req);
+  const body = await readJson(req);
+  const repository = validateRepository(body.repository);
+  const checkRunId = Number(body.checkRunId);
+  if (!Number.isSafeInteger(checkRunId) || checkRunId < 1 || String(checkRunId) !== String(body.checkRunId)) {
+    throw new HttpError(400, "checkRunId must be one positive GitHub Check Run identifier.");
+  }
+  const target = await requireRepositoryAdmin(repository, session);
+  if (!Number.isSafeInteger(target.repo?.id) || target.repo.id < 1) {
+    throw new HttpError(502, "GitHub returned an invalid repository identity.");
+  }
+  const configuration = guardPublisherConfiguration();
+  const appJwt = createGitHubAppJwt({ appId: configuration.appId, privateKey: configuration.privateKey });
+  const installation = await github(`/repos/${target.encodedRepository}/installation`, appJwt);
+  if (!Number.isSafeInteger(installation?.id) || installation.id < 1
+    || installation.app_id !== configuration.appId
+    || installation.app_slug !== configuration.appSlug) {
+    throw new HttpError(403, "The repository is not bound to the configured Guard App.");
+  }
+  const readCredential = await createGuardReadInstallationAccessToken({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+    installationId: installation.id,
+    repositoryId: target.repo.id,
+    request: github,
+  });
+  const readCheck = () => github(
+    `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
+    readCredential.token,
+  );
+  let checkRun = await readCheck();
+  if (checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
+    throw new HttpError(409, "Only the configured Guard App Check can be reconciled. Nothing was changed.");
+  }
+  let reconciliation = reconcileGuardState({ checkRun, now: new Date().toISOString() });
+  if (reconciliation.patch == null) {
+    sendJson(res, 200, { repository, ...reconciliation });
+    return;
+  }
+
+  const writeCredential = await createChecksWriteInstallationAccessToken({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+    installationId: installation.id,
+    repositoryId: target.repo.id,
+    request: github,
+  });
+  checkRun = await readCheck();
+  reconciliation = reconcileGuardState({ checkRun, now: new Date().toISOString() });
+  if (reconciliation.patch == null) {
+    sendJson(res, 200, { repository, ...reconciliation });
+    return;
+  }
+  const published = await github(
+    `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
+    writeCredential.token,
+    { method: "PATCH", body: reconciliation.patch },
+  );
+  if (published?.id !== checkRunId
+    || published.status !== "completed"
+    || published.conclusion !== "action_required"
+    || decodeGuardRunMarker(published?.output?.text).phase !== "complete") {
+    throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
+  }
+  sendJson(res, 200, {
+    repository,
+    state: "reconciled",
+    checkRunId,
+    generation: reconciliation.generation,
+    conclusion: "action_required",
+  });
+}
+
 export async function prepareAutonomousHarness(repository, session, authorityAnchor = null) {
   const configuration = repairControllerConfiguration();
   if (!configuration.provisioningConfigured) {
@@ -5192,6 +5680,8 @@ export default async function handler(req, res) {
       const state = readiness();
       sendJson(res, state.ready ? 200 : 503, {
         status: state.ready ? "ready" : "configuration_required",
+        commercialReady: state.commercialReady,
+        principalSeparation: state.principalSeparation,
         checks: state.checks,
         authMode: state.authMode,
         rolloutMode: state.rolloutMode,
@@ -5235,6 +5725,9 @@ export default async function handler(req, res) {
     if (method === "GET" && action === "callback") return await callback(req, res);
     if (method === "GET" && action === "repos") return await repositories(req, res);
     if (method === "GET" && action === "preflight") return await preflight(req, res);
+    if (method === "GET" && action === "ruleset-plan") return await rulesetPlanStatus(req, res);
+    if (method === "POST" && action === "ruleset-apply") return await applyRulesetPlan(req, res);
+    if (method === "POST" && action === "reconcile") return await reconcileGuard(req, res);
     if (method === "GET" && action === "runtime") return await runtimeStatus(req, res);
     if (method === "GET" && action === "proof") return await assuranceProofStatus(req, res);
     if (method === "POST" && action === "guard-publish") return await guardPublish(req, res);

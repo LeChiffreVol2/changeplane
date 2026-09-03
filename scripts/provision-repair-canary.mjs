@@ -57,8 +57,11 @@ export function validateCanaryRulesets({
     evidenceChecks,
     repositoryScoped: true,
   });
-  if (!readiness.active) {
-    throw new Error(`Canary activation requires one complete no-bypass default-branch Ruleset (${readiness.state}). ${readiness.nextAction ?? "Review the Ruleset and retry."}`);
+  if (!readiness.active || !readiness.queueCertified) {
+    const state = readiness.assuranceLevel === "strict_head"
+      ? "merge_queue_required"
+      : readiness.state;
+    throw new Error(`Canary activation requires Queue Certified assurance from one complete no-bypass default-branch Ruleset (${state}). ${readiness.nextAction ?? "Review the Ruleset and retry."}`);
   }
   return readiness;
 }

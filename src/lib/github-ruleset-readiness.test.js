@@ -52,7 +52,9 @@ test("reports active only when one unambiguous ruleset contains the entire autho
   assert.deepEqual(githubRulesetReadiness(input, OPTIONS), {
     source: "ruleset",
     state: "active",
+    assuranceLevel: "queue_certified",
     active: true,
+    queueCertified: true,
     strict: true,
     mergeQueueRequired: true,
     guardRequired: true,
@@ -63,6 +65,27 @@ test("reports active only when one unambiguous ruleset contains the entire autho
   });
   assert.deepEqual(input, before);
   assert.equal(rulesetEnforcementState, githubRulesetReadiness);
+});
+
+test("reports Strict Head as active when the complete authority gate has no merge queue", () => {
+  const result = githubRulesetReadiness([
+    branchRuleset({ rules: [requiredStatusChecks()] }),
+  ], OPTIONS);
+
+  assert.deepEqual(result, {
+    source: "ruleset",
+    state: "strict_head",
+    assuranceLevel: "strict_head",
+    active: true,
+    queueCertified: false,
+    strict: true,
+    mergeQueueRequired: false,
+    guardRequired: true,
+    publisherBound: true,
+    evidenceRequired: true,
+    evidencePublisherBound: true,
+    nextAction: "Strict Head is active. Add Merge Queue to this same Ruleset only when this repository needs Queue Certified assurance.",
+  });
 });
 
 test("keeps the GitHub Actions liveness job outside authority and readiness", () => {
@@ -170,11 +193,6 @@ test("returns precise, fixable states for each incomplete gate", () => {
       expected: "strict_required",
       rules: [requiredStatusChecks({ strict: false }), { type: "merge_queue" }],
       nextAction: /require status checks and require branches to be up to date/u,
-    },
-    {
-      expected: "merge_queue_required",
-      rules: [requiredStatusChecks()],
-      nextAction: /Add a merge queue rule to that same/u,
     },
     {
       expected: "guard_required",

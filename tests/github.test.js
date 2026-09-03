@@ -282,6 +282,7 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_SESSION_SECRET",
     "CHANGEPLANE_APP_ORIGIN",
     "CHANGEPLANE_CANARY_REPOSITORY",
+    "CHANGEPLANE_ALPHA_REPOSITORIES_JSON",
     "CHANGEPLANE_SELF_SERVE_ENABLED",
     "CHANGEPLANE_REPAIR_REPOSITORY",
     "CHANGEPLANE_REPAIR_ENABLED",
@@ -294,6 +295,11 @@ async function withOAuthEnvironment(callback) {
     "CHANGEPLANE_GUARD_APP_SLUG",
     "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
     "CHANGEPLANE_GUARD_REUSE_GITHUB_APP",
+    "CHANGEPLANE_COMMERCIAL_STORE_ENABLED",
+    "CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE",
+    "CHANGEPLANE_DATABASE_URL",
+    "CHANGEPLANE_LEGAL_RELEASE_APPROVED",
+    "CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE",
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_GIT_PROVIDER",
@@ -323,6 +329,7 @@ async function withOAuthEnvironment(callback) {
   delete process.env.VERCEL_GIT_COMMIT_SHA;
   delete process.env.VERCEL_DEPLOYMENT_ID;
   delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
+  delete process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON;
   delete process.env.CHANGEPLANE_SELF_SERVE_ENABLED;
   delete process.env.CHANGEPLANE_REPAIR_REPOSITORY;
   delete process.env.CHANGEPLANE_REPAIR_ENABLED;
@@ -331,6 +338,11 @@ async function withOAuthEnvironment(callback) {
   delete process.env.GITHUB_APP_ID;
   delete process.env.GITHUB_APP_PRIVATE_KEY;
   delete process.env.CHANGEPLANE_GUARD_REUSE_GITHUB_APP;
+  delete process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED;
+  delete process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE;
+  delete process.env.CHANGEPLANE_DATABASE_URL;
+  delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED;
+  delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE;
   try {
     return await callback();
   } finally {
@@ -2119,8 +2131,8 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   assert.equal((workflow.match(/changeplane-grant\.js verify/gu) ?? []).length, 3);
   assert.equal((workflow.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu) ?? []).length, 2);
   assert.equal((workflow.match(/node-version: 22\.18\.0/gu) ?? []).length, 2);
-  assert.equal((guardWorkflow.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu) ?? []).length, 1);
-  assert.equal((guardWorkflow.match(/node-version: 22\.18\.0/gu) ?? []).length, 1);
+  assert.equal((guardWorkflow.match(/actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu) ?? []).length, 2);
+  assert.equal((guardWorkflow.match(/node-version: 22\.18\.0/gu) ?? []).length, 2);
   assert.doesNotMatch(workflow, /\/usr\/bin\/node/u);
   assert.doesNotMatch(guardWorkflow, /\/usr\/bin\/node/u);
   assert.match(workflow, /changeplane-grant\.js verify/u);
@@ -2335,6 +2347,8 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
     assert.equal(response.statusCode, 503);
     assert.deepEqual(JSON.parse(response.body), {
       status: "configuration_required",
+      commercialReady: false,
+      principalSeparation: "installer_app_not_configured",
       checks: {
         githubClientId: true,
         githubClientSecret: true,
@@ -2342,6 +2356,10 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         sessionSecret: true,
         appOrigin: true,
         guardPublisher: true,
+        guardPrincipalSeparated: false,
+        commercialStore: false,
+        commercialStoreVerified: false,
+        legalRelease: false,
         sourceProvenance: false,
         canaryRepository: true,
       },
@@ -2386,6 +2404,8 @@ test("readiness exposes the exact Vercel source commit without secret values", a
     assert.equal(response.statusCode, 200);
     assert.deepEqual(JSON.parse(response.body), {
       status: "ready",
+      commercialReady: false,
+      principalSeparation: "installer_app_not_configured",
       checks: {
         githubClientId: true,
         githubClientSecret: true,
@@ -2393,6 +2413,10 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         sessionSecret: true,
         appOrigin: true,
         guardPublisher: true,
+        guardPrincipalSeparated: false,
+        commercialStore: false,
+        commercialStoreVerified: false,
+        legalRelease: false,
         sourceProvenance: true,
         canaryRepository: true,
       },
@@ -2440,7 +2464,7 @@ test("readiness and onboarding fail closed without the dedicated guard publisher
   });
 });
 
-test("readiness permits only explicit reuse of the reviewed GitHub App for guard publication", async () => {
+test("readiness marks explicit Installer App reuse as operational but not commercially ready", async () => {
   await withOAuthEnvironment(async () => {
     delete process.env.CHANGEPLANE_GUARD_APP_ID;
     delete process.env.CHANGEPLANE_GUARD_APP_SLUG;
@@ -2460,13 +2484,60 @@ test("readiness permits only explicit reuse of the reviewed GitHub App for guard
     const readyResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readyResponse);
     assert.equal(readyResponse.statusCode, 200);
-    assert.equal(JSON.parse(readyResponse.body).checks.guardPublisher, true);
+    const shared = JSON.parse(readyResponse.body);
+    assert.equal(shared.checks.guardPublisher, true);
+    assert.equal(shared.checks.guardPrincipalSeparated, false);
+    assert.equal(shared.commercialReady, false);
+    assert.equal(shared.principalSeparation, "shared_installer_guard");
 
     process.env.GITHUB_APP_SLUG = "github-actions";
     const unsafeResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, unsafeResponse);
     assert.equal(unsafeResponse.statusCode, 503);
     assert.equal(JSON.parse(unsafeResponse.body).checks.guardPublisher, false);
+  });
+});
+
+test("readiness becomes commercially ready only with distinct Apps, event storage, and legal approval", async () => {
+  await withOAuthEnvironment(async () => {
+    Object.assign(process.env, {
+      GITHUB_APP_ID: "111111",
+      GITHUB_APP_SLUG: "changeplane-installer",
+    });
+
+    const response = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, response);
+    const separatedOnly = JSON.parse(response.body);
+    assert.equal(response.statusCode, 200);
+    assert.equal(separatedOnly.checks.guardPrincipalSeparated, true);
+    assert.equal(separatedOnly.commercialReady, false);
+
+    Object.assign(process.env, {
+      CHANGEPLANE_COMMERCIAL_STORE_ENABLED: "true",
+      CHANGEPLANE_DATABASE_URL: "postgresql://changeplane:test@db.example/changeplane?sslmode=require",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true",
+    });
+    const unboundResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, unboundResponse);
+    const unbound = JSON.parse(unboundResponse.body);
+    assert.equal(unbound.checks.commercialStore, true);
+    assert.equal(unbound.checks.commercialStoreVerified, false);
+    assert.equal(unbound.checks.legalRelease, false);
+    assert.equal(unbound.commercialReady, false);
+
+    Object.assign(process.env, {
+      CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE: "development",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE: "development",
+    });
+    const commercialResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, commercialResponse);
+    const commercial = JSON.parse(commercialResponse.body);
+    assert.equal(commercial.checks.guardPrincipalSeparated, true);
+    assert.equal(commercial.checks.commercialStore, true);
+    assert.equal(commercial.checks.commercialStoreVerified, true);
+    assert.equal(commercial.checks.legalRelease, true);
+    assert.equal(commercial.commercialReady, true);
+    assert.equal(commercial.principalSeparation, "separate_guard_app");
   });
 });
 
@@ -2509,10 +2580,11 @@ test("hosted rollout stays closed when the disposable canary setting is missing"
   });
 });
 
-test("explicit self-serve rollout opens GitHub onboarding without weakening repair configuration", async () => {
+test("production self-serve stays closed until legal approval is bound to the exact release", async () => {
   await withGitHubAppEnvironment(async () => {
     Object.assign(process.env, {
       CHANGEPLANE_SELF_SERVE_ENABLED: "true",
+      CHANGEPLANE_CANARY_REPOSITORY: "alice/disposable-canary",
       VERCEL: "1",
       VERCEL_ENV: "production",
       VERCEL_GIT_PROVIDER: "github",
@@ -2521,15 +2593,39 @@ test("explicit self-serve rollout opens GitHub onboarding without weakening repa
       VERCEL_GIT_COMMIT_REF: "main",
       VERCEL_GIT_COMMIT_SHA: "c".repeat(40),
     });
-    delete process.env.CHANGEPLANE_CANARY_REPOSITORY;
 
-    const readinessResponse = responseRecorder();
-    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
-    const readinessPayload = JSON.parse(readinessResponse.body);
-    assert.equal(readinessResponse.statusCode, 200);
-    assert.equal(readinessPayload.rolloutMode, "self_serve");
-    assert.equal(readinessPayload.checks.canaryRepository, true);
-    assert.equal(readinessPayload.repairController.configured, false);
+    for (const legal of [
+      {},
+      { CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true" },
+      {
+        CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true",
+        CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE: "b".repeat(40),
+      },
+    ]) {
+      delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED;
+      delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE;
+      Object.assign(process.env, legal);
+      const closedResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, closedResponse);
+      const closed = JSON.parse(closedResponse.body);
+      assert.equal(closedResponse.statusCode, 200);
+      assert.equal(closed.rolloutMode, "controlled_canary");
+      assert.equal(closed.checks.canaryRepository, true);
+      assert.equal(closed.commercialReady, false);
+    }
+
+    Object.assign(process.env, {
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE: "c".repeat(40),
+    });
+    const openResponse = responseRecorder();
+    await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, openResponse);
+    const open = JSON.parse(openResponse.body);
+    assert.equal(openResponse.statusCode, 200);
+    assert.equal(open.rolloutMode, "self_serve");
+    assert.equal(open.checks.canaryRepository, true);
+    assert.equal(open.checks.legalRelease, true);
+    assert.equal(open.repairController.configured, false);
 
     const sessionResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
@@ -2875,6 +2971,119 @@ test("controlled canary mode lists and authorizes only the exact disposable repo
       assert.match(JSON.parse(rejectedResponse.body).error, /access only its approved test repository/u);
       assert.equal(calls, 1);
       assert.deepEqual(paths, ["/repos/alice/disposable-canary"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("private alpha exposes only its exact invited repository allowlist", async () => {
+  await withGitHubAppEnvironment(async () => {
+    Object.assign(process.env, {
+      CHANGEPLANE_ALPHA_REPOSITORIES_JSON: JSON.stringify([
+        "acme/payment-api",
+        "beta/agent-service",
+      ]),
+      CHANGEPLANE_SELF_SERVE_ENABLED: "true",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true",
+      CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE: "development",
+    });
+    const session = seal({
+      kind: "session",
+      token: "alpha-user-token",
+      login: "founder",
+      csrf: "alpha-csrf",
+      authMode: "github_app",
+      installationId: 123,
+      installationIds: [123],
+    }, SECRET);
+    const repositories = [
+      { full_name: "acme/payment-api", private: true, default_branch: "main", permissions: { push: true, admin: true } },
+      { full_name: "beta/agent-service", private: true, default_branch: "main", permissions: { push: true, admin: true } },
+      { full_name: "stranger/uninvited", private: true, default_branch: "main", permissions: { push: true, admin: true } },
+    ];
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      calls += 1;
+      const requestUrl = new URL(String(url));
+      if (requestUrl.pathname === "/user/installations/123/repositories") {
+        return githubJsonResponse({ repositories });
+      }
+      throw new Error(`Unexpected request: ${requestUrl.pathname}`);
+    };
+    try {
+      const sessionResponse = responseRecorder();
+      await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
+      assert.equal(JSON.parse(sessionResponse.body).rolloutMode, "private_alpha");
+
+      const listResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=repos",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, listResponse);
+      assert.equal(listResponse.statusCode, 200, listResponse.body);
+      assert.deepEqual(
+        JSON.parse(listResponse.body).repositories.map(({ fullName }) => fullName),
+        ["acme/payment-api", "beta/agent-service"],
+      );
+      assert.equal(calls, 1);
+
+      const rejectedResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=preflight&repository=stranger%2Funinvited",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, rejectedResponse);
+      assert.equal(rejectedResponse.statusCode, 403);
+      assert.match(JSON.parse(rejectedResponse.body).error, /invite-only alpha/iu);
+      assert.equal(calls, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("private alpha fails closed for malformed, duplicate, or oversized repository scope", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const session = seal({
+      kind: "session",
+      token: "alpha-user-token",
+      login: "founder",
+      csrf: "alpha-csrf",
+      authMode: "github_app",
+      installationId: 123,
+      installationIds: [123],
+    }, SECRET);
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw new Error("Invalid alpha scope must fail before GitHub");
+    };
+    try {
+      for (const value of [
+        "not-json",
+        JSON.stringify(["acme/api", "ACME/API"]),
+        JSON.stringify(["a/one", "b/two", "c/three", "d/four", "e/five", "f/six"]),
+      ]) {
+        process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON = value;
+        const readinessResponse = responseRecorder();
+        await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
+        assert.equal(readinessResponse.statusCode, 503);
+        assert.equal(JSON.parse(readinessResponse.body).rolloutMode, "private_alpha");
+
+        const listResponse = responseRecorder();
+        await handler({
+          method: "GET",
+          url: "/api/github?action=repos",
+          headers: { cookie: `__Host-changeplane_session=${session}` },
+        }, listResponse);
+        assert.equal(listResponse.statusCode, 503);
+        assert.match(JSON.parse(listResponse.body).error, /CHANGEPLANE_ALPHA_REPOSITORIES_JSON/u);
+      }
+      assert.equal(calls, 0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -3573,8 +3782,9 @@ test("runtime status refuses to call classic branch protection a high-assurance 
     });
     const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
     const calls = [];
+    let createdRuleset = null;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
       calls.push(`${requestUrl.pathname}${requestUrl.search}`);
       if (requestUrl.pathname === "/repos/alice/private-service") {
@@ -3607,7 +3817,19 @@ test("runtime status refuses to call classic branch protection a high-assurance 
         return { ok: true, status: 200, async json() { return runtimeTree.payload; } };
       }
       if (requestUrl.pathname === "/repos/alice/private-service/rulesets") {
-        return { ok: true, status: 200, async json() { return []; } };
+        if (options.method === "POST") {
+          const submitted = JSON.parse(options.body);
+          createdRuleset = { id: 99, source_type: "Repository", ...submitted };
+          return { ok: true, status: 201, async json() { return createdRuleset; } };
+        }
+        return {
+          ok: true,
+          status: 200,
+          async json() { return createdRuleset ? [{ id: createdRuleset.id }] : []; },
+        };
+      }
+      if (requestUrl.pathname === "/repos/alice/private-service/rulesets/99") {
+        return { ok: true, status: 200, async json() { return createdRuleset; } };
       }
       if (requestUrl.pathname.endsWith("/branches/main/protection/required_status_checks")) {
         return {
@@ -3684,7 +3906,9 @@ test("runtime status refuses to call classic branch protection a high-assurance 
       assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
         source: "ruleset",
         state: "ruleset_required",
+        assuranceLevel: null,
         active: false,
+        queueCertified: false,
         strict: false,
         mergeQueueRequired: false,
         guardRequired: false,
@@ -3699,6 +3923,40 @@ test("runtime status refuses to call classic branch protection a high-assurance 
       assert.equal(sdlc.stages.find(({ id }) => id === "release").state, "action_required");
       assert.equal(sdlc.authority.contributesToPass, false);
       assert.equal(calls.some((call) => call.includes("/branches/main/protection")), false);
+
+      const planResponse = responseRecorder();
+      await handler({
+        method: "GET",
+        url: "/api/github?action=ruleset-plan&repository=alice%2Fprivate-service&assuranceLevel=strict_head",
+        headers: { cookie: `__Host-changeplane_session=${session}` },
+      }, planResponse);
+      assert.equal(planResponse.statusCode, 200, planResponse.body);
+      const plan = JSON.parse(planResponse.body).plan;
+      assert.equal(plan.action, "create");
+      assert.equal(plan.mutation.body.bypass_actors.length, 0);
+      assert.deepEqual(plan.mutation.body.conditions.ref_name.include, ["refs/heads/main"]);
+
+      const applyResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=ruleset-apply",
+        headers: {
+          origin: "https://changeplane.example",
+          cookie: `__Host-changeplane_session=${session}`,
+          "content-type": "application/json",
+          "x-changeplane-csrf": "alice-csrf",
+        },
+        body: {
+          repository: "alice/private-service",
+          assuranceLevel: "strict_head",
+          planDigest: plan.planDigest,
+        },
+      }, applyResponse);
+      assert.equal(applyResponse.statusCode, 200, applyResponse.body);
+      const applied = JSON.parse(applyResponse.body);
+      assert.equal(applied.state, "applied");
+      assert.equal(applied.enforcement.assuranceLevel, "strict_head");
+      assert.equal(applied.ruleset.id, 99);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -3863,7 +4121,9 @@ test("runtime status proves active merge blocking from one strict default-branch
       assert.deepEqual(JSON.parse(response.body).harness.enforcement, {
         source: "ruleset",
         state: "active",
+        assuranceLevel: "queue_certified",
         active: true,
+        queueCertified: true,
         strict: true,
         mergeQueueRequired: true,
         guardRequired: true,
@@ -4396,7 +4656,7 @@ test("GitHub App onboarding installs first, then verifies the installation throu
                 id: 12345,
                 permissions: {
                   actions: "read",
-                  administration: "read",
+                  administration: "write",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
@@ -4476,7 +4736,7 @@ test("returning GitHub App users authorize without reopening installation settin
                 app_slug: "changeplane-test",
                 permissions: {
                   actions: "read",
-                  administration: "read",
+                  administration: "write",
                   contents: "write",
                   pull_requests: "write",
                   workflows: "write",
@@ -4592,12 +4852,12 @@ test("returning authorization keeps every eligible personal and organization ins
                 {
                   id: 1,
                   app_slug: "changeplane-test",
-                  permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
+                  permissions: { actions: "read", administration: "write", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
                 },
                 {
                   id: 2,
                   app_slug: "changeplane-test",
-                  permissions: { actions: "read", administration: "read", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
+                  permissions: { actions: "read", administration: "write", contents: "write", pull_requests: "write", workflows: "write", checks: "write", secrets: "write" },
                 },
               ],
             };
@@ -4887,7 +5147,12 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       }
       if (url.pathname === `/repos/${fixture.repository}/check-runs/919` && method === "PATCH") {
         const payload = JSON.parse(options.body);
-        liveGuardCheck = { ...liveGuardCheck, ...payload, output: payload.output };
+        liveGuardCheck = {
+          ...liveGuardCheck,
+          ...payload,
+          conclusion: payload.status === "in_progress" ? null : payload.conclusion,
+          output: payload.output,
+        };
         return githubJsonResponse(liveGuardCheck);
       }
       throw new Error(`Unexpected guard publication request: ${method} ${url.pathname}${url.search}`);
@@ -5118,15 +5383,27 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       assert.equal(calls.some(({ method, path }) => method === "PATCH" && path === `/repos/${fixture.repository}/check-runs/919`), true);
       assert.equal(calls.some(({ options }) => options.headers?.authorization === "Bearer alice-token"), false);
 
-      const writesBeforeBeginReplay = calls.filter(({ method, path }) => (
+      const writesBeforeNextGeneration = calls.filter(({ method, path }) => (
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
       )).length;
-      const beginReplay = responseRecorder();
+      const nextClaims = {
+        ...JSON.parse(Buffer.from(oidcPayload, "base64url").toString("utf8")),
+        run_id: "8002",
+        jti: "changeplane-api-test-8002-1",
+      };
+      const nextPayload = Buffer.from(JSON.stringify(nextClaims)).toString("base64url");
+      const nextInput = `${oidcHeader}.${nextPayload}`;
+      const nextSignature = sign("RSA-SHA256", Buffer.from(nextInput), {
+        key: oidcPrivateKey,
+        padding: constants.RSA_PKCS1_PADDING,
+      }).toString("base64url");
+      const nextOidcToken = `${nextInput}.${nextSignature}`;
+      const nextBegin = responseRecorder();
       await handler({
         method: "POST",
         url: "/api/github?action=guard-publish",
         headers: {
-          authorization: `Bearer ${oidcToken}`,
+          authorization: `Bearer ${nextOidcToken}`,
           "content-type": "application/json",
         },
         body: {
@@ -5137,7 +5414,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           defaultBranch: "main",
           controllerSha: fixture.baseSha,
           gitRef: "refs/heads/main",
-          workflowRunId: 8001,
+          workflowRunId: 8002,
           workflowRunAttempt: 1,
           target: {
             type: "pull_request",
@@ -5148,20 +5425,20 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
             headRef: "agent/retry-fix",
           },
         },
-      }, beginReplay);
-      assert.equal(beginReplay.statusCode, 409, beginReplay.body);
-      assert.match(JSON.parse(beginReplay.body).error, /immutable evaluation|new commit/iu);
+      }, nextBegin);
+      assert.equal(nextBegin.statusCode, 200, nextBegin.body);
+      assert.deepEqual(JSON.parse(nextBegin.body).run, { id: 8002, attempt: 1 });
       assert.equal(calls.filter(({ method, path }) => (
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
-      )).length, writesBeforeBeginReplay + 1);
-      assert.equal(liveGuardCheck.status, "completed");
-      assert.equal(liveGuardCheck.conclusion, "action_required");
+      )).length, writesBeforeNextGeneration + 1);
+      assert.equal(liveGuardCheck.status, "in_progress");
+      assert.equal(liveGuardCheck.conclusion, null);
+      assert.equal(
+        liveGuardCheck.output.text,
+        "changeplane.guard-run/v1;run_id=8002;run_attempt=1;phase=begin",
+      );
 
-      const writesBeforeWorkflowMismatch = calls.filter(({ method, path }) => (
-        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
-      )).length;
-      evidenceWorkflowPath = ".github/workflows/spoof.yml@refs/heads/main";
-      const workflowMismatchResponse = responseRecorder();
+      const staleGenerationCompletion = responseRecorder();
       await handler({
         method: "POST",
         url: "/api/github?action=guard-publish",
@@ -5176,6 +5453,58 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           defaultBranch: "main",
           gitRef: "refs/heads/main",
           workflowRunId: 8001,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, staleGenerationCompletion);
+      assert.equal(staleGenerationCompletion.statusCode, 409, staleGenerationCompletion.body);
+      assert.match(JSON.parse(staleGenerationCompletion.body).error, /lease/iu);
+      assert.equal(liveGuardCheck.status, "in_progress");
+
+      const nextCompletion = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${nextOidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8002,
+          workflowRunAttempt: 1,
+          passport,
+          summary: fixture.guardCheck.output.summary,
+        },
+      }, nextCompletion);
+      assert.equal(nextCompletion.statusCode, 200, nextCompletion.body);
+      assert.equal(liveGuardCheck.status, "completed");
+      assert.equal(liveGuardCheck.conclusion, "success");
+
+      const writesBeforeWorkflowMismatch = calls.filter(({ method, path }) => (
+        ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
+      )).length;
+      evidenceWorkflowPath = ".github/workflows/spoof.yml@refs/heads/main";
+      const workflowMismatchResponse = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${nextOidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-publication-request",
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8002,
           workflowRunAttempt: 1,
           passport,
           summary: fixture.guardCheck.output.summary,
@@ -5207,7 +5536,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
         method: "POST",
         url: "/api/github?action=guard-publish",
         headers: {
-          authorization: `Bearer ${oidcToken}`,
+          authorization: `Bearer ${nextOidcToken}`,
           "content-type": "application/json",
         },
         body: {
@@ -5216,7 +5545,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
           repository: fixture.repository,
           defaultBranch: "main",
           gitRef: "refs/heads/main",
-          workflowRunId: 8001,
+          workflowRunId: 8002,
           workflowRunAttempt: 1,
           passport,
           summary: fixture.guardCheck.output.summary,
@@ -5228,6 +5557,168 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
       )).length;
       assert.equal(guardWritesAfterStaleAttempt, guardWritesBeforeStaleAttempt);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("scheduled OIDC reconciliation closes stale App guards without browser or user credentials", async () => {
+  await withOAuthEnvironment(async () => {
+    const fixture = assuranceProofApiFixture();
+    const policyContent = JSON.stringify(fixture.policy);
+    const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
+    const { privateKey: appPrivateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { privateKey: oidcPrivateKey, publicKey: oidcPublicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
+    process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    process.env.CHANGEPLANE_GUARD_APP_PRIVATE_KEY = appPrivateKey.export({ type: "pkcs8", format: "pem" });
+
+    const nowSeconds = Math.floor(Date.now() / 1_000);
+    const header = Buffer.from(JSON.stringify({
+      alg: "RS256",
+      typ: "JWT",
+      kid: "changeplane-reconcile-test",
+    })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({
+      iss: "https://token.actions.githubusercontent.com",
+      aud: "https://changeplane.vercel.app/guard-publisher/v1",
+      exp: nowSeconds + 300,
+      nbf: nowSeconds - 10,
+      iat: nowSeconds - 10,
+      repository: fixture.repository,
+      repository_id: String(fixture.repositoryId),
+      workflow_ref: `${fixture.repository}/.github/workflows/changeplane.yml@refs/heads/main`,
+      workflow_sha: fixture.baseSha,
+      ref: "refs/heads/main",
+      event_name: "schedule",
+      run_id: "9100",
+      run_attempt: "1",
+      jti: "changeplane-reconcile-test-9100-1",
+      sha: fixture.baseSha,
+      base_ref: "",
+    })).toString("base64url");
+    const input = `${header}.${payload}`;
+    const signature = sign("RSA-SHA256", Buffer.from(input), {
+      key: oidcPrivateKey,
+      padding: constants.RSA_PKCS1_PADDING,
+    }).toString("base64url");
+    const oidcToken = `${input}.${signature}`;
+    const jwk = oidcPublicKey.export({ format: "jwk" });
+    const startedAt = new Date(Date.now() - (31 * 60 * 1_000)).toISOString();
+    const liveGuard = {
+      id: 919,
+      name: "ChangePlane / guard",
+      head_sha: fixture.headSha,
+      status: "in_progress",
+      conclusion: null,
+      started_at: startedAt,
+      external_id: `changeplane.guard/v1:${fixture.repositoryId}:pull_request:${fixture.headSha}`,
+      output: {
+        title: "Evaluation in progress",
+        summary: "Waiting for exact-head evidence.",
+        text: "changeplane.guard-run/v1;run_id=8001;run_attempt=1;phase=begin",
+      },
+      app: { id: 424242, slug: "changeplane-test" },
+    };
+    const legacyGuard = {
+      ...structuredClone(liveGuard),
+      id: 918,
+      external_id: `${fixture.repositoryId}:pull_request:${fixture.headSha}`,
+    };
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (request, options = {}) => {
+      const url = new URL(String(request));
+      const method = options.method ?? "GET";
+      calls.push({ method, path: url.pathname, search: url.search, options });
+      if (url.origin === "https://token.actions.githubusercontent.com") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { keys: [{ ...jwk, kid: "changeplane-reconcile-test", use: "sig", alg: "RS256", key_ops: ["verify"] }] };
+          },
+        };
+      }
+      if (url.pathname === `/repos/${fixture.repository}/installation`) {
+        return githubJsonResponse({ id: 7007, app_id: 424242, app_slug: "changeplane-test" });
+      }
+      if (url.pathname === "/app/installations/7007/access_tokens") {
+        const requested = JSON.parse(options.body);
+        return githubJsonResponse({
+          token: requested.permissions.checks === "write" ? "ghs_guard_write_only" : "ghs_guard_read_only",
+          expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+          permissions: requested.permissions,
+          repositories: [{ id: fixture.repositoryId }],
+        }, 201);
+      }
+      if (url.pathname === `/repos/${fixture.repository}`) {
+        return githubJsonResponse({ id: fixture.repositoryId, full_name: fixture.repository, default_branch: "main" });
+      }
+      if (url.pathname.endsWith("/git/ref/heads/main")) {
+        return githubJsonResponse({ object: { sha: fixture.baseSha } });
+      }
+      if (url.pathname.endsWith("/contents/.changeplane.json")) return managedFileResponse(policyContent);
+      if (url.pathname.endsWith("/contents/changeplane/manifest.json")) return managedManifestFileResponse("verify-lite");
+      if (url.pathname.endsWith(`/git/commits/${fixture.baseSha}`)) {
+        return githubJsonResponse({ tree: { sha: runtimeTree.treeSha } });
+      }
+      if (url.pathname.endsWith(`/git/trees/${runtimeTree.treeSha}`)) return githubJsonResponse(runtimeTree.payload);
+      if (url.pathname.endsWith("/pulls") && url.searchParams.get("state") === "open") {
+        return githubJsonResponse([fixture.pullRequest]);
+      }
+      if (url.pathname.endsWith(`/pulls/${fixture.pullRequestNumber}`)) {
+        return githubJsonResponse(fixture.pullRequest);
+      }
+      if (url.pathname.endsWith(`/commits/${fixture.headSha}/check-runs`)) {
+        return githubJsonResponse({ check_runs: [legacyGuard, liveGuard] });
+      }
+      if (url.pathname.endsWith("/check-runs/919") && method === "GET") return githubJsonResponse(liveGuard);
+      if (url.pathname.endsWith("/check-runs/919") && method === "PATCH") {
+        Object.assign(liveGuard, JSON.parse(options.body));
+        return githubJsonResponse(liveGuard);
+      }
+      throw new Error(`Unexpected request: ${method} ${url.pathname}${url.search}`);
+    };
+    try {
+      const response = responseRecorder();
+      await handler({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: {
+          authorization: `Bearer ${oidcToken}`,
+          "content-type": "application/json",
+        },
+        body: {
+          schemaVersion: 1,
+          type: "changeplane.guard-reconciliation-sweep",
+          repository: fixture.repository,
+          repositoryId: fixture.repositoryId,
+          defaultBranch: "main",
+          controllerSha: fixture.baseSha,
+          gitRef: "refs/heads/main",
+          workflowRunId: 9100,
+          workflowRunAttempt: 1,
+        },
+      }, response);
+
+      assert.equal(response.statusCode, 200, response.body);
+      assert.deepEqual(JSON.parse(response.body), {
+        schemaVersion: 1,
+        type: "changeplane.guard-reconciliation-sweep",
+        scannedHeads: 1,
+        inProgress: 1,
+        reconciled: 1,
+        withinWindow: 0,
+      });
+      assert.equal(liveGuard.status, "completed");
+      assert.equal(liveGuard.conclusion, "action_required");
+      assert.equal(calls.some(({ path, options }) => (
+        path === "/app/installations/7007/access_tokens"
+        && JSON.parse(options.body).permissions.checks === "write"
+      )), true);
+      assert.equal(calls.some(({ options }) => options.headers?.authorization === "Bearer alice-token"), false);
     } finally {
       globalThis.fetch = originalFetch;
     }

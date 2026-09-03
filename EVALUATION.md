@@ -23,12 +23,12 @@ Open **Reconstructed exact-head assurance** to inspect the authority boundary. T
 
 | Surface | Current boundary | Reproducible evidence |
 | --- | --- | --- |
-| GitHub onboarding | Self-serve for GitHub.com personal accounts and organizations | Repository-scoped App, writable-repository selection, safety preflight, and one setup pull request |
+| GitHub onboarding | Invite-only founder-led alpha until the exact Production release has reviewed legal approval; the runtime otherwise fails closed to controlled-canary access | Repository-scoped App, writable-repository selection, safety preflight, and one setup pull request |
 | RouteThai use case | Public evaluation is limited to a synthetic contract reconstruction; private production use is outside this proof | Signed-out reconstruction and [`examples/routethai-synthetic`](examples/routethai-synthetic) |
 | GPT-5.6 proposal adapter | Luna is the default; Terra and Sol share the same allowlisted contract | [`evidence/routethai-luna-adapter-canary.json`](evidence/routethai-luna-adapter-canary.json) |
 | Historical v9 repair-controller separation | Two attempts within 15 minutes; stale, expanded, protected, failed, or exhausted work stops | [`evidence/changeplane-v9-production-release.json`](evidence/changeplane-v9-production-release.json); this does not prove the v13 dedicated guard publisher |
 | Historical v9 GitHub authority separation | App-signed grant, one-time repository token, fresh exact-head recheck | Initial head `7b670f3` → controller repair `e053526` → legacy `github-actions` Check Run `88504854987` |
-| v13 dedicated guard publisher | GitHub OIDC plus separate exact-repository read and `checks:write` App credentials | Local integration tests pass; protected live App/OIDC canary remains pending |
+| v13 dedicated guard publisher | GitHub OIDC plus separate exact-repository read and `checks:write` App credentials | The protected baseline canary is recorded in [`evidence/changeplane-v13-production-release.json`](evidence/changeplane-v13-production-release.json); later source changes require a new protected release and do not inherit that proof |
 | Advisory review | Exact-diff findings only; review never approves or contributes PASS | [`src/lib/review.js`](src/lib/review.js) and the automated review contract |
 
 Provider evidence alone is never treated as proof of GitHub write access or a passing Check.

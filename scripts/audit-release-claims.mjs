@@ -1,0 +1,37 @@
+import { readFileSync } from "node:fs";
+
+import { auditReleaseClaims } from "../src/lib/release-claims.js";
+
+const paths = [
+  "ACCEPTABLE_USE.md",
+  "README.md",
+  "PRIVACY.md",
+  "SECURITY.md",
+  "SUBPROCESSORS.md",
+  "SUPPORT.md",
+  "TERMS.md",
+  "EVALUATION.md",
+  "docs/agentic-sdlc.md",
+  "docs/commercial-plan.md",
+  "docs/cursor-origin-boundary.md",
+  "docs/data-handling.md",
+  "docs/design-partner-order-form.md",
+  "docs/hosted-service.md",
+  "docs/product-roadmap.md",
+  "docs/production-runbook.md",
+  "docs/retention-deletion.md",
+  "docs/release-checklist.md",
+];
+const findings = auditReleaseClaims(paths.map((path) => ({
+  path,
+  content: readFileSync(new URL(`../${path}`, import.meta.url), "utf8"),
+})));
+
+if (findings.length > 0) {
+  for (const finding of findings) {
+    process.stderr.write(`${finding.path}:${finding.line} [${finding.rule}] ${finding.message}\n`);
+  }
+  process.exitCode = 1;
+} else {
+  process.stdout.write(`Release claim audit passed for ${paths.length} public contract documents.\n`);
+}

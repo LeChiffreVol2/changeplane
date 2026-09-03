@@ -931,6 +931,65 @@ export async function beginDedicatedGuard({
   return result;
 }
 
+export async function requestGuardReconciliationSweep({
+  repository,
+  repositoryId,
+  defaultBranch,
+  controllerSha,
+  publisherUrl = process.env.INPUT_GUARD_PUBLISHER_URL || DEFAULT_GUARD_PUBLISHER_URL,
+  fetchImpl = fetch,
+} = {}) {
+  if (typeof repository !== "string" || !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(repository)) {
+    throw new Error("The guard reconciliation repository is invalid.");
+  }
+  if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) {
+    throw new Error("The guard reconciliation repository ID is invalid.");
+  }
+  if (typeof defaultBranch !== "string" || defaultBranch.length === 0 || defaultBranch.length > 200
+    || !/^[A-Za-z0-9._/-]+$/u.test(defaultBranch) || defaultBranch.startsWith("/")
+    || defaultBranch.endsWith("/") || defaultBranch.includes("..") || defaultBranch.includes("//")) {
+    throw new Error("The guard reconciliation default branch is invalid.");
+  }
+  if (!exactSha(controllerSha)) throw new Error("The trusted controller revision is unavailable.");
+  if (!["schedule", "workflow_dispatch"].includes(process.env.GITHUB_EVENT_NAME)) {
+    throw new Error("Guard reconciliation requires a scheduled or manually dispatched trusted workflow.");
+  }
+  const identity = guardWorkflowIdentity();
+  if (identity.gitRef !== `refs/heads/${defaultBranch}`) {
+    throw new Error("Guard reconciliation must run from the exact default branch.");
+  }
+  const endpoint = validatedGuardPublisherUrl(publisherUrl);
+  const oidcToken = await githubOidcToken(GUARD_PUBLISHER_AUDIENCE, fetchImpl);
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${oidcToken}`,
+      "content-type": "application/json",
+    },
+    body: canonicalJson({
+      schemaVersion: 1,
+      type: "changeplane.guard-reconciliation-sweep",
+      repository,
+      repositoryId,
+      defaultBranch,
+      controllerSha,
+      ...identity,
+    }),
+  });
+  if (!response.ok) throw new Error(`Dedicated guard reconciliation failed (${response.status}).`);
+  const result = await response.json();
+  const counters = ["scannedHeads", "inProgress", "reconciled", "withinWindow"];
+  if (result?.schemaVersion !== 1
+    || result?.type !== "changeplane.guard-reconciliation-sweep"
+    || counters.some((name) => !Number.isSafeInteger(result[name]) || result[name] < 0 || result[name] > 50)
+    || result.inProgress !== result.reconciled + result.withinWindow
+    || result.inProgress > result.scannedHeads) {
+    throw new Error("The dedicated guard publisher returned an invalid reconciliation proof.");
+  }
+  return Object.fromEntries(counters.map((name) => [name, result[name]]));
+}
+
 export async function publishDedicatedGuard({
   repository,
   defaultBranch,
@@ -2229,12 +2288,29 @@ async function runMergeGroup({ event, repository, token, mode }) {
 }
 
 export async function run() {
-  const mode = parseMode(process.env.INPUT_MODE);
+  const operation = process.env.INPUT_OPERATION || "evaluate";
+  if (!["evaluate", "reconcile"].includes(operation)) throw new Error("The ChangePlane operation is invalid.");
   const token = process.env.INPUT_TOKEN;
   if (!token) throw new Error("The token input is required.");
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) throw new Error("GITHUB_REPOSITORY is required.");
+  if (operation === "reconcile") {
+    const controllerSha = process.env.INPUT_TRUSTED_CONTROLLER_SHA;
+    const result = await requestGuardReconciliationSweep({
+      repository,
+      repositoryId: Number(event.repository?.id),
+      defaultBranch: event.repository?.default_branch,
+      controllerSha,
+    });
+    const decision = result.reconciled > 0 ? "ACTION_REQUIRED" : "OBSERVED";
+    writeSummary(`# ChangePlane · scheduled reconciliation\n\nScanned ${result.scannedHeads} open exact heads. ${result.reconciled} stale Guard${result.reconciled === 1 ? " was" : "s were"} closed safely as action required; ${result.withinWindow} in-progress Guard${result.withinWindow === 1 ? " remains" : "s remain"} inside the bounded window.\n`);
+    writeOutput("mode", "reconcile");
+    writeOutput("decision", decision);
+    console.log(`ChangePlane reconciliation scanned ${result.scannedHeads} head(s); ${result.reconciled} reconciled`);
+    return { ...result, mode: "reconcile", decision };
+  }
+  const mode = parseMode(process.env.INPUT_MODE);
   if (event.merge_group) return runMergeGroup({ event, repository, token, mode });
   const agentWebhookUrl = String(process.env.INPUT_AGENT_WEBHOOK_URL ?? "").trim();
   const agentDispatch = parseAgentDispatch(process.env.INPUT_AGENT_DISPATCH, agentWebhookUrl);

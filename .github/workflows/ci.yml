@@ -52,6 +52,8 @@ jobs:
         run: npm run build
       - name: Audit public source and build data
         run: npm run audit:public
+      - name: Audit release claims
+        run: npm run audit:claims
       - name: Install the Chromium test browser
         run: npx playwright install --with-deps chromium
       - name: Test onboarding in a real browser

@@ -31,6 +31,7 @@ import {
   parsePlan,
   parseRemediationComments,
   publishDedicatedGuard,
+  requestGuardReconciliationSweep,
   remediationIdempotencyKey,
   renderReceiptComment,
   renderMergeGroupReceipt,
@@ -136,12 +137,23 @@ test("pinned guard workflows request merge-group checks on exact queue revisions
     assert.match(workflow, /actions: read/u);
     assert.match(workflow, /id-token: write/u);
     assert.doesNotMatch(workflow, /checks: write/u);
+    const reconciliationJob = workflow.match(/\n  reconcile:\n([\s\S]*)$/u)?.[1] ?? "";
+    assert.match(reconciliationJob, /if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/u);
+    assert.match(reconciliationJob, /permissions:\n\s+contents: read\n\s+id-token: write/u);
+    assert.doesNotMatch(reconciliationJob, /pull-requests: write|actions: write|checks: write/u);
   }
   const observe = readFileSync(new URL("../examples/changeplane-observe.yml", import.meta.url), "utf8");
   assert.match(observe, /types: \[opened, synchronize, reopened, edited\]/u);
+  assert.match(observe, /schedule:\n\s+- cron: "\*\/5 \* \* \* \*"/u);
+  assert.match(observe, /workflow_dispatch:/u);
+  assert.match(observe, /operation: reconcile/u);
+  assert.match(observe, /if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/u);
   assert.match(observe, /ref: \$\{\{ github\.event\.merge_group\.base_sha \|\| \(github\.event\.pull_request\.base\.ref == github\.event\.repository\.default_branch && github\.event\.pull_request\.base\.sha\) \|\| github\.event\.repository\.default_branch \}\}/u);
   assert.match(observe, /trusted_controller_sha: \$\{\{ steps\.controller\.outputs\.sha \}\}/u);
   const repair = readFileSync(new URL("../examples/changeplane-repair-guard.yml", import.meta.url), "utf8");
+  assert.match(repair, /schedule:\n\s+- cron: "\*\/5 \* \* \* \*"/u);
+  assert.match(repair, /INPUT_OPERATION: reconcile/u);
+  assert.match(repair, /github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/u);
   assert.match(repair, /INPUT_TRUSTED_CONTROLLER_SHA: \$\{\{ steps\.trusted\.outputs\.sha \}\}/u);
   const mergeQueueStep = repair.match(/- name: Evaluate the merge queue without repair authority\n([\s\S]*)$/u)?.[1] ?? "";
   assert.match(mergeQueueStep, /INPUT_AGENT_DISPATCH: none/u);
@@ -346,6 +358,85 @@ test("dedicated guard begin invalidates the stable exact-head gate before evalua
       GITHUB_RUN_ID: original.runId,
       GITHUB_RUN_ATTEMPT: original.runAttempt,
       GITHUB_REF: original.gitRef,
+    })) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("scheduled guard reconciliation authenticates one exact trusted repository without repository-write authority", async () => {
+  const original = {
+    requestUrl: process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
+    requestToken: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+    runId: process.env.GITHUB_RUN_ID,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    gitRef: process.env.GITHUB_REF,
+    eventName: process.env.GITHUB_EVENT_NAME,
+  };
+  Object.assign(process.env, {
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/oidc/token",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "github-oidc-request-token-long-enough",
+    GITHUB_RUN_ID: "9100",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_REF: "refs/heads/main",
+    GITHUB_EVENT_NAME: "schedule",
+  });
+  const calls = [];
+  const fetchImpl = async (input, options = {}) => {
+    const url = new URL(String(input));
+    calls.push({ url, options });
+    if (url.hostname.endsWith(".actions.githubusercontent.com")) {
+      return { ok: true, status: 200, async json() { return { value: "o".repeat(120) }; } };
+    }
+    assert.deepEqual(JSON.parse(options.body), {
+      schemaVersion: 1,
+      type: "changeplane.guard-reconciliation-sweep",
+      repository: "acme/payments",
+      repositoryId: 4242,
+      defaultBranch: "main",
+      controllerSha: "a".repeat(40),
+      workflowRunId: 9100,
+      workflowRunAttempt: 1,
+      gitRef: "refs/heads/main",
+    });
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          schemaVersion: 1,
+          type: "changeplane.guard-reconciliation-sweep",
+          scannedHeads: 3,
+          inProgress: 1,
+          reconciled: 1,
+          withinWindow: 0,
+        };
+      },
+    };
+  };
+  try {
+    assert.deepEqual(await requestGuardReconciliationSweep({
+      repository: "acme/payments",
+      repositoryId: 4242,
+      defaultBranch: "main",
+      controllerSha: "a".repeat(40),
+      fetchImpl,
+    }), {
+      scannedHeads: 3,
+      inProgress: 1,
+      reconciled: 1,
+      withinWindow: 0,
+    });
+    assert.equal(calls.length, 2);
+  } finally {
+    for (const [name, value] of Object.entries({
+      ACTIONS_ID_TOKEN_REQUEST_URL: original.requestUrl,
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: original.requestToken,
+      GITHUB_RUN_ID: original.runId,
+      GITHUB_RUN_ATTEMPT: original.runAttempt,
+      GITHUB_REF: original.gitRef,
+      GITHUB_EVENT_NAME: original.eventName,
     })) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;

@@ -15,6 +15,7 @@ const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 const GITHUB_OIDC_JWKS_URL = `${GITHUB_OIDC_ISSUER}/.well-known/jwks`;
 const GUARD_REQUEST_TYPE = "changeplane.guard-publication-request";
 const GUARD_BEGIN_TYPE = "changeplane.guard-publication-begin";
+const GUARD_RECONCILIATION_TYPE = "changeplane.guard-reconciliation-sweep";
 const GUARD_CHECK_NAME = "ChangePlane / guard";
 const MAX_JWT_BYTES = 20_000;
 const MAX_JWT_HEADER_BYTES = 2_048;
@@ -117,6 +118,17 @@ const GUARD_BEGIN_REQUEST_KEYS = [
   "repositoryId",
   "schemaVersion",
   "target",
+  "type",
+  "workflowRunAttempt",
+  "workflowRunId",
+].sort();
+const GUARD_RECONCILIATION_REQUEST_KEYS = [
+  "controllerSha",
+  "defaultBranch",
+  "gitRef",
+  "repository",
+  "repositoryId",
+  "schemaVersion",
   "type",
   "workflowRunAttempt",
   "workflowRunId",
@@ -805,6 +817,46 @@ export function validateGuardBeginBody(body, {
         }),
       }),
     }),
+  });
+}
+
+export function validateGuardReconciliationBody(body, {
+  oidcClaims,
+  expectedWorkflowSha,
+} = {}) {
+  exactKeys(body, GUARD_RECONCILIATION_REQUEST_KEYS, "Guard reconciliation request");
+  safeJsonSize(body, MAX_GUARD_REQUEST_BYTES, "Guard reconciliation request");
+  if (!verifiedClaimObjects.has(oidcClaims)) throw new Error("Verified GitHub OIDC claims are required.");
+  exactKeys(oidcClaims, NORMALIZED_CLAIM_KEYS, "Normalized GitHub OIDC claims");
+  const workflowSha = validSha(expectedWorkflowSha, "Expected workflow SHA");
+  if (body.schemaVersion !== 1 || body.type !== GUARD_RECONCILIATION_TYPE) {
+    throw new Error("Guard reconciliation request schema is invalid.");
+  }
+  const repository = validRepository(body.repository, "Guard reconciliation repository");
+  const repositoryId = positiveInteger(body.repositoryId, "Guard reconciliation repository ID");
+  const defaultBranch = validateDefaultBranch(body.defaultBranch);
+  const controllerSha = validSha(body.controllerSha, "Guard reconciliation controller SHA");
+  const expectedWorkflowRef = `${repository}/.github/workflows/changeplane.yml@refs/heads/${defaultBranch}`;
+  if (repository !== oidcClaims.repository || repositoryId !== oidcClaims.repositoryId
+    || controllerSha !== workflowSha || oidcClaims.workflowSha !== workflowSha
+    || oidcClaims.workflowRef !== expectedWorkflowRef
+    || validRef(body.gitRef, "Guard reconciliation workflow ref") !== `refs/heads/${defaultBranch}`
+    || body.gitRef !== oidcClaims.ref
+    || positiveInteger(body.workflowRunId, "Guard reconciliation workflow run ID") !== oidcClaims.runId
+    || positiveInteger(body.workflowRunAttempt, "Guard reconciliation workflow run attempt") !== oidcClaims.runAttempt
+    || !["schedule", "workflow_dispatch"].includes(oidcClaims.eventName)) {
+    throw new Error("Guard reconciliation request does not match the authenticated workflow run.");
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    type: GUARD_RECONCILIATION_TYPE,
+    repository,
+    repositoryId,
+    defaultBranch,
+    controllerSha,
+    gitRef: oidcClaims.ref,
+    workflowRunId: oidcClaims.runId,
+    workflowRunAttempt: oidcClaims.runAttempt,
   });
 }
 

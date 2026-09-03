@@ -110,7 +110,9 @@ const EMPTY_HARNESS = {
   ready: false,
   enforcement: {
     state: "not_installed",
+    assuranceLevel: null,
     active: false,
+    queueCertified: false,
     strict: false,
     mergeQueueRequired: false,
     guardRequired: false,
@@ -124,7 +126,10 @@ const EMPTY_HARNESS = {
 };
 
 function enforcementMessage(enforcement) {
-  if (enforcement?.active) return "Active: one strict, no-bypass default-branch Ruleset requires Merge Queue, the dedicated-App guard, and every behavioral evidence Check from its expected publisher.";
+  if (enforcement?.assuranceLevel === "queue_certified") return "Queue Certified is active: one strict, no-bypass default-branch Ruleset requires Merge Queue, the dedicated-App guard, and every behavioral evidence Check from its expected publisher.";
+  if (enforcement?.assuranceLevel === "strict_head") return "Strict Head is active: the exact pull-request head is protected by one strict, no-bypass Ruleset with the dedicated-App guard and every behavioral evidence Check bound to its expected publisher.";
+  if (enforcement?.active && enforcement?.mergeQueueRequired) return "Queue Certified is active: one strict, no-bypass default-branch Ruleset requires Merge Queue, the dedicated-App guard, and every behavioral evidence Check from its expected publisher.";
+  if (enforcement?.active) return "Strict Head is active: the exact pull-request head is protected by one strict, no-bypass Ruleset with the dedicated-App guard and every behavioral evidence Check bound to its expected publisher.";
   if (typeof enforcement?.nextAction === "string" && enforcement.nextAction) return enforcement.nextAction;
   if (enforcement?.state === "admin_required") return "A repository administrator must verify merge protection. Nothing was changed.";
   if (enforcement?.state === "ruleset_required") return "Add one active branch Ruleset targeting the default branch, then recheck.";
@@ -137,7 +142,7 @@ function enforcementMessage(enforcement) {
   if (enforcement?.state === "evidence_required") return "Require every configured behavioral evidence Check in that same Ruleset, then recheck.";
   if (enforcement?.state === "evidence_publisher_binding_required") return "Bind every behavioral evidence Check to its expected GitHub App in that same Ruleset, then recheck.";
   if (enforcement?.state === "verify_mode_required") return "The guard is required, but Observe remains neutral. Switch to Verify only or Autonomous before treating it as enforcement.";
-  return "Use one strict, no-bypass default-branch Ruleset with Merge Queue, the dedicated-App ChangePlane / guard, and every behavioral evidence Check bound to its expected publisher.";
+  return "Use one strict, no-bypass default-branch Ruleset with the dedicated-App ChangePlane / guard and every behavioral evidence Check bound to its expected publisher. Add Merge Queue for Queue Certified assurance.";
 }
 
 function harnessModeLabel(mode) {
@@ -327,6 +332,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const controlledCanary = rolloutMode === "controlled_canary";
+  const privateAlpha = rolloutMode === "private_alpha";
   const exampleOnly = (configured === false || controlledCanary) && !checking;
   const buttonLabel = checking
     ? "Checking GitHub…"
@@ -424,13 +430,17 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
 
             <p className="auth-security"><LockKey size={15} /> {controlledCanary
               ? "The example never accesses GitHub. Private rollout access can see only the pre-authorized canary repository."
+              : privateAlpha
+                ? "Invite-only alpha access is enforced against an exact repository allowlist before any GitHub mutation."
               : exampleOnly
               ? "Synthetic data only. The public example cannot push, merge, or deploy."
               : authMode === "github_app"
                 ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
-              <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>
+              <p className="auth-deployment-note">New GitHub installations stay closed while the release-owner canary is verified.</p>
+            ) : privateAlpha ? (
+              <p className="auth-deployment-note">Design Partner Alpha · only pre-approved repositories can complete setup.</p>
             ) : exampleOnly ? (
               <p className="auth-deployment-note">Synthetic autonomous contract reconstruction · no live repository access.</p>
             ) : configured ? (
@@ -445,10 +455,12 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <footer className="auth-footer">
             <span>Exact commit · trusted checks · clear receipt</span>
             <span className="auth-footer-links">
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/data-handling.md" target="_blank" rel="noreferrer">Data handling</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/ACCEPTABLE_USE.md" target="_blank" rel="noreferrer">AUP draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
-              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : privateAlpha ? "Invite-only alpha" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
             </span>
           </footer>
         </div>
@@ -589,6 +601,11 @@ function RuntimeFunding({
   onDisconnect,
   onChangeModel,
   onChangeHarness,
+  rulesetPlanStatus,
+  rulesetPlan,
+  rulesetPlanError,
+  onPrepareRuleset,
+  onApplyRuleset,
 }) {
   const [apiKey, setApiKey] = useState("");
   const [replaceOpen, setReplaceOpen] = useState(false);
@@ -600,6 +617,8 @@ function RuntimeFunding({
   const selectedHarnessMode = (runtimeConfigurable ? harness?.mode : requestedHarnessMode) ?? "observe";
   const showRepairControls = selectedHarnessMode === "autonomous" || repairOpen || connected;
   const enforcement = harness?.enforcement ?? EMPTY_HARNESS.enforcement;
+  const enforcementLevel = enforcement.assuranceLevel
+    ?? (enforcement.active ? enforcement.mergeQueueRequired ? "queue_certified" : "strict_head" : null);
   const repairExpansionAvailable = Boolean(
     runtimeConfigurable
     && enforcement.active
@@ -672,17 +691,63 @@ function RuntimeFunding({
               Switch to Verify only with config PR <ArrowRight size={13} />
             </button>
           )}
-          <p className="runtime-inline-note">Merge blocking starts only when one strict, no-bypass default-branch Ruleset requires Merge Queue, the dedicated-App <code>ChangePlane / guard</code>, and every behavioral evidence Check from its expected publisher. <code>ChangePlane guard</code> is operational workflow liveness only.</p>
+          <p className="runtime-inline-note">Strict Head starts when one strict, no-bypass default-branch Ruleset binds the Guard App and every behavioral evidence publisher. Queue Certified adds Merge Queue and a fresh queue-revision evaluation. <code>ChangePlane guard</code> is operational workflow liveness only.</p>
           {runtimeConfigurable && (
             <div className="runtime-enforcement">
               <span className={`runtime-badge ${enforcement.active ? "is-connected" : "is-available"}`}>
-                {enforcement.active ? "Merge blocking active" : "Owner activation required"}
+                {enforcementLevel === "queue_certified"
+                  ? "Queue Certified active"
+                  : enforcementLevel === "strict_head"
+                    ? "Strict Head active"
+                    : "Owner activation required"}
               </span>
               <p>{enforcementMessage(enforcement)}</p>
-              {!enforcement.active && branchSettingsUrl && enforcement.state !== "admin_required" && (
-                <a className="text-action" href={branchSettingsUrl} target="_blank" rel="noreferrer">
-                  Open repository rulesets <ArrowRight size={13} />
-                </a>
+              {!enforcement.active && enforcement.state !== "admin_required" && rulesetPlanStatus === "idle" && (
+                <button className="text-action" type="button" onClick={() => onPrepareRuleset("strict_head")}>
+                  Prepare one-click Strict Head plan <ArrowRight size={13} />
+                </button>
+              )}
+              {rulesetPlanStatus === "loading" && <p><ArrowsClockwise className="spin" size={13} /> Reading exact GitHub policy and publishers…</p>}
+              {rulesetPlanStatus === "error" && <>
+                <p className="runtime-error"><Warning size={13} weight="fill" /> {rulesetPlanError}</p>
+                <button className="text-action" type="button" onClick={() => onPrepareRuleset("strict_head")}>Retry exact plan</button>
+              </>}
+              {rulesetPlanStatus === "ready" && rulesetPlan?.action === "create" && <div className="ruleset-approval">
+                <strong>Deliberate Approval 3 of 3</strong>
+                <p>{rulesetPlan.summary}</p>
+                <dl>
+                  <div><dt>Level</dt><dd>{rulesetPlan.assuranceLevel === "queue_certified" ? "Queue Certified" : "Strict Head"}</dd></div>
+                  <div><dt>Exact base</dt><dd><code>{rulesetPlan.repository.defaultBranchSha.slice(0, 12)}</code></dd></div>
+                  <div><dt>Bypasses</dt><dd>None</dd></div>
+                  <div><dt>Required publishers</dt><dd>{rulesetPlan.mutation.body.rules.at(-1).parameters.required_status_checks.length}</dd></div>
+                </dl>
+                <ul className="ruleset-publishers" aria-label="Exact required Checks and publishers">
+                  {rulesetPlan.mutation.body.rules.at(-1).parameters.required_status_checks.map((check) => (
+                    <li key={`${check.context}:${check.integration_id}`}>
+                      <code>{check.context}</code>
+                      <span>integration {check.integration_id}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button className="primary-action" type="button" onClick={onApplyRuleset}>
+                  Approve and create Ruleset <ShieldCheck size={15} weight="fill" />
+                </button>
+              </div>}
+              {rulesetPlanStatus === "ready" && rulesetPlan?.action === "manual_review" && <>
+                <p className="runtime-error"><Warning size={13} weight="fill" /> {rulesetPlan.summary}</p>
+                {branchSettingsUrl && <a className="text-action" href={branchSettingsUrl} target="_blank" rel="noreferrer">Open repository rulesets <ArrowRight size={13} /></a>}
+              </>}
+              {rulesetPlanStatus === "applying" && <p><ArrowsClockwise className="spin" size={13} /> Revalidating the approved digest before GitHub mutation…</p>}
+              {rulesetPlanStatus === "applied" && <p><CheckCircle size={13} weight="fill" /> GitHub policy is active and re-read successfully.</p>}
+              {rulesetPlanStatus === "reconciliation_required" && <>
+                <p className="runtime-error"><Warning size={13} weight="fill" /> Ruleset created, but GitHub has not verified active enforcement. No assurance level was activated.</p>
+                <p>{rulesetPlanError}</p>
+                <button className="text-action" type="button" onClick={() => onPrepareRuleset("strict_head")}>Recheck exact policy</button>
+              </>}
+              {enforcementLevel === "strict_head" && (
+                <button className="text-action" type="button" onClick={() => onPrepareRuleset("queue_certified")} disabled={rulesetPlanStatus === "loading" || rulesetPlanStatus === "applying"}>
+                  Prepare Queue Certified upgrade <ArrowRight size={13} />
+                </button>
               )}
             </div>
           )}
@@ -844,6 +909,11 @@ function GitHubSetup({
   onDisconnectByok,
   onChangeModel,
   onChangeHarness,
+  rulesetPlanStatus,
+  rulesetPlan,
+  rulesetPlanError,
+  onPrepareRuleset,
+  onApplyRuleset,
   onInstall,
   onRecheckInstall,
   onResetInstall,
@@ -1252,6 +1322,11 @@ function GitHubSetup({
                           onDisconnect={onDisconnectByok}
                           onChangeModel={onChangeModel}
                           onChangeHarness={onChangeHarness}
+                          rulesetPlanStatus={rulesetPlanStatus}
+                          rulesetPlan={rulesetPlan}
+                          rulesetPlanError={rulesetPlanError}
+                          onPrepareRuleset={onPrepareRuleset}
+                          onApplyRuleset={onApplyRuleset}
                         />
                       </>
                     )}
@@ -1382,7 +1457,7 @@ function GitHubSetup({
                     {installResult.policyMigration && <li><span>2</span><p>Replace any legacy <code>github-actions</code> branch-policy binding for <code>ChangePlane / guard</code>; v13 guard authority belongs only to the dedicated ChangePlane App.</p></li>}
                     <li><span>{installResult.policyMigration ? "3" : "2"}</span><p>Open or update one normal pull request, then open its <strong>Checks</strong> tab.</p></li>
                     <li><span>{installResult.policyMigration ? "4" : "3"}</span><p>Confirm the operational <code>ChangePlane guard</code> job and open the dedicated-App <code>ChangePlane / guard</code>. <strong>PASS</strong> is published only for the latest exact commit after the bound test succeeds. {installResult.harnessMode === "autonomous" ? "Fixable failures may use the bounded repair harness." : installResult.harnessMode === "verify" ? "A failed check hands work back to your coding agent; its next commit is evaluated from scratch." : "Observe mode records scope without blocking."}</p></li>
-                    {installResult.harnessMode !== "observe" && <li><span>{installResult.policyMigration ? "5" : "4"}</span><p>Use one strict, no-bypass default-branch Ruleset with Merge Queue. Require <code>ChangePlane / guard</code> from the dedicated App and every behavioral evidence Check from its expected integration; <code>ChangePlane guard</code> remains operational liveness only. Then return here to verify enforcement.</p></li>}
+                    {installResult.harnessMode !== "observe" && <li><span>{installResult.policyMigration ? "5" : "4"}</span><p>Return here for Deliberate Approval 3 of 3. Review the exact Strict Head Ruleset plan and publisher bindings before ChangePlane applies it. Add Merge Queue later only for Queue Certified; <code>ChangePlane guard</code> remains operational liveness only.</p></li>}
                   </ol>
                 </section>
                 {!installResult.preview && (
@@ -2431,7 +2506,7 @@ function AssuranceLabDrawer({ onClose }) {
           <div>
             <p id="origin-proof-posture-title">Executable contract path</p>
             <strong>GitHub-mirrored Origin</strong>
-            <span>Synthetic contract · v13 App/OIDC and live mirror canaries pending</span>
+            <span>Synthetic contract · v13 App/OIDC baseline proven · live Origin mirror unavailable</span>
           </div>
           <div>
             <p>Release authority</p>
@@ -2581,6 +2656,9 @@ export function App() {
   const [modelSaving, setModelSaving] = useState(false);
   const [runtimeUpdate, setRuntimeUpdate] = useState(null);
   const [harness, setHarness] = useState(EMPTY_HARNESS);
+  const [rulesetPlanStatus, setRulesetPlanStatus] = useState("idle");
+  const [rulesetPlan, setRulesetPlan] = useState(null);
+  const [rulesetPlanError, setRulesetPlanError] = useState("");
   const [byokSaving, setByokSaving] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(CHANGES[0].id);
@@ -2605,6 +2683,9 @@ export function App() {
 
   useEffect(() => {
     selectedRepositoryRef.current = selectedRepository;
+    setRulesetPlanStatus("idle");
+    setRulesetPlan(null);
+    setRulesetPlanError("");
   }, [selectedRepository]);
 
   useEffect(() => {
@@ -2616,7 +2697,9 @@ export function App() {
         if (cancelled) return;
         setGithubConfigured(Boolean(payload.configured));
         setGithubAuthMode(payload.authMode === "github_app" ? "github_app" : "oauth");
-        setGithubRolloutMode(payload.rolloutMode === "controlled_canary" ? "controlled_canary" : "self_serve");
+        setGithubRolloutMode(["controlled_canary", "private_alpha"].includes(payload.rolloutMode)
+          ? payload.rolloutMode
+          : "self_serve");
         setSession(payload.authenticated ? sessionFor(payload.login, payload.csrf, payload.authMode) : null);
         setAuthStatus("ready");
       } catch (error) {
@@ -2828,6 +2911,9 @@ export function App() {
     setModelConfigured(false);
     setRuntimeUpdate(null);
     setHarness(EMPTY_HARNESS);
+    setRulesetPlanStatus("idle");
+    setRulesetPlan(null);
+    setRulesetPlanError("");
     setWorkspaceOpen(false);
     setPreviewEvidenceOpen(false);
     setBackboneOpen(false);
@@ -2933,6 +3019,68 @@ export function App() {
       return false;
     } finally {
       setByokSaving(false);
+    }
+  }
+
+  async function prepareRulesetPlan(assuranceLevel = "strict_head") {
+    if (!selectedRepository || session?.isPreview || rulesetPlanStatus === "loading" || rulesetPlanStatus === "applying") return;
+    const repository = selectedRepository;
+    setRulesetPlanStatus("loading");
+    setRulesetPlan(null);
+    setRulesetPlanError("");
+    try {
+      const payload = await responseJson(await fetch(
+        `/api/github?action=ruleset-plan&repository=${encodeURIComponent(repository)}&assuranceLevel=${encodeURIComponent(assuranceLevel)}`,
+        { credentials: "same-origin", cache: "no-store" },
+      ));
+      if (selectedRepositoryRef.current !== repository) return;
+      setRulesetPlan(payload.plan);
+      setRulesetPlanStatus(payload.plan?.action === "none" ? "applied" : "ready");
+    } catch (error) {
+      if (selectedRepositoryRef.current !== repository) return;
+      setRulesetPlanError(error instanceof Error ? error.message : "The exact Ruleset plan could not be prepared.");
+      setRulesetPlanStatus("error");
+    }
+  }
+
+  async function applyRulesetPlan() {
+    if (!selectedRepository || session?.isPreview || rulesetPlanStatus !== "ready" || rulesetPlan?.action !== "create") return;
+    const repository = selectedRepository;
+    const approvedPlan = rulesetPlan;
+    setRulesetPlanStatus("applying");
+    setRulesetPlanError("");
+    try {
+      const payload = await responseJson(await fetch("/api/github?action=ruleset-apply", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-changeplane-csrf": session.csrf,
+        },
+        body: JSON.stringify({
+          repository,
+          assuranceLevel: approvedPlan.assuranceLevel,
+          planDigest: approvedPlan.planDigest,
+        }),
+      }));
+      if (selectedRepositoryRef.current !== repository) return;
+      setHarness((current) => ({ ...current, enforcement: payload.enforcement }));
+      const requestedActive = payload.state === "applied" || payload.state === "already_active";
+      if (requestedActive && payload.enforcement?.active) {
+        setRulesetPlanStatus("applied");
+        showToast(payload.enforcement?.assuranceLevel === "queue_certified"
+          ? "Queue Certified is active"
+          : "Strict Head is active");
+      } else {
+        setRulesetPlanError(payload.enforcement?.nextAction
+          || "Wait for GitHub policy propagation, then recheck this repository.");
+        setRulesetPlanStatus("reconciliation_required");
+      }
+      setPreflightRefresh((value) => value + 1);
+    } catch (error) {
+      if (selectedRepositoryRef.current !== repository) return;
+      setRulesetPlanError(error instanceof Error ? error.message : "The approved Ruleset plan could not be applied.");
+      setRulesetPlanStatus("error");
     }
   }
 
@@ -3187,6 +3335,11 @@ export function App() {
         onDisconnectByok={disconnectByok}
         onChangeModel={changeRuntimeModel}
         onChangeHarness={changeHarnessMode}
+        rulesetPlanStatus={rulesetPlanStatus}
+        rulesetPlan={rulesetPlan}
+        rulesetPlanError={rulesetPlanError}
+        onPrepareRuleset={prepareRulesetPlan}
+        onApplyRuleset={applyRulesetPlan}
         onInstall={installRepository}
         onRecheckInstall={recheckInstall}
         onResetInstall={resetInstall}
