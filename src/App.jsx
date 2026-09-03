@@ -332,6 +332,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const controlledCanary = rolloutMode === "controlled_canary";
+  const privateAlpha = rolloutMode === "private_alpha";
   const exampleOnly = (configured === false || controlledCanary) && !checking;
   const buttonLabel = checking
     ? "Checking GitHub…"
@@ -429,13 +430,17 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
 
             <p className="auth-security"><LockKey size={15} /> {controlledCanary
               ? "The example never accesses GitHub. Private rollout access can see only the pre-authorized canary repository."
+              : privateAlpha
+                ? "Invite-only alpha access is enforced against an exact repository allowlist before any GitHub mutation."
               : exampleOnly
               ? "Synthetic data only. The public example cannot push, merge, or deploy."
               : authMode === "github_app"
                 ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
-              <p className="auth-deployment-note">New GitHub installations stay closed while the private canary is validated.</p>
+              <p className="auth-deployment-note">New GitHub installations stay closed while the release-owner canary is verified.</p>
+            ) : privateAlpha ? (
+              <p className="auth-deployment-note">Design Partner Alpha · only pre-approved repositories can complete setup.</p>
             ) : exampleOnly ? (
               <p className="auth-deployment-note">Synthetic autonomous contract reconstruction · no live repository access.</p>
             ) : configured ? (
@@ -450,10 +455,12 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <footer className="auth-footer">
             <span>Exact commit · trusted checks · clear receipt</span>
             <span className="auth-footer-links">
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/data-handling.md" target="_blank" rel="noreferrer">Data handling</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/ACCEPTABLE_USE.md" target="_blank" rel="noreferrer">AUP draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
-              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : privateAlpha ? "Invite-only alpha" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
             </span>
           </footer>
         </div>
@@ -714,6 +721,14 @@ function RuntimeFunding({
                   <div><dt>Bypasses</dt><dd>None</dd></div>
                   <div><dt>Required publishers</dt><dd>{rulesetPlan.mutation.body.rules.at(-1).parameters.required_status_checks.length}</dd></div>
                 </dl>
+                <ul className="ruleset-publishers" aria-label="Exact required Checks and publishers">
+                  {rulesetPlan.mutation.body.rules.at(-1).parameters.required_status_checks.map((check) => (
+                    <li key={`${check.context}:${check.integration_id}`}>
+                      <code>{check.context}</code>
+                      <span>integration {check.integration_id}</span>
+                    </li>
+                  ))}
+                </ul>
                 <button className="primary-action" type="button" onClick={onApplyRuleset}>
                   Approve and create Ruleset <ShieldCheck size={15} weight="fill" />
                 </button>
@@ -723,7 +738,12 @@ function RuntimeFunding({
                 {branchSettingsUrl && <a className="text-action" href={branchSettingsUrl} target="_blank" rel="noreferrer">Open repository rulesets <ArrowRight size={13} /></a>}
               </>}
               {rulesetPlanStatus === "applying" && <p><ArrowsClockwise className="spin" size={13} /> Revalidating the approved digest before GitHub mutation…</p>}
-              {rulesetPlanStatus === "applied" && <p><CheckCircle size={13} weight="fill" /> GitHub policy applied and re-read successfully.</p>}
+              {rulesetPlanStatus === "applied" && <p><CheckCircle size={13} weight="fill" /> GitHub policy is active and re-read successfully.</p>}
+              {rulesetPlanStatus === "reconciliation_required" && <>
+                <p className="runtime-error"><Warning size={13} weight="fill" /> Ruleset created, but GitHub has not verified active enforcement. No assurance level was activated.</p>
+                <p>{rulesetPlanError}</p>
+                <button className="text-action" type="button" onClick={() => onPrepareRuleset("strict_head")}>Recheck exact policy</button>
+              </>}
               {enforcementLevel === "strict_head" && (
                 <button className="text-action" type="button" onClick={() => onPrepareRuleset("queue_certified")} disabled={rulesetPlanStatus === "loading" || rulesetPlanStatus === "applying"}>
                   Prepare Queue Certified upgrade <ArrowRight size={13} />
@@ -2486,7 +2506,7 @@ function AssuranceLabDrawer({ onClose }) {
           <div>
             <p id="origin-proof-posture-title">Executable contract path</p>
             <strong>GitHub-mirrored Origin</strong>
-            <span>Synthetic contract · v13 App/OIDC and live mirror canaries pending</span>
+            <span>Synthetic contract · v13 App/OIDC baseline proven · live Origin mirror unavailable</span>
           </div>
           <div>
             <p>Release authority</p>
@@ -2677,7 +2697,9 @@ export function App() {
         if (cancelled) return;
         setGithubConfigured(Boolean(payload.configured));
         setGithubAuthMode(payload.authMode === "github_app" ? "github_app" : "oauth");
-        setGithubRolloutMode(payload.rolloutMode === "controlled_canary" ? "controlled_canary" : "self_serve");
+        setGithubRolloutMode(["controlled_canary", "private_alpha"].includes(payload.rolloutMode)
+          ? payload.rolloutMode
+          : "self_serve");
         setSession(payload.authenticated ? sessionFor(payload.login, payload.csrf, payload.authMode) : null);
         setAuthStatus("ready");
       } catch (error) {
@@ -3043,10 +3065,17 @@ export function App() {
       }));
       if (selectedRepositoryRef.current !== repository) return;
       setHarness((current) => ({ ...current, enforcement: payload.enforcement }));
-      setRulesetPlanStatus("applied");
-      showToast(payload.enforcement?.assuranceLevel === "queue_certified"
-        ? "Queue Certified is active"
-        : "Strict Head is active");
+      const requestedActive = payload.state === "applied" || payload.state === "already_active";
+      if (requestedActive && payload.enforcement?.active) {
+        setRulesetPlanStatus("applied");
+        showToast(payload.enforcement?.assuranceLevel === "queue_certified"
+          ? "Queue Certified is active"
+          : "Strict Head is active");
+      } else {
+        setRulesetPlanError(payload.enforcement?.nextAction
+          || "Wait for GitHub policy propagation, then recheck this repository.");
+        setRulesetPlanStatus("reconciliation_required");
+      }
       setPreflightRefresh((value) => value + 1);
     } catch (error) {
       if (selectedRepositoryRef.current !== repository) return;

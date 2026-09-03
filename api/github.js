@@ -33,6 +33,7 @@ import {
   encodeGuardRunMarker,
   stableGuardCheckExternalId,
   validateGuardBeginBody,
+  validateGuardReconciliationBody,
   validateGuardPublishBody,
   verifyGitHubActionsOidcToken,
 } from "../server/github-guard-controller.js";
@@ -514,8 +515,39 @@ function configuredCanaryRepository() {
   }
 }
 
+function configuredAlphaRepositories() {
+  const value = process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON;
+  if (value == null || value === "") return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 5) return null;
+    const repositories = parsed.map(validateRepository);
+    if (new Set(repositories.map((repository) => repository.toLowerCase())).size !== repositories.length) {
+      return null;
+    }
+    return repositories;
+  } catch {
+    return null;
+  }
+}
+
+function currentReleaseBinding() {
+  const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
+  if (/^[a-f0-9]{40}$/u.test(sourceSha ?? "")) return sourceSha;
+  return process.env.VERCEL === "1" ? null : "development";
+}
+
+function legalReleaseApproved() {
+  const releaseBinding = currentReleaseBinding();
+  return process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED === "true"
+    && releaseBinding !== null
+    && process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE === releaseBinding;
+}
+
 function rolloutMode() {
-  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true") return "self_serve";
+  if (process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON) return "private_alpha";
+  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true"
+    && (process.env.VERCEL !== "1" || legalReleaseApproved())) return "self_serve";
   return process.env.CHANGEPLANE_CANARY_REPOSITORY || process.env.VERCEL === "1"
     ? "controlled_canary"
     : "self_serve";
@@ -523,7 +555,32 @@ function rolloutMode() {
 
 function hasValidCanaryRepository() {
   if (rolloutMode() === "self_serve") return true;
+  if (rolloutMode() === "private_alpha") return Boolean(configuredAlphaRepositories());
   return Boolean(configuredCanaryRepository());
+}
+
+function allowedRolloutRepositories() {
+  const mode = rolloutMode();
+  if (mode === "self_serve") return null;
+  if (mode === "private_alpha") return configuredAlphaRepositories();
+  const canary = configuredCanaryRepository();
+  return canary ? [canary] : null;
+}
+
+function assertRepositoryRolloutScope(repository, { external = false } = {}) {
+  const allowed = allowedRolloutRepositories();
+  if (rolloutMode() === "self_serve") return;
+  if (!allowed) {
+    const variable = rolloutMode() === "private_alpha"
+      ? "CHANGEPLANE_ALPHA_REPOSITORIES_JSON"
+      : "CHANGEPLANE_CANARY_REPOSITORY";
+    throw new HttpError(503, `${variable} must contain the exact approved repository scope. No ${external ? "external" : "GitHub"} request was made.`);
+  }
+  if (!allowed.some((candidate) => candidate.toLowerCase() === repository.toLowerCase())) {
+    throw new HttpError(403, rolloutMode() === "private_alpha"
+      ? "This repository is outside the invite-only alpha allowlist. Nothing was changed."
+      : "This release can access only its approved test repository. Choose the repository shown in the installer or ask the release owner to update CHANGEPLANE_CANARY_REPOSITORY. Nothing was changed.");
+  }
 }
 
 function repairControllerConfiguration() {
@@ -573,7 +630,7 @@ function readiness() {
   const operationalChecks = {
     githubClientId: Boolean(process.env.GITHUB_CLIENT_ID),
     githubClientSecret: Boolean(process.env.GITHUB_CLIENT_SECRET),
-    githubAppSlug: mode === "controlled_canary"
+    githubAppSlug: mode !== "self_serve"
       ? Boolean(appSlug)
       : process.env.GITHUB_APP_SLUG == null || Boolean(appSlug),
     sessionSecret: typeof process.env.CHANGEPLANE_SESSION_SECRET === "string"
@@ -585,17 +642,11 @@ function readiness() {
   };
   const principalSeparation = guardPrincipalSeparation();
   const commercialStore = commercialStoreIsConfigured();
-  const releaseBinding = /^[a-f0-9]{40}$/u.test(sourceSha ?? "")
-    ? sourceSha
-    : process.env.VERCEL === "1"
-      ? null
-      : "development";
+  const releaseBinding = currentReleaseBinding();
   const commercialStoreVerified = commercialStore
     && releaseBinding !== null
     && process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE === releaseBinding;
-  const legalRelease = process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED === "true"
-    && releaseBinding !== null
-    && process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED_RELEASE === releaseBinding;
+  const legalRelease = legalReleaseApproved();
   const checks = {
     ...operationalChecks,
     guardPrincipalSeparated: principalSeparation === "separate_guard_app",
@@ -825,7 +876,7 @@ function oauthIsConfigured() {
     && process.env.CHANGEPLANE_SESSION_SECRET.length >= 32
     && configuredAppOrigin()
     && guardPublisherIsConfigured()
-    && (rolloutMode() !== "controlled_canary" || appSlug)
+    && (rolloutMode() === "self_serve" || appSlug)
     && (process.env.GITHUB_APP_SLUG == null || appSlug)
     && hasValidCanaryRepository()
   );
@@ -1060,14 +1111,7 @@ async function installationRepositories(session) {
 }
 
 async function requireWritableRepository(repository, session) {
-  const controlledCanary = rolloutMode() === "controlled_canary";
-  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
-  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
-    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
-  }
-  if (canaryRepository && repository.toLowerCase() !== canaryRepository.toLowerCase()) {
-    throw new HttpError(403, "This release can access only its approved test repository. Choose the repository shown in the installer or ask the release owner to update CHANGEPLANE_CANARY_REPOSITORY. Nothing was changed.");
-  }
+  assertRepositoryRolloutScope(repository);
   const encodedRepository = encodeRepository(repository);
   const repo = session.authMode === "github_app"
     ? (await installationRepositories(session)).find((candidate) => candidate?.full_name?.toLowerCase() === repository.toLowerCase())
@@ -3146,11 +3190,15 @@ async function callback(req, res) {
 
 async function repositories(req, res) {
   const session = requireSession(req);
-  const controlledCanary = rolloutMode() === "controlled_canary";
-  const canaryRepository = controlledCanary ? configuredCanaryRepository() : null;
-  if (controlledCanary && process.env.CHANGEPLANE_CANARY_REPOSITORY && !canaryRepository) {
-    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No GitHub request was made.");
+  const mode = rolloutMode();
+  const allowedRepositories = allowedRolloutRepositories();
+  if (mode !== "self_serve" && !allowedRepositories) {
+    const variable = mode === "private_alpha"
+      ? "CHANGEPLANE_ALPHA_REPOSITORIES_JSON"
+      : "CHANGEPLANE_CANARY_REPOSITORY";
+    throw new HttpError(503, `${variable} must contain the exact approved repository scope. No GitHub request was made.`);
   }
+  const canaryRepository = mode === "controlled_canary" ? allowedRepositories[0] : null;
   const repos = [];
   if (canaryRepository) {
     const { repo } = await requireWritableRepository(canaryRepository, session);
@@ -3168,7 +3216,9 @@ async function repositories(req, res) {
   sendJson(res, 200, {
     repositories: repos
       .filter((repo) => repo?.permissions?.push || repo?.permissions?.admin)
-      .filter((repo) => !canaryRepository || repo?.full_name?.toLowerCase() === canaryRepository.toLowerCase())
+      .filter((repo) => !allowedRepositories || allowedRepositories.some(
+        (allowed) => repo?.full_name?.toLowerCase() === allowed.toLowerCase(),
+      ))
       .map((repo) => ({
         fullName: repo.full_name,
         private: Boolean(repo.private),
@@ -3654,13 +3704,15 @@ function guardPolicyEvidenceMatches(passport, requiredChecks) {
 }
 
 function assertGuardPublisherRolloutScope(repository) {
-  if (rolloutMode() !== "controlled_canary") return;
-  const canaryRepository = configuredCanaryRepository();
-  if (!canaryRepository) {
-    throw new HttpError(503, "CHANGEPLANE_CANARY_REPOSITORY must contain one repository in owner/repository form. No external request was made.");
-  }
-  if (repository.toLowerCase() !== canaryRepository.toLowerCase()) {
-    throw new HttpError(403, "This guard publisher can access only its approved canary repository. No external request was made.");
+  try {
+    assertRepositoryRolloutScope(repository, { external: true });
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 403) {
+      throw new HttpError(403, rolloutMode() === "private_alpha"
+        ? "This guard publisher can access only an invited alpha repository. No external request was made."
+        : "This guard publisher can access only its approved canary repository. No external request was made.");
+    }
+    throw error;
   }
 }
 
@@ -4164,6 +4216,181 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
   });
 }
 
+async function guardReconciliationSweep({ body, oidcToken, configuration, repository }, res) {
+  let claims;
+  try {
+    claims = await verifyGitHubActionsOidcToken({
+      token: oidcToken,
+      audience: GUARD_PUBLISHER_AUDIENCE,
+      repository,
+      repositoryId: body?.repositoryId,
+      defaultBranch: body?.defaultBranch,
+      workflowPath: GUARD_WORKFLOW_PATH,
+      workflowSha: body?.controllerSha,
+      ref: body?.gitRef,
+      allowedEventNames: ["schedule", "workflow_dispatch"],
+    });
+  } catch {
+    throw new HttpError(403, "GitHub OIDC guard reconciliation authentication failed.");
+  }
+
+  const encodedRepository = encodeRepository(repository);
+  const appJwt = createGitHubAppJwt({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+  });
+  const installation = await github(`/repos/${encodedRepository}/installation`, appJwt);
+  if (!Number.isSafeInteger(installation?.id) || installation.id <= 0
+    || installation.app_id !== configuration.appId
+    || installation.app_slug !== configuration.appSlug) {
+    throw new HttpError(403, "The repository is not bound to the configured ChangePlane App.");
+  }
+  const readCredential = await createGuardReadInstallationAccessToken({
+    appId: configuration.appId,
+    privateKey: configuration.privateKey,
+    installationId: installation.id,
+    repositoryId: body?.repositoryId,
+    request: github,
+  });
+  const repo = await github(`/repos/${encodedRepository}`, readCredential.token);
+  if (repo?.full_name !== repository || repo.id !== body?.repositoryId
+    || repo.default_branch !== body?.defaultBranch) {
+    throw new HttpError(409, "The live repository identity does not match the reconciliation request.");
+  }
+  const { workflowSha } = await guardManagedBase(
+    encodedRepository,
+    repo.default_branch,
+    body?.controllerSha,
+    readCredential.token,
+  );
+  let request;
+  try {
+    request = validateGuardReconciliationBody(body, {
+      oidcClaims: claims,
+      expectedWorkflowSha: workflowSha,
+    });
+  } catch {
+    throw new HttpError(409, "The guard reconciliation request is stale or outside the trusted workflow boundary.");
+  }
+
+  const pulls = await github(
+    `/repos/${encodedRepository}/pulls?state=open&sort=updated&direction=desc&per_page=50`,
+    readCredential.token,
+  );
+  if (!Array.isArray(pulls) || pulls.length >= 50) {
+    throw new HttpError(409, "The open pull-request inventory is invalid or exceeds the bounded reconciliation sweep.");
+  }
+  const seenHeads = new Set();
+  const candidates = [];
+  for (const pull of pulls) {
+    if (pull?.state !== "open" || pull?.merged === true
+      || pull?.head?.repo?.id !== repo.id || pull?.head?.repo?.full_name !== repository
+      || pull?.base?.repo?.id !== repo.id || pull?.base?.repo?.full_name !== repository
+      || pull?.base?.ref !== repo.default_branch
+      || !Number.isSafeInteger(pull?.number) || pull.number <= 0
+      || !/^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? "")) {
+      continue;
+    }
+    if (seenHeads.has(pull.head.sha)) {
+      throw new HttpError(409, "One exact head belongs to multiple open pull requests; reconciliation stopped without mutation.");
+    }
+    seenHeads.add(pull.head.sha);
+    const checks = guardAppChecks(
+      await listGuardChecks(encodedRepository, pull.head.sha, readCredential.token),
+      configuration,
+      pull.head.sha,
+    );
+    const expectedExternalId = stableGuardCheckExternalId({
+      repositoryId: repo.id,
+      targetType: "pull_request",
+      headSha: pull.head.sha,
+    });
+    const stable = checks.filter((item) => item?.external_id === expectedExternalId);
+    if (stable.length > 1) {
+      throw new HttpError(409, "The dedicated guard reconciliation target is ambiguous; nothing was changed.");
+    }
+    for (const check of stable.filter((item) => item?.status === "in_progress")) {
+      let reconciliation;
+      try {
+        reconciliation = reconcileGuardState({ checkRun: check, now: new Date().toISOString() });
+      } catch {
+        throw new HttpError(409, "An in-progress Guard has a malformed reconciliation state; nothing was changed.");
+      }
+      candidates.push({ pullRequestNumber: pull.number, headSha: pull.head.sha, check, reconciliation });
+    }
+  }
+
+  const required = candidates.filter(({ reconciliation }) => reconciliation.state === "reconcile_required");
+  const finalBaseRef = await github(
+    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(request.defaultBranch)}`,
+    readCredential.token,
+  );
+  if (finalBaseRef?.object?.sha !== workflowSha) {
+    throw new HttpError(409, "The trusted default branch changed before guard reconciliation.");
+  }
+  const revalidated = [];
+  for (const candidate of required) {
+    const [pull, check] = await Promise.all([
+      github(`/repos/${encodedRepository}/pulls/${candidate.pullRequestNumber}`, readCredential.token),
+      github(`/repos/${encodedRepository}/check-runs/${candidate.check.id}`, readCredential.token),
+    ]);
+    if (pull?.state !== "open" || pull?.merged === true
+      || pull?.head?.sha !== candidate.headSha
+      || pull?.head?.repo?.id !== repo.id || pull?.base?.repo?.id !== repo.id
+      || check?.name !== GUARD_CHECK_NAME || check?.head_sha !== candidate.headSha
+      || check?.external_id !== stableGuardCheckExternalId({
+        repositoryId: repo.id,
+        targetType: "pull_request",
+        headSha: candidate.headSha,
+      })
+      || check?.app?.id !== configuration.appId || check?.app?.slug !== configuration.appSlug) {
+      throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
+    }
+    let reconciliation;
+    try {
+      reconciliation = reconcileGuardState({ checkRun: check, now: new Date().toISOString() });
+    } catch {
+      throw new HttpError(409, "A reconciliation target became malformed before mutation; nothing was changed.");
+    }
+    if (reconciliation.state !== "reconcile_required") {
+      throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
+    }
+    revalidated.push({ check, reconciliation });
+  }
+
+  if (revalidated.length > 0) {
+    const writeCredential = await createChecksWriteInstallationAccessToken({
+      appId: configuration.appId,
+      privateKey: configuration.privateKey,
+      installationId: installation.id,
+      repositoryId: repo.id,
+      request: github,
+    });
+    for (const { check, reconciliation } of revalidated) {
+      const published = await github(`/repos/${encodedRepository}/check-runs/${check.id}`, writeCredential.token, {
+        method: "PATCH",
+        body: reconciliation.patch,
+      });
+      if (published?.id !== check.id || published?.name !== GUARD_CHECK_NAME
+        || published?.head_sha !== check.head_sha || published?.status !== "completed"
+        || published?.conclusion !== "action_required"
+        || published?.external_id !== check.external_id
+        || published?.app?.id !== configuration.appId || published?.app?.slug !== configuration.appSlug) {
+        throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
+      }
+    }
+  }
+
+  sendJson(res, 200, {
+    schemaVersion: 1,
+    type: "changeplane.guard-reconciliation-sweep",
+    scannedHeads: seenHeads.size,
+    inProgress: candidates.length,
+    reconciled: revalidated.length,
+    withinWindow: candidates.length - revalidated.length,
+  });
+}
+
 async function guardPublish(req, res) {
   const configuration = guardPublisherConfiguration();
   const oidcToken = guardPublisherBearer(req);
@@ -4178,6 +4405,9 @@ async function guardPublish(req, res) {
   assertGuardPublisherRolloutScope(repository);
   if (body?.type === "changeplane.guard-publication-begin") {
     return guardBegin({ body, oidcToken, configuration, repository }, res);
+  }
+  if (body?.type === "changeplane.guard-reconciliation-sweep") {
+    return guardReconciliationSweep({ body, oidcToken, configuration, repository }, res);
   }
   let passport;
   try {

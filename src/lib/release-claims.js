@@ -11,8 +11,8 @@ const RULES = Object.freeze([
   }),
   Object.freeze({
     id: "deployed_release_boundary",
-    pattern: /(?:managed\s+v13|v13[^\n]{0,40}(?:release|candidate))[^\n]{0,100}not deployed/iu,
-    message: "Managed v13 is deployed; describe missing external proof separately.",
+    pattern: /(?:(?:managed[\s-]+v13|v13[^\n]{0,80}(?:release|candidate|publisher))[^\n]{0,320}(?:not (?:the )?(?:currently )?deployed|canary remains pending)|dedicated-App guard lifecycle[^\n]{0,320}not been deployed)/iu,
+    message: "The managed-v13 baseline is deployed and protected-canary proven; describe later candidate changes and unproven gates separately.",
   }),
 ]);
 

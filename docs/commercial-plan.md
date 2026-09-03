@@ -6,6 +6,8 @@ Verify is the core paid product. The Autonomous Assurance Agent runs the verific
 
 ## Plans
 
+The table below is a post-alpha pricing hypothesis, not a currently available public offer. During the invite-only design-partner alpha, ChangePlane offers only Verify Lite plus Strict Head under a reviewed order form. Queue Certified may be exercised in an owner-controlled canary but is not sold to alpha customers; Autonomous Repair, Fleet history, aggregate metrics, and service-level commitments remain unavailable.
+
 | Plan | Monthly price | Included use | History and support |
 | --- | ---: | --- | --- |
 | Free | $0 | 1 repository and 100 evaluations | Strict Head, 7-day detailed history, community support |
@@ -15,7 +17,7 @@ Verify is the core paid product. The Autonomous Assurance Agent runs the verific
 | Enterprise | From $2,000 per organization | Contracted volume | Offered only with the promised DPA, SLA, and security-review support |
 | Autonomous Repair | $149 per protected repository | BYOK bounded repairs | Controlled beta only |
 
-Free and Starter do not include founder-led onboarding. Early billing may use manual invoices or payment links; a billing system is not a prerequisite for willingness-to-pay evidence. A paid plan does not launch until measured variable cost supports at least 80% gross margin. Quota exhaustion never produces an unevaluated success: the product provides a bounded grace window and then reports `usage_action_required` explicitly.
+Post-alpha Free and Starter do not include founder-led onboarding. The design-partner Starter experiment does include founder-led onboarding and may use a legally reviewed manual invoice or payment link; a billing system is not a prerequisite for willingness-to-pay evidence. No payment is accepted before the exact order form and legal pack are approved. A paid plan does not launch until measured variable cost supports at least 80% gross margin. Quota exhaustion never produces an unevaluated success: the product provides a bounded grace window and then reports `usage_action_required` explicitly.
 
 ## Pilot service targets
 
@@ -29,6 +31,8 @@ These are measured pilot targets, not a contractual uptime SLA or a 24/7 promise
 - A public status surface, synthetic monitoring, and a monthly reliability report before paid rollout.
 
 ## Evidence gates
+
+The first 30-day Design Partner Alpha gate is narrower: 5 hands-on installations, at least 4 successful activations, median time to first protected pull request under ten minutes, at least 2 paying Customer Organizations, zero false PASS, fewer than 2% disputed false blocks, no Guard observed stuck longer than ten minutes, at least 3 customer-confirmed valuable blocks or agent-autonomy decisions, and at least 80% gross margin. Missing this gate changes the ICP, wedge, or operating design before feature breadth expands.
 
 Progress is evidence-gated rather than date-gated:
 

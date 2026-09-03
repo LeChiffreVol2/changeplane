@@ -66,7 +66,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
-  await expect(page.getByText("New GitHub installations stay closed while the private canary is validated.")).toBeVisible();
+  await expect(page.getByText("New GitHub installations stay closed while the release-owner canary is verified.")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await exampleButton.focus();
@@ -401,6 +401,157 @@ test("write collaborators cannot reach autonomous expansion before owner activat
   expect(byokMutations).toBe(0);
   expect(externalRequests).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("Ruleset apply stays visibly unverified when GitHub post-read requires reconciliation", async ({ page }) => {
+  let connected = false;
+  const externalRequests = await mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") {
+      return json(route, {
+        configured: true,
+        authenticated: connected,
+        login: connected ? "admin" : null,
+        csrf: connected ? "local-csrf" : null,
+        authMode: "github_app",
+        rolloutMode: "self_serve",
+      });
+    }
+    if (action === "login") {
+      connected = true;
+      return route.fulfill({ status: 302, headers: { location: "/?connected=1" }, body: "" });
+    }
+    if (action === "repos") {
+      return json(route, { repositories: [{
+        fullName: "acme/guarded-api",
+        private: true,
+        defaultBranch: "main",
+        permissions: { push: true, admin: true },
+      }] });
+    }
+    if (action === "preflight") {
+      return json(route, {
+        repositoryState: "active",
+        installation: {
+          state: "current",
+          currentVersion: MANAGED_VERSION,
+          targetVersion: MANAGED_VERSION,
+          managedProfile: "verify-lite",
+          conflicts: [],
+        },
+        installable: false,
+        conflicts: [],
+        setupFiles: 0,
+        setupProfile: "verify-lite",
+        payloadProfiles: PAYLOAD_PROFILES,
+        setup: { state: "current", managedVersion: MANAGED_VERSION },
+        evidenceOptions: [],
+        capabilities: {
+          independentReview: false,
+          agentHandback: true,
+          assuranceMemory: false,
+          exactHeadPreview: true,
+          mergeQueue: true,
+        },
+        boundary: {
+          defaultBranchWrite: false,
+          pullRequestOnly: true,
+          mergeBlocking: false,
+          agentRepairDuringSetup: false,
+          untrustedCodeExecution: false,
+          providerSecretAccess: false,
+        },
+      });
+    }
+    if (action === "runtime" || action === "byok") {
+      return json(route, {
+        provider: "openai",
+        activeModel: "gpt-5.6-luna",
+        modelConfigured: true,
+        managedProfile: "verify-lite",
+        autonomousUpgradeRequired: true,
+        harness: {
+          mode: "verify",
+          verifyAvailable: true,
+          autonomousAvailable: false,
+          ready: false,
+          enforcement: {
+            source: "ruleset",
+            state: "ruleset_required",
+            active: false,
+            strict: false,
+            guardRequired: false,
+            publisherBound: false,
+          },
+          maxAttempts: 2,
+          budgetMinutes: 15,
+        },
+        managed: { state: "reserved", available: false, providerVerified: false, executionReady: false },
+        byok: { configured: false, state: "not_connected", secretName: "OPENAI_API_KEY", updatedAt: null },
+      });
+    }
+    if (action === "ruleset-plan") {
+      return json(route, {
+        plan: {
+          action: "create",
+          assuranceLevel: "strict_head",
+          planDigest: "a".repeat(64),
+          summary: "Create one exact Strict Head Ruleset.",
+          repository: {
+            defaultBranchSha: "4".repeat(40),
+          },
+          mutation: {
+            body: {
+              rules: [{
+                type: "required_status_checks",
+                parameters: {
+                  required_status_checks: [
+                    { context: "ChangePlane / guard", integration_id: 431 },
+                    { context: "CI / test", integration_id: 902 },
+                  ],
+                },
+              }],
+            },
+          },
+        },
+      });
+    }
+    if (action === "ruleset-apply") {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().postDataJSON().planDigest).toBe("a".repeat(64));
+      return json(route, {
+        repository: "acme/guarded-api",
+        state: "applied_reconciliation_required",
+        planDigest: "a".repeat(64),
+        ruleset: { id: 81, name: "ChangePlane Strict Head", url: "https://github.com/acme/guarded-api/rules/81" },
+        enforcement: {
+          source: "ruleset",
+          state: "publisher_binding_required",
+          active: false,
+          strict: true,
+          guardRequired: true,
+          publisherBound: false,
+          nextAction: "Wait for GitHub policy propagation, then recheck this repository.",
+        },
+      });
+    }
+    throw new Error(`Unexpected local API action: ${action}`);
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Install ChangePlane on GitHub" }).click();
+  await page.getByRole("radio", { name: /acme\/guarded-api/u }).click();
+  await page.getByRole("button", { name: "Prepare one-click Strict Head plan" }).click();
+
+  await expect(page.locator(".ruleset-approval")).toContainText("ChangePlane / guard");
+  await expect(page.locator(".ruleset-approval")).toContainText("integration 431");
+  await page.getByRole("button", { name: "Approve and create Ruleset" }).click();
+
+  await expect(page.locator(".runtime-enforcement")).toContainText("Ruleset created, but GitHub has not verified active enforcement");
+  await expect(page.locator(".runtime-enforcement")).toContainText("Wait for GitHub policy propagation");
+  await expect(page.getByText("GitHub policy applied and re-read successfully.")).toHaveCount(0);
+  await expect(page.getByText("Strict Head is active", { exact: true })).toHaveCount(0);
+  expect(externalRequests).toEqual([]);
 });
 
 test("fresh setup never exposes direct Autonomous even when controller capacity exists", async ({ page }) => {

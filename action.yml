@@ -1,6 +1,10 @@
 name: ChangePlane Guard
 description: Run the revision-bound assurance harness in Observe, Verify only, or Autonomous profile.
 inputs:
+  operation:
+    description: Evaluate one event, or reconcile stale App-owned Guards from a trusted scheduled default-branch run.
+    required: false
+    default: evaluate
   token:
     description: GitHub token used to read pull requests, deployments, and reviewer permissions.
     required: true

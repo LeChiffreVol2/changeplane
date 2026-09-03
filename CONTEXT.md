@@ -73,3 +73,11 @@ _Avoid_: Retry, workflow attempt
 **Entitlement**:
 The server-enforced commercial allowance for a Customer Organization to use a named assurance level, repository count, evaluation volume, history window, and support class.
 _Avoid_: Feature flag, subscription status
+
+**Design Partner Alpha**:
+The invite-only, founder-led launch stage for three to five qualified Customer Organizations using Verify Lite and Strict Head under an approved order form, private support path, measured activation, and explicit pre-release boundaries.
+_Avoid_: Public launch, self-serve GA, enterprise-ready
+
+**Launch Evidence Gate**:
+The thirty-day outcome contract requiring five hands-on installations, four successful activations, median time to first protected pull request under ten minutes, two paying Customer Organizations, zero false PASS, fewer than two percent disputed false blocks, no Guard stuck longer than ten minutes, three customer-confirmed valuable blocks, and at least eighty percent gross margin.
+_Avoid_: YC-grade code, feature complete, launch ready

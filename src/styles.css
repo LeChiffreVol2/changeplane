@@ -1212,6 +1212,38 @@ button {
   font-weight: 650;
 }
 
+.ruleset-publishers {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ruleset-publishers li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #dbe2de;
+  background: #fffdf8;
+  font-size: 9px;
+}
+
+.ruleset-publishers code {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ruleset-publishers span {
+  flex: none;
+  color: var(--muted);
+}
+
 .runtime-inline-note,
 .runtime-error {
   display: flex;

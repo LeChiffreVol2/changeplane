@@ -4,11 +4,11 @@
 
 The independent assurance plane for code written and repaired by AI agents.
 
-Current public product release: **1.0.0** · managed repository payload: **v13 (deployed)**.
+Deployed technical baseline: **1.0.0** · managed repository payload: **v13**. The current source is a later protected-release candidate. New customer onboarding remains closed until that exact release passes its owner canary, and then opens only to an explicit Design Partner Alpha repository allowlist.
 
 The managed-v13 release places publisher-bound assurance between an agent-authored pull request and GitHub policy. The GitHub-owned Actions job reports operational liveness as `ChangePlane guard`; it is not merge authority. A separately credentialed GitHub App owns the assurance result `ChangePlane / guard`. A model may propose a bounded patch, the deterministic harness decides, and the controller applies only an accepted patch. Only the same authenticated workflow run and attempt may complete the App-owned guard from the latest workflow-bound evidence on the exact head.
 
-[Install ChangePlane on GitHub](https://changeplane.vercel.app/) or [open the RouteThai example](https://changeplane.vercel.app/) without signing in.
+[Request Design Partner Alpha access](docs/design-partner-order-form.md) or [open the RouteThai example](https://changeplane.vercel.app/) without signing in. The hosted installer becomes available only to pre-approved repositories after the protected release gate.
 
 ## What ChangePlane does
 
@@ -59,7 +59,7 @@ This gives Codex, Cursor, Claude Code, Copilot, Trae, OpenSWE, and other coding 
 
 ## Install on GitHub
 
-Hosted onboarding needs no CLI, database, ChangePlane account provisioning, or Vercel configuration:
+For an accepted Design Partner Alpha repository, hosted onboarding needs no CLI, ChangePlane account provisioning, or customer Vercel configuration:
 
 1. Select **Install ChangePlane on GitHub**.
 2. On GitHub, choose a personal account or organization and grant the repository-scoped App access only to the intended repositories.
@@ -177,7 +177,7 @@ ChangePlane is used with RouteThai in production. That private use informs produ
 
 The signed-out RouteThai workspace is a synthetic contract reconstruction of the same assurance pattern, not a replay of a stored production run. Every public stop ID, service window, repository name, source file, timestamp, and evidence value is synthetic. It makes no request to RouteThai production systems and contains no customer name, coordinate, map URL, production workbook, private-repository screenshot, or operating data.
 
-The reusable fixture is under [`examples/routethai-synthetic`](examples/routethai-synthetic). Historical, release-scoped redacted evidence is under [`evidence`](evidence); it must not be reused as proof of the v13 dedicated-App/OIDC publisher, whose protected live canary remains pending.
+The reusable fixture is under [`examples/routethai-synthetic`](examples/routethai-synthetic). Historical, release-scoped redacted evidence is under [`evidence`](evidence). The managed-v13 baseline dedicated-App/OIDC lifecycle is deployed and protected-canary proven only for the exact revisions recorded in [`evidence/changeplane-v13-production-release.json`](evidence/changeplane-v13-production-release.json); that record must not be reused as proof of later source changes, Queue Certified, distinct Installer/Guard principals, or customer rollout.
 
 ## Local verification
 
