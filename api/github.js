@@ -4211,7 +4211,40 @@ async function guardManagedBase(encodedRepository, defaultBranch, controllerSha,
     policyContent,
     token,
   );
-  return { workflowSha, policyContent };
+  let trustedHarnessMode;
+  try {
+    trustedHarnessMode = harnessPolicy(JSON.parse(policyContent)?.harness).mode;
+  } catch {
+    throw new HttpError(409, "The trusted managed guard recovery policy is invalid.");
+  }
+  return { workflowSha, policyContent, trustedHarnessMode };
+}
+
+async function trustedGuardRecoveryState({ encodedRepository, repo, configuration, checkRun, trustedHarnessMode, token }) {
+  const now = new Date().toISOString();
+  const fallback = reconcileGuardState({ checkRun, trustedHarnessMode, now });
+  if (trustedHarnessMode === HARNESS_MODE.AUTONOMOUS || fallback.state !== "within_window") return fallback;
+  const earlyRecovery = reconcileGuardState({ checkRun, trustedHarnessMode, sourceRunCompleted: true, now });
+  if (earlyRecovery.patch == null) return fallback;
+  let sourceRunCompleted = false;
+  if (checkRun?.name === GUARD_CHECK_NAME
+    && checkRun?.app?.id === configuration.appId && checkRun?.app?.slug === configuration.appSlug) {
+    const marker = guardRunMarker(checkRun);
+    let run;
+    try {
+      run = await github(`/repos/${encodedRepository}/actions/runs/${marker.runId}/attempts/${marker.runAttempt}`, token);
+    } catch {
+      // Missing, inaccessible or unavailable owning-run evidence cannot shorten recovery.
+      run = null;
+    }
+    sourceRunCompleted = String(run?.id ?? "") === String(marker.runId)
+      && String(run?.run_attempt ?? "") === String(marker.runAttempt)
+      && run?.repository?.id === repo.id && run?.repository?.full_name === repo.full_name
+      && githubWorkflowFilePath(run?.path) === GUARD_WORKFLOW_PATH
+      && run?.status === "completed"
+      && ["action_required", "cancelled", "failure", "neutral", "skipped", "stale", "success", "timed_out", "startup_failure"].includes(run?.conclusion);
+  }
+  return sourceRunCompleted ? earlyRecovery : fallback;
 }
 
 async function guardBegin({ body, oidcToken, configuration, repository }, res) {
@@ -4439,7 +4472,7 @@ async function guardReconciliationSweep({ body, oidcToken, configuration, reposi
     || repo.default_branch !== body?.defaultBranch) {
     throw new HttpError(409, "The live repository identity does not match the reconciliation request.");
   }
-  const { workflowSha } = await guardManagedBase(
+  const { workflowSha, trustedHarnessMode } = await guardManagedBase(
     encodedRepository,
     repo.default_branch,
     body?.controllerSha,
@@ -4494,7 +4527,7 @@ async function guardReconciliationSweep({ body, oidcToken, configuration, reposi
     for (const check of stable.filter((item) => item?.status === "in_progress")) {
       let reconciliation;
       try {
-        reconciliation = reconcileGuardState({ checkRun: check, now: new Date().toISOString() });
+        reconciliation = await trustedGuardRecoveryState({ encodedRepository, repo, configuration, checkRun: check, trustedHarnessMode, token: readCredential.token });
       } catch {
         throw new HttpError(409, "An in-progress Guard has a malformed reconciliation state; nothing was changed.");
       }
@@ -4530,11 +4563,12 @@ async function guardReconciliationSweep({ body, oidcToken, configuration, reposi
     }
     let reconciliation;
     try {
-      reconciliation = reconcileGuardState({ checkRun: check, now: new Date().toISOString() });
+      reconciliation = await trustedGuardRecoveryState({ encodedRepository, repo, configuration, checkRun: check, trustedHarnessMode, token: readCredential.token });
     } catch {
       throw new HttpError(409, "A reconciliation target became malformed before mutation; nothing was changed.");
     }
-    if (reconciliation.state !== "reconcile_required") {
+    if (reconciliation.state !== "reconcile_required"
+      || reconciliation.generation !== candidate.reconciliation.generation) {
       throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
     }
     revalidated.push({ check, reconciliation });
@@ -5539,16 +5573,29 @@ async function reconcileGuard(req, res) {
     `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
     readCredential.token,
   );
+  const readBaseRef = () => github(
+    `/repos/${target.encodedRepository}/git/ref/heads/${encodeRef(target.repo.default_branch)}`,
+    readCredential.token,
+  );
+  const baseRef = await readBaseRef();
+  const { workflowSha, trustedHarnessMode } = await guardManagedBase(
+    target.encodedRepository,
+    target.repo.default_branch,
+    baseRef?.object?.sha,
+    readCredential.token,
+  );
   let checkRun = await readCheck();
   if (checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
     throw new HttpError(409, "Only the configured Guard App Check can be reconciled. Nothing was changed.");
   }
-  let reconciliation = reconcileGuardState({ checkRun, now: new Date().toISOString() });
+  const recoveryContext = { encodedRepository: target.encodedRepository, repo: target.repo, configuration, trustedHarnessMode, token: readCredential.token };
+  let reconciliation = await trustedGuardRecoveryState({ ...recoveryContext, checkRun });
   if (reconciliation.patch == null) {
     sendJson(res, 200, { repository, ...reconciliation });
     return;
   }
 
+  const recoveryGeneration = reconciliation.generation;
   const writeCredential = await createChecksWriteInstallationAccessToken({
     appId: configuration.appId,
     privateKey: configuration.privateKey,
@@ -5556,11 +5603,19 @@ async function reconcileGuard(req, res) {
     repositoryId: target.repo.id,
     request: github,
   });
-  checkRun = await readCheck();
-  reconciliation = reconcileGuardState({ checkRun, now: new Date().toISOString() });
+  const [finalCheckRun, finalBaseRef] = await Promise.all([readCheck(), readBaseRef()]);
+  checkRun = finalCheckRun;
+  if (finalBaseRef?.object?.sha !== workflowSha
+    || checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
+    throw new HttpError(409, "The trusted recovery policy or Guard publisher changed before reconciliation. Nothing was changed.");
+  }
+  reconciliation = await trustedGuardRecoveryState({ ...recoveryContext, checkRun });
   if (reconciliation.patch == null) {
     sendJson(res, 200, { repository, ...reconciliation });
     return;
+  }
+  if (reconciliation.generation !== recoveryGeneration) {
+    throw new HttpError(409, "The owning Guard generation changed before reconciliation. Nothing was changed.");
   }
   const published = await github(
     `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,

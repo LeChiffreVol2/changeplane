@@ -2,8 +2,14 @@ import { decodeGuardRunMarker, encodeGuardRunMarker } from "./github-guard-contr
 
 const CAMPAIGN_WINDOW_MS = 15 * 60 * 1_000;
 const RECONCILIATION_WINDOW_MS = 10 * 60 * 1_000;
+const VERIFICATION_WINDOW_MS = 5 * 60 * 1_000;
 
-export function reconcileGuardState({ checkRun, now = new Date().toISOString() } = {}) {
+export function reconcileGuardState({ checkRun, trustedHarnessMode = "autonomous", sourceRunCompleted = false, now = new Date().toISOString() } = {}) {
+  // Only the controller's authenticated default-branch policy may select the shorter window.
+  // Missing mode retains the repair campaign's conservative fallback.
+  if (!["observe", "verify", "autonomous"].includes(trustedHarnessMode)) {
+    throw new TypeError("Trusted Guard recovery mode is invalid.");
+  }
   if (checkRun === null || typeof checkRun !== "object" || Array.isArray(checkRun)
     || !Number.isSafeInteger(checkRun.id) || checkRun.id < 1
     || checkRun.name !== "ChangePlane / guard") {
@@ -30,7 +36,13 @@ export function reconcileGuardState({ checkRun, now = new Date().toISOString() }
     throw new TypeError("Guard reconciliation time is invalid.");
   }
   const generation = `${marker.runId}.${marker.runAttempt}`;
-  if (currentTime - startedAt <= CAMPAIGN_WINDOW_MS + RECONCILIATION_WINDOW_MS) {
+  // A healthy owning run can still be working after five minutes. Only independently
+  // verified completion of that exact run attempt permits the shorter recovery window.
+  const earlyRecovery = trustedHarnessMode !== "autonomous" && sourceRunCompleted === true;
+  const recoveryWindowMs = earlyRecovery
+    ? VERIFICATION_WINDOW_MS
+    : CAMPAIGN_WINDOW_MS + RECONCILIATION_WINDOW_MS;
+  if (currentTime - startedAt < recoveryWindowMs) {
     return { state: "within_window", checkRunId: checkRun.id, generation, patch: null };
   }
   return {
@@ -43,7 +55,7 @@ export function reconcileGuardState({ checkRun, now = new Date().toISOString() }
       completed_at: now,
       output: {
         title: "Evaluation timed out safely",
-        summary: "The latest Evaluation Generation exceeded the 15-minute campaign plus 10-minute reconciliation window. No PASS was issued. Re-run ChangePlane on the same exact revision or inspect the failed workflow.",
+        summary: `The latest Evaluation Generation reached the ${earlyRecovery ? "5-minute recovery window after its owning workflow run completed" : "15-minute campaign plus 10-minute reconciliation window"}. No PASS was issued. Re-run ChangePlane on the same exact revision or inspect the failed workflow.`,
         text: encodeGuardRunMarker({
           runId: marker.runId,
           runAttempt: marker.runAttempt,

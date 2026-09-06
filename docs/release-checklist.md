@@ -6,6 +6,7 @@ The items below apply to the current candidate. Historical checked items remain 
 
 - [x] Preserve v13 Full and Verify Lite manifest hashes and upgrade each profile without widening authority.
 - [x] Vendor scheduled/manual least-privilege recovery into both profiles, with failed-workflow notification signals and no ability to create PASS.
+- [x] Test recovery budgets derived from trusted current default-branch policy: Verify/Observe permit five-minute recovery only with independently verified terminal owning-run evidence; healthy or unverifiable owners, Autonomous mode and absent helper context retain the 25-minute fallback. Cover exact boundaries, scheduled and administrator recovery, rejected caller shortening, owning-run and policy drift before mutation, and preserved contract/generation/PR markers. These deterministic tests do not close the publication race or establish live recovery latency.
 - [x] Keep customer alpha/self-service closed when legal, principal separation, publication serialization or commercial runtime prerequisites are absent; explain the safe block in the UI.
 - [x] Retain the authenticated contract through same-SHA generations and timeout reconciliation; revalidate target and generation after evidence/token work.
 - [x] Add reproducible operator-attested pilot measurement; empty evidence remains `not_started` and incomplete reliability coverage remains unknown.

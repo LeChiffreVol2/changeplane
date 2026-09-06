@@ -5817,9 +5817,10 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
   });
 });
 
-test("scheduled OIDC reconciliation closes stale App guards without browser or user credentials", async () => {
+test("scheduled OIDC reconciliation shortens Verify recovery only after the exact owning run attempt completes", async () => {
   await withOAuthEnvironment(async () => {
     const fixture = assuranceProofApiFixture();
+    fixture.policy.harness = { mode: "verify", maxAttempts: 2, budgetMinutes: 15 };
     const policyContent = JSON.stringify(fixture.policy);
     const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
     const { privateKey: appPrivateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -5859,7 +5860,7 @@ test("scheduled OIDC reconciliation closes stale App guards without browser or u
     }).toString("base64url");
     const oidcToken = `${input}.${signature}`;
     const jwk = oidcPublicKey.export({ format: "jwk" });
-    const startedAt = new Date(Date.now() - (31 * 60 * 1_000)).toISOString();
+    const startedAt = new Date(Date.now() - (6 * 60 * 1_000)).toISOString();
     const liveGuard = {
       id: 919,
       name: "ChangePlane / guard",
@@ -5880,6 +5881,7 @@ test("scheduled OIDC reconciliation closes stale App guards without browser or u
       id: 918,
       external_id: `${fixture.repositoryId}:pull_request:${fixture.headSha}`,
     };
+    let sourceRunResponses = [{}];
     const calls = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (request, options = {}) => {
@@ -5928,6 +5930,13 @@ test("scheduled OIDC reconciliation closes stale App guards without browser or u
       if (url.pathname.endsWith(`/commits/${fixture.headSha}/check-runs`)) {
         return githubJsonResponse({ check_runs: [legacyGuard, liveGuard] });
       }
+      if (url.pathname.endsWith("/actions/runs/8001/attempts/1")) {
+        const override = sourceRunResponses.length > 1 ? sourceRunResponses.shift() : sourceRunResponses[0];
+        if (override.missing) return githubJsonResponse({ message: "Not Found" }, 404);
+        return githubJsonResponse({ id: 8001, run_attempt: 1,
+          repository: { id: fixture.repositoryId, full_name: fixture.repository },
+          path: ".github/workflows/changeplane.yml", status: "completed", conclusion: "failure", ...override });
+      }
       if (url.pathname.endsWith("/check-runs/919") && method === "GET") return githubJsonResponse(liveGuard);
       if (url.pathname.endsWith("/check-runs/919") && method === "PATCH") {
         Object.assign(liveGuard, JSON.parse(options.body));
@@ -5936,8 +5945,7 @@ test("scheduled OIDC reconciliation closes stale App guards without browser or u
       throw new Error(`Unexpected request: ${method} ${url.pathname}${url.search}`);
     };
     try {
-      const response = responseRecorder();
-      await handler({
+      const sweepRequest = {
         method: "POST",
         url: "/api/github?action=guard-publish",
         headers: {
@@ -5955,7 +5963,30 @@ test("scheduled OIDC reconciliation closes stale App guards without browser or u
           workflowRunId: 9100,
           workflowRunAttempt: 1,
         },
-      }, response);
+      };
+
+      for (const scenario of [
+        { responses: [{ status: "in_progress", conclusion: null }], status: 200 },
+        { responses: [{ missing: true }], status: 200 },
+        { responses: [{ run_attempt: 2 }], status: 200 },
+        { responses: [{}, { status: "in_progress", conclusion: null }], status: 409 },
+      ]) {
+        sourceRunResponses = scenario.responses;
+        const pendingResponse = responseRecorder();
+        await handler(sweepRequest, pendingResponse);
+        assert.equal(pendingResponse.statusCode, scenario.status, pendingResponse.body);
+        if (scenario.status === 200) {
+          assert.equal(JSON.parse(pendingResponse.body).withinWindow, 1);
+          assert.equal(JSON.parse(pendingResponse.body).reconciled, 0);
+        }
+        assert.equal(liveGuard.status, "in_progress");
+        assert.equal(calls.some(({ path, options }) => path === "/app/installations/7007/access_tokens"
+          && JSON.parse(options.body).permissions.checks === "write"), false);
+      }
+
+      sourceRunResponses = [{}];
+      const response = responseRecorder();
+      await handler(sweepRequest, response);
 
       assert.equal(response.statusCode, 200, response.body);
       assert.deepEqual(JSON.parse(response.body), {

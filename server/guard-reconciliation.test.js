@@ -28,7 +28,7 @@ test("returns an idempotent action_required patch only after campaign and reconc
       completed_at: NOW,
       output: {
         title: "Evaluation timed out safely",
-        summary: "The latest Evaluation Generation exceeded the 15-minute campaign plus 10-minute reconciliation window. No PASS was issued. Re-run ChangePlane on the same exact revision or inspect the failed workflow.",
+        summary: "The latest Evaluation Generation reached the 15-minute campaign plus 10-minute reconciliation window. No PASS was issued. Re-run ChangePlane on the same exact revision or inspect the failed workflow.",
         text: "changeplane.guard-run/v1;run_id=8001;run_attempt=1;phase=complete",
       },
     },
@@ -72,4 +72,35 @@ test("preserves an earlier exact-head contract when an interrupted generation ti
   assert.equal(result.patch.conclusion, "action_required");
   assert.equal(decodeGuardRunMarker(result.patch.output.text).boundContractDigest, boundContractDigest);
   assert.equal(decodeGuardRunMarker(result.patch.output.text).pullRequestNumber, 42);
+});
+
+test("completed Verify and Observe runs permit five-minute recovery while live runs and Autonomous keep the fallback", () => {
+  const checkRun = {
+    id: 44,
+    name: "ChangePlane / guard",
+    status: "in_progress",
+    conclusion: null,
+    started_at: "2026-09-01T12:00:00.000Z",
+    output: { text: `changeplane.guard-run/v1;run_id=8001;run_attempt=2;phase=begin;contract_digest=${"a".repeat(64)};pull_request_number=42` },
+  };
+  for (const trustedHarnessMode of ["observe", "verify"]) {
+    assert.equal(reconcileGuardState({ checkRun, trustedHarnessMode, sourceRunCompleted: true, now: "2026-09-01T12:04:59.999Z" }).patch, null);
+    const recovered = reconcileGuardState({ checkRun, trustedHarnessMode, sourceRunCompleted: true, now: "2026-09-01T12:05:00.000Z" });
+    assert.equal(recovered.patch.conclusion, "action_required");
+    assert.match(recovered.patch.output.summary, /5-minute recovery window after its owning workflow run completed/u);
+    assert.equal(decodeGuardRunMarker(recovered.patch.output.text).boundContractDigest, "a".repeat(64));
+    assert.equal(decodeGuardRunMarker(recovered.patch.output.text).pullRequestNumber, 42);
+    assert.equal(recovered.generation, "8001.2");
+    for (const sourceRunCompleted of [false, undefined, "true"]) {
+      assert.equal(reconcileGuardState({ checkRun, trustedHarnessMode, sourceRunCompleted, now: "2026-09-01T12:06:00.000Z" }).patch, null);
+      assert.equal(reconcileGuardState({ checkRun, trustedHarnessMode, sourceRunCompleted, now: "2026-09-01T12:25:00.000Z" }).patch.conclusion, "action_required");
+    }
+  }
+  for (const trustedHarnessMode of ["autonomous", undefined]) {
+    for (const now of ["2026-09-01T12:05:00.000Z", "2026-09-01T12:15:00.000Z", "2026-09-01T12:24:59.999Z"]) {
+      assert.equal(reconcileGuardState({ checkRun, trustedHarnessMode, sourceRunCompleted: true, now }).patch, null);
+    }
+    assert.equal(reconcileGuardState({ checkRun, trustedHarnessMode, now: "2026-09-01T12:25:00.000Z" }).patch.conclusion, "action_required");
+  }
+  assert.throws(() => reconcileGuardState({ checkRun, trustedHarnessMode: "fast", now: NOW }), /recovery mode is invalid/u);
 });
