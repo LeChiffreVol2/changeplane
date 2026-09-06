@@ -14,6 +14,7 @@ import {
   digest,
   renderMergeGroupReceipt,
   renderReceiptComment,
+  resolveRevisionContract,
 } from "../action/index.js";
 import {
   GITHUB_GUARD_OIDC,
@@ -22,6 +23,7 @@ import {
   createGuardReadInstallationAccessToken,
   decodeGuardRunMarker,
   encodeGuardRunMarker,
+  guardBoundContractDigest,
   stableGuardCheckExternalId,
   validateGuardBeginBody,
   validateGuardPublishBody,
@@ -524,6 +526,93 @@ function guardFixture() {
     },
   };
 }
+
+test("keeps the authenticated contract frozen across same-head edits and interrupted generations", () => {
+  const fixture = guardFixture();
+  const authority = {
+    repository: REPOSITORY,
+    repositoryId: REPOSITORY_ID,
+    target: fixture.currentTarget,
+    appId: 101,
+    appSlug: "changeplane-guard",
+  };
+  const completed = {
+    id: 919,
+    name: "ChangePlane / guard",
+    head_sha: HEAD_SHA,
+    external_id: stableGuardCheckExternalId({ repositoryId: REPOSITORY_ID, targetType: "pull_request", headSha: HEAD_SHA }),
+    status: "completed",
+    conclusion: "success",
+    app: { id: authority.appId, slug: authority.appSlug },
+    output: {
+      summary: fixture.body.summary,
+      text: encodeGuardRunMarker({ runId: RUN_ID, runAttempt: 1, phase: "complete" }),
+    },
+  };
+  const bound = guardBoundContractDigest(completed, authority);
+  assert.equal(bound, fixture.body.passport.binding.contractDigest);
+  const begin = {
+    ...completed,
+    status: "in_progress",
+    conclusion: null,
+    output: {
+      summary: "A new evaluation is running.",
+      text: encodeGuardRunMarker({ runId: RUN_ID + 1, runAttempt: 1, phase: "begin", boundContractDigest: bound, pullRequestNumber: 42 }),
+    },
+  };
+  assert.equal(guardBoundContractDigest(begin, authority), bound);
+  const superseded = {
+    ...begin,
+    output: {
+      ...begin.output,
+      text: encodeGuardRunMarker({ runId: RUN_ID + 2, runAttempt: 1, phase: "begin", boundContractDigest: guardBoundContractDigest(begin, authority), pullRequestNumber: 42 }),
+    },
+  };
+  const edited = resolveRevisionContract({
+    body: '<!-- changeplane {"scope":["src/edited.js"]} -->',
+    actualFiles: [{ path: "src/edited.js" }],
+    headSha: HEAD_SHA,
+    boundContractDigest: guardBoundContractDigest(superseded, authority),
+  });
+  assert.equal(edited.boundContractDigest, bound);
+  assert.notEqual(edited.contractDigest, bound);
+  assert.equal(guardBoundContractDigest(null, authority), null);
+
+  for (const check of [
+    { ...completed, app: { id: 202, slug: authority.appSlug } },
+    { ...completed, app: { id: authority.appId, slug: "spoofed" } },
+    { ...completed, head_sha: "c".repeat(40) },
+    { ...completed, external_id: "forged" },
+    { ...completed, output: { ...completed.output, summary: "No passport" } },
+    { ...completed, output: { ...completed.output, text: encodeGuardRunMarker({ runId: RUN_ID, runAttempt: 1, phase: "complete", boundContractDigest: "0".repeat(64) }) } },
+  ]) {
+    assert.throws(() => guardBoundContractDigest(check, authority));
+  }
+  assert.throws(() => guardBoundContractDigest(completed, { ...authority, repository: "acme/other" }));
+  const differentPullRequest = { ...authority, target: { ...authority.target, pullRequestNumber: 43 } };
+  assert.equal(guardBoundContractDigest(completed, differentPullRequest), null);
+  assert.equal(guardBoundContractDigest(begin, differentPullRequest), null);
+  assert.equal(guardBoundContractDigest(superseded, differentPullRequest), null);
+  const reconciled = {
+    ...begin,
+    status: "completed",
+    conclusion: "action_required",
+    output: { ...begin.output, text: begin.output.text.replace("phase=begin", "phase=complete") },
+  };
+  assert.equal(guardBoundContractDigest(reconciled, authority), bound);
+  assert.equal(guardBoundContractDigest(reconciled, differentPullRequest), null);
+});
+
+test("rejects noncanonical contract marker metadata", () => {
+  for (const boundContractDigest of ["", "x".repeat(64), "A".repeat(64), "a".repeat(63), 123, {}]) {
+    assert.throws(() => encodeGuardRunMarker({ runId: 1, runAttempt: 1, phase: "begin", boundContractDigest }));
+  }
+  const marker = encodeGuardRunMarker({ runId: 1, runAttempt: 1, phase: "begin", boundContractDigest: "a".repeat(64) });
+  assert.equal(decodeGuardRunMarker(marker).boundContractDigest, "a".repeat(64));
+  assert.throws(() => decodeGuardRunMarker(`${marker};contract_digest=${"b".repeat(64)}`));
+  assert.throws(() => decodeGuardRunMarker(`${marker};pull_request_number=0`));
+  assert.throws(() => decodeGuardRunMarker(`${marker};pull_request_number=01`));
+});
 
 test("validates a bounded guard request against OIDC, controller, and current target", async () => {
   const oidc = await verifyGitHubActionsOidcToken(verifierInput());

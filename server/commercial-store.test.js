@@ -145,3 +145,29 @@ test("rejects source-shaped or secret-shaped fields at the storage boundary", as
     reason: "conflicting_terminal",
   }), /immutable generation state/u);
 });
+
+test("attributes a generation crossing a UTC month boundary once to its earliest event", async () => {
+  const store = createMemoryCommercialStore();
+  const base = {
+    organizationId: 10,
+    installationId: 100,
+    repositoryId: 1000,
+    revisionFingerprint: "a".repeat(64),
+    evaluationGeneration: "8001.1",
+    assuranceLevel: "strict_head",
+    latencyMs: 2_000,
+  };
+  // Delayed start delivery must produce the same attribution as chronological delivery.
+  await store.recordEvaluationEvent({
+    ...base, state: "pass", reason: "evidence_passed", occurredAt: "2026-09-01T00:00:01.000Z",
+  });
+  await store.recordEvaluationEvent({
+    ...base, state: "evaluating", reason: "evaluation_started", occurredAt: "2026-08-31T23:59:59.000Z",
+  });
+  await store.recordEvaluationEvent({
+    ...base, evaluationGeneration: "8001.2", state: "pass", reason: "evidence_passed", occurredAt: "2026-09-01T00:00:02.000Z",
+  });
+  assert.equal((await store.readUsage({ organizationId: 10, period: "2026-08" })).evaluations, 1);
+  assert.equal((await store.readUsage({ organizationId: 10, period: "2026-09" })).evaluations, 1);
+  assert.equal((await store.readUsage({ organizationId: 20, period: "2026-09" })).evaluations, 0);
+});

@@ -2,6 +2,8 @@
 
 `001_commercial_plane.sql` is the reviewed PostgreSQL boundary for entitlements, append-only Evaluation Events, Fleet Posture, monthly usage, and organization deletion requests. GitHub remains the source of truth for repository names, code, revisions, Checks, Rulesets, and merge state.
 
+This is a candidate adapter and schema, not connected production billing. `commercialReady` remains false while `commercialRuntimeIntegrated` and `guardPublicationSerialized` are false in code, regardless of the configuration below. Monthly candidate usage attributes a generation to its earliest retained occurrence in UTC; delayed events and retention can change that count. Do not use it for invoicing until immutable admission accounting and authenticated ingestion are integrated and tested.
+
 Do not enable `CHANGEPLANE_COMMERCIAL_STORE_ENABLED` until all of these are true:
 
 1. apply the migration to an isolated managed PostgreSQL database in the approved US region;

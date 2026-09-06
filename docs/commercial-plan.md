@@ -4,6 +4,8 @@ ChangePlane sells independent behavioral merge assurance to platform, applicatio
 
 Verify is the core paid product. The Autonomous Assurance Agent runs the verification and handback loop without routine human interaction. Autonomous Repair is a separately priced controlled expansion and is not required for the core outcome.
 
+Customer activation remains paused in the managed-v14 candidate pending serialized Guard publication, its protected live canary, separate Guard identity and the exact-release legal pack. The [automated SDLC architecture](automated-sdlc-architecture.md) orders those dependencies. The [launch measurement contract](launch-measurement.md) makes the existing nine pilot targets executable without claiming production ingestion or customer outcomes that have not occurred.
+
 ## Plans
 
 The table below is a post-alpha pricing hypothesis, not a currently available public offer. During the invite-only design-partner alpha, ChangePlane offers only Verify Lite plus Strict Head under a reviewed order form. Queue Certified may be exercised in an owner-controlled canary but is not sold to alpha customers; Autonomous Repair, Fleet history, aggregate metrics, and service-level commitments remain unavailable.

@@ -2,6 +2,14 @@
 
 ChangePlane advances by dependency and evidence, not by feature count or a calendar promise.
 
+## Managed-v14 candidate — 2026-09-07
+
+The protected production baseline remains `ddccd7ab7721c28542a0e4a36956cbc307832672`. The current candidate adds installed scheduled recovery, safe profile-preserving upgrades, same-SHA contract retention, truthful launch gates and an [offline pilot scorecard](launch-measurement.md). These changes have not inherited live deployment evidence.
+
+Architecture review found a remaining shared-Check publication race: an older completion can write after a newer begin because the final GitHub Check update is not atomically fenced. The candidate therefore keeps `guardPublicationSerialized: false` and pauses external alpha and hosted self-service before external access. Complete serialized publication and its adversarial organization canary before customer activation. Owner canary access remains available. See the [architecture and ordered release gates](automated-sdlc-architecture.md).
+
+The next product milestone is a paid founder-led Verify Lite / Strict Head pilot with measured activation, customer value and reliability. A manual invoice under a reviewed order form can test payment demand without adding a billing platform. Automated commercial readiness stays false while authenticated ingestion, entitlements and operational database controls are incomplete.
+
 ## Status on 2026-09-01
 
 | Release | Repository proof | External activation still required |

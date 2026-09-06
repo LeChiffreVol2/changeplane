@@ -46,10 +46,10 @@ The SDLC posture explains the authority already present in each managed profile:
 | Profile / mode | Verify | Release gate | Repair loop |
 | --- | --- | --- | --- |
 | Observe / Verify Lite | Scope only; no behavioral claim | Not active | Customer-agent handback only |
-| Verify / Verify Lite | Named exact-head behavioral Check | Active only when one no-bypass strict default-branch Ruleset contains `merge_queue`, the bound App guard, and every bound behavioral evidence Check | Customer-agent handback only |
+| Verify / Verify Lite | Named exact-head behavioral Check | Strict Head is active when one no-bypass strict default-branch Ruleset contains the bound App guard and every bound behavioral evidence Check; Merge Queue adds Queue Certified | Customer-agent handback only |
 | Observe / Full | Scope only; Full files remain installed | Not active | Repair disabled; customer-agent handback only |
-| Verify / Full | Named exact-head behavioral Check; advisory review may remain available with BYOK | Active only under the same complete no-bypass Ruleset contract | Repair disabled; customer-agent handback only |
-| Autonomous / Full | Same deterministic exact-head evidence | Same complete no-bypass Ruleset contract | At most two controller-applied attempts inside one immutable 15-minute campaign, after every existing activation prerequisite passes |
+| Verify / Full | Named exact-head behavioral Check; advisory review may remain available with BYOK | Same Strict Head / Queue Certified distinction | Repair disabled; customer-agent handback only |
+| Autonomous / Full | Same deterministic exact-head behavioral evidence | Requires the complete Queue Certified contract, including Merge Queue | At most two controller-applied attempts inside one immutable 15-minute campaign, after every existing activation prerequisite passes |
 
 Selecting Autonomous or installing Full does not activate repair by itself. The live enforcement, repository BYOK, verified managed tree, controller switch, repository binding, and generation checks still fail closed independently.
 

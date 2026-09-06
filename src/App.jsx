@@ -2696,6 +2696,10 @@ export function App() {
         const payload = await responseJson(await fetch("/api/github?action=session", { credentials: "same-origin" }));
         if (cancelled) return;
         setGithubConfigured(Boolean(payload.configured));
+        if (!payload.configured && typeof payload.accessBlock?.message === "string") {
+          setAuthError([payload.accessBlock.message, payload.accessBlock.nextAction]
+            .filter((value) => typeof value === "string").join(" "));
+        }
         setGithubAuthMode(payload.authMode === "github_app" ? "github_app" : "oauth");
         setGithubRolloutMode(["controlled_canary", "private_alpha"].includes(payload.rolloutMode)
           ? payload.rolloutMode

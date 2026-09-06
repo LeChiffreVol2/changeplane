@@ -14,6 +14,7 @@
     "audit:public": "node scripts/audit-public-data.mjs",
     "audit:claims": "node scripts/audit-release-claims.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "report:launch": "node scripts/report-launch.mjs",
     "preview": "vite preview"
   },
   "engines": {

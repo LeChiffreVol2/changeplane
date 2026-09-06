@@ -1,5 +1,13 @@
 # ChangePlane production runbook
 
+## Managed-v14 candidate boundary
+
+The deployed source baseline is `ddccd7ab7721c28542a0e4a36956cbc307832672`; the current v14 candidate is not a deployed customer release. Requested alpha/self-service mode does not grant access. Readiness reports `checks.rolloutAuthorized`, `checks.guardPublicationSerialized` and `checks.commercialRuntimeIntegrated`; session provides a static `accessBlock` reason and one next action when paused. The last two capabilities remain false in code, and no environment variable can override them. Owner canary operational readiness may still be true.
+
+All external customer routes remain closed until Guard publication is serialized and proven against concurrent begin/complete/reconcile interleavings. A last-minute GET only reduces the shared-Check write race. After technical closure, alpha additionally requires exact-release legal approval, a distinct Guard App and a valid explicit allowlist. Hosted self-service also requires actual commercial ingestion and entitlement enforcement. See [architecture and release blockers](automated-sdlc-architecture.md).
+
+Both v14 installed profiles include the five-minute scheduled/manual reconciliation sweep and preserve their v13 profile during a reviewed upgrade. A timed-out Guard becomes `action_required`; the workflow fails to support GitHub failed-workflow notifications, which the owner must separately enable and test. The current timeout is the 15-minute campaign plus a 10-minute reconciliation window, so this implementation does not establish the pilot's ten-minute stuck-Guard target. Verify-pilot recovery latency and scheduler delay must be redesigned or measured before that service target is met.
+
 ## Supported boundary
 
 The deployed managed-v13 baseline supports reviewed GitHub.com repository setup in `observe`, `verify`, or bounded `autonomous` mode and is protected-canary proven only for the exact revisions in `evidence/changeplane-v13-production-release.json`. The current source candidate adds later trust and commercial-readiness contracts but does not inherit that deployment proof. Public self-service fails closed to controlled-canary access unless legal approval is bound to the exact protected Production source SHA. GitHub remains the source of truth, audit surface, and merge authority; the deployed baseline has no managed commercial database, queue, merge service, or proprietary agent runtime.

@@ -31,6 +31,7 @@ import {
   createGuardReadInstallationAccessToken,
   decodeGuardRunMarker,
   encodeGuardRunMarker,
+  guardBoundContractDigest,
   stableGuardCheckExternalId,
   validateGuardBeginBody,
   validateGuardReconciliationBody,
@@ -104,7 +105,7 @@ const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 13;
+const MANAGED_VERSION = 14;
 // The repair credential protocol remains v12. Managed payload releases can
 // advance independently without silently widening an existing credential.
 const MANAGED_REPAIR_ACTIVATION = "managed-v12";
@@ -352,6 +353,37 @@ const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
     ".github/workflows/changeplane.yml": "776c4694d3e4921909315d8372ecba24085c0c60bb5be174b43c655b110196de",
     ".github/workflows/changeplane-repair.yml": "7d18ee493de579c22d2b7093f834d0bdb20d4d60fe7219dfad2eb85e60f2d45f",
   }),
+  13: Object.freeze({
+    "full": Object.freeze({
+      "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+      "changeplane/action/index.js": "14811236289a1afadf50de85ee127c295a4a1989d694cb2c731d3051ef4eb23e",
+      "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+      "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+      "changeplane/src/lib/review.js": "77b6e85321827a18a305bf4a952d6493d831374e8208eeca0e0987d1fd95023d",
+      "changeplane/src/lib/runtime.js": "e4fcb217c60f23217023c52b56c5c195c4a4442d86ae78301f81d7c537c80e7c",
+      "changeplane/server/github-repair-controller.js": "b67e56892908874717771a114adb378b7c2243ac6e2c364951d1034fd9fc1ddd",
+      "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+      "changeplane/examples/changeplane-claim.js": "b391de111c6c5e4bb33991e6624db4f4347862ecee3c3478ecc8dbfc85997f83",
+      "changeplane/examples/changeplane-grant.js": "648037cd2f18d4161f75c7dc7fedbc1317a5b78f6b53ac3df121f9b3eb76b9a1",
+      "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+      "changeplane/examples/changeplane-proposal.js": "e43d6f6809db1bc2d73516184be611565c77ce47f7b8c064188ea8fa83d6d8e5",
+      "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
+      "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
+      "changeplane/examples/changeplane-review-run.js": "5dcdb7204c3a090d3aec88af6e82153f7f447389136c0c84d41f08895ea08d2e",
+      "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      ".github/workflows/changeplane.yml": "71919b7998ce010f25e1b078febd7722a8c4662504ec3ac6cc3b4a4a0f262b1b",
+      ".github/workflows/changeplane-repair.yml": "7d18ee493de579c22d2b7093f834d0bdb20d4d60fe7219dfad2eb85e60f2d45f"
+    }),
+    "verify-lite": Object.freeze({
+      "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+      "changeplane/action/index.js": "14811236289a1afadf50de85ee127c295a4a1989d694cb2c731d3051ef4eb23e",
+      "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+      "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+      "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+      "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      ".github/workflows/changeplane.yml": "550ef2f0fd030686ac5b2d9b285cbc0019d751a171e239515f86f61279de1f20"
+    }),
+  }),
 });
 const TRANSIENT_GITHUB_STATUSES = new Set([502, 503, 504]);
 const GITHUB_MAX_GET_ATTEMPTS = 3;
@@ -438,6 +470,11 @@ const EXTERNAL_ACCESS_ACTIONS = new Set([
   "repair-push-token",
   "repair-validate",
 ]);
+// The store and quota contracts remain candidates until production ingestion is implemented.
+const COMMERCIAL_RUNTIME_INTEGRATED = false;
+// A shared Check GET-to-PATCH race remains until publication is serialized in code.
+// Operator attestations cannot enable customer access across that missing boundary.
+const GUARD_PUBLICATION_SERIALIZED = false;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -546,8 +583,7 @@ function legalReleaseApproved() {
 
 function rolloutMode() {
   if (process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON) return "private_alpha";
-  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true"
-    && (process.env.VERCEL !== "1" || legalReleaseApproved())) return "self_serve";
+  if (process.env.CHANGEPLANE_SELF_SERVE_ENABLED === "true") return "self_serve";
   return process.env.CHANGEPLANE_CANARY_REPOSITORY || process.env.VERCEL === "1"
     ? "controlled_canary"
     : "self_serve";
@@ -557,6 +593,52 @@ function hasValidCanaryRepository() {
   if (rolloutMode() === "self_serve") return true;
   if (rolloutMode() === "private_alpha") return Boolean(configuredAlphaRepositories());
   return Boolean(configuredCanaryRepository());
+}
+
+function rolloutAccessBlock() {
+  const mode = rolloutMode();
+  if (mode === "controlled_canary" || (mode === "self_serve" && process.env.VERCEL !== "1")) return null;
+  if (mode === "private_alpha" && !configuredAlphaRepositories()) {
+    return {
+      reason: "alpha_scope_required",
+      message: "CHANGEPLANE_ALPHA_REPOSITORIES_JSON must contain the exact approved repository scope. No repository was accessed or changed.",
+      nextAction: "Ask the release owner to finish the invited repository list.",
+    };
+  }
+  if (!legalReleaseApproved()) {
+    return {
+      reason: "legal_release_required",
+      message: "Customer access is paused until the legal pack is approved for this release. No repository was accessed or changed.",
+      nextAction: "Ask the release owner to complete the release approval.",
+    };
+  }
+  if (guardPrincipalSeparation() !== "separate_guard_app") {
+    return {
+      reason: "separate_guard_required",
+      message: "Customer access requires a separate Guard GitHub App. No repository was accessed or changed.",
+      nextAction: "Ask the release owner to finish Guard App setup.",
+    };
+  }
+  if (!GUARD_PUBLICATION_SERIALIZED) {
+    return {
+      reason: "publication_serialization_required",
+      message: "Customer access is paused because overlapping evaluations can publish Guard results out of order. No repository was accessed or changed.",
+      nextAction: "Ask the release owner to complete and verify serialized Guard publication before customer activation.",
+    };
+  }
+  if (mode === "self_serve" && !COMMERCIAL_RUNTIME_INTEGRATED) {
+    return {
+      reason: "commercial_runtime_required",
+      message: "Public self-service is unavailable while usage recording and plan enforcement are incomplete. No repository was accessed or changed.",
+      nextAction: "Ask the release owner about the founder-led private alpha.",
+    };
+  }
+  return null;
+}
+
+function assertRolloutAccessAuthorized() {
+  const block = rolloutAccessBlock();
+  if (block) throw new HttpError(503, `${block.message} ${block.nextAction}`);
 }
 
 function allowedRolloutRepositories() {
@@ -639,6 +721,7 @@ function readiness() {
     guardPublisher: guardPublisherIsConfigured(),
     sourceProvenance,
     canaryRepository: hasValidCanaryRepository(),
+    rolloutAuthorized: rolloutAccessBlock() === null,
   };
   const principalSeparation = guardPrincipalSeparation();
   const commercialStore = commercialStoreIsConfigured();
@@ -650,8 +733,10 @@ function readiness() {
   const checks = {
     ...operationalChecks,
     guardPrincipalSeparated: principalSeparation === "separate_guard_app",
+    guardPublicationSerialized: GUARD_PUBLICATION_SERIALIZED,
     commercialStore,
     commercialStoreVerified,
+    commercialRuntimeIntegrated: COMMERCIAL_RUNTIME_INTEGRATED,
     legalRelease,
   };
   const ready = Object.values(operationalChecks).every(Boolean);
@@ -659,7 +744,9 @@ function readiness() {
     ready,
     commercialReady: ready
       && checks.guardPrincipalSeparated
+      && checks.guardPublicationSerialized
       && checks.commercialStoreVerified
+      && checks.commercialRuntimeIntegrated
       && checks.legalRelease,
     principalSeparation,
     checks,
@@ -879,6 +966,7 @@ function oauthIsConfigured() {
     && (rolloutMode() === "self_serve" || appSlug)
     && (process.env.GITHUB_APP_SLUG == null || appSlug)
     && hasValidCanaryRepository()
+    && rolloutAccessBlock() === null
   );
 }
 
@@ -1546,6 +1634,44 @@ function managedManifestContent(managedFiles, managedProfile) {
 
 function buildManagedFiles(managedProfile = MANAGED_PROFILE.FULL) {
   const profile = validateManagedProfile(managedProfile);
+  const reconciliationJob = `
+  reconcile:
+    name: ChangePlane guard reconciliation
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Use the pinned Node.js runtime
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.18.0
+      - name: Check out the trusted default branch
+        # actions/checkout v4.2.2; this job never executes pull-request code.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: \${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Bind the trusted controller revision
+        id: controller
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Reconcile stale App-owned Guards
+        id: reconcile
+        uses: ./changeplane
+        with:
+          operation: reconcile
+          token: \${{ github.token }}
+          trusted_controller_sha: \${{ steps.controller.outputs.sha }}
+      - name: Surface timed-out evaluations for workflow notifications
+        if: steps.reconcile.outputs.decision == 'ACTION_REQUIRED'
+        run: |
+          echo "A timed-out ChangePlane evaluation was closed safely. Inspect the Guard and re-run its evaluation on the same revision." >&2
+          exit 1
+`;
+
   const workflow = `name: ChangePlane
 
 on:
@@ -1558,6 +1684,9 @@ on:
   deployment_status:
   repository_dispatch:
     types: [changeplane_recheck]
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -1569,12 +1698,13 @@ permissions:
   statuses: read
 
 concurrency:
-  group: changeplane-pr-\${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.merge_group.head_sha || github.event.deployment.sha || github.run_id }}
+  group: changeplane-pr-\${{ github.event_name == 'schedule' && 'reconcile' || github.event_name == 'workflow_dispatch' && 'reconcile' || github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.merge_group.head_sha || github.event.deployment.sha || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   guard:
     name: ChangePlane guard
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -1633,6 +1763,7 @@ jobs:
           trusted_controller_sha: \${{ steps.controller.outputs.sha }}
           agent_dispatch: none
 
+${reconciliationJob}
   review_propose:
     name: Independent review proposal
     if: github.event_name == 'pull_request_target'
@@ -1742,6 +1873,9 @@ on:
   deployment_status:
   repository_dispatch:
     types: [changeplane_recheck]
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -1753,12 +1887,13 @@ permissions:
   statuses: read
 
 concurrency:
-  group: changeplane-pr-\${{ github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.merge_group.head_sha || github.event.deployment.sha || github.run_id }}
+  group: changeplane-pr-\${{ github.event_name == 'schedule' && 'reconcile' || github.event_name == 'workflow_dispatch' && 'reconcile' || github.event.pull_request.number || github.event.client_payload.pullRequestNumber || github.event.merge_group.head_sha || github.event.deployment.sha || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   guard:
     name: ChangePlane guard
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -1797,7 +1932,7 @@ jobs:
           mode: \${{ steps.harness.outputs.mode }}
           trusted_controller_sha: \${{ steps.controller.outputs.sha }}
           agent_dispatch: none
-`;
+${reconciliationJob}`;
   const litePaths = new Set([
     "changeplane/action.yml",
     "changeplane/action/index.js",
@@ -1932,7 +2067,7 @@ function parsedManagedManifest(value) {
 }
 
 export function managedVersionSnapshot(managedVersion, managedProfile = MANAGED_PROFILE.FULL) {
-  const profile = managedVersion === MANAGED_VERSION
+  const profile = managedVersion >= 13
     ? validateManagedProfile(managedProfile)
     : MANAGED_PROFILE.FULL;
   const desiredManagedFiles = buildManagedFiles(profile);
@@ -1941,7 +2076,9 @@ export function managedVersionSnapshot(managedVersion, managedProfile = MANAGED_
   )));
   const managedHashes = managedVersion === MANAGED_VERSION
     ? desiredHashes
-    : KNOWN_MANAGED_VERSION_HASHES[managedVersion];
+    : managedVersion >= 13
+      ? KNOWN_MANAGED_VERSION_HASHES[managedVersion]?.[profile]
+      : KNOWN_MANAGED_VERSION_HASHES[managedVersion];
   return managedHashes
     ? {
       managedVersion,
@@ -2451,12 +2588,18 @@ async function validateObserveUpgradePullRequest(
 }
 
 async function managedUpgradeFiles(encodedRepository, baseSha, token, policyContent = null) {
-  const fullManagedFiles = buildManagedFiles(MANAGED_PROFILE.FULL);
+  const currentManifest = await readRepositoryFile(encodedRepository, MANAGED_MANIFEST_PATH, baseSha, token);
+  const parsedManifest = parsedManagedManifest(currentManifest);
+  if (currentManifest != null && !parsedManifest) {
+    throw new HttpError(409, "The installed managed profile is invalid. No upgrade was created.");
+  }
+  const managedProfile = parsedManifest?.managedProfile ?? MANAGED_PROFILE.FULL;
+  const managedFiles = buildManagedFiles(managedProfile);
   const desired = [
-    ...fullManagedFiles,
+    ...managedFiles,
     {
       path: MANAGED_MANIFEST_PATH,
-      content: managedManifestContent(fullManagedFiles, MANAGED_PROFILE.FULL),
+      content: managedManifestContent(managedFiles, managedProfile),
     },
     ...(typeof policyContent === "string" ? [{ path: POLICY_PATH, content: policyContent }] : []),
   ];
@@ -2470,7 +2613,7 @@ async function managedUpgradeFiles(encodedRepository, baseSha, token, policyCont
     files.push(file);
     expectedStatuses.set(file.path, current[index] == null ? "added" : "modified");
   });
-  return { files, expectedStatuses };
+  return { files, expectedStatuses, managedProfile };
 }
 
 export async function createObserveUpgradePullRequest(target, session, requiredCheck = null, harnessMode = undefined) {
@@ -2491,7 +2634,7 @@ export async function createObserveUpgradePullRequest(target, session, requiredC
       requiredCheck: policy.evidence.requiredChecks[0] ?? null,
     };
   }
-  const { files, expectedStatuses } = await managedUpgradeFiles(
+  const { files, expectedStatuses, managedProfile } = await managedUpgradeFiles(
     encodedRepository,
     baseSha,
     token,
@@ -2505,7 +2648,7 @@ export async function createObserveUpgradePullRequest(target, session, requiredC
     branch: OBSERVE_UPGRADE_BRANCH,
     operation: "upgrade",
     harnessMode: recovery?.harnessMode ?? HARNESS_MODE.OBSERVE,
-    managedProfile: MANAGED_PROFILE.FULL,
+    managedProfile,
     policyIncluded: Boolean(recovery),
     policyMigration: recovery ? {
       ...migration,
@@ -4031,6 +4174,20 @@ function assertGuardRunCanComplete(existing, incoming) {
   return current;
 }
 
+function guardPreviousContractDigest(check, request, configuration) {
+  try {
+    return guardBoundContractDigest(check, {
+      repository: request.repository,
+      repositoryId: request.repositoryId ?? request.passport?.target.repositoryId,
+      target: request.target ?? request.passport?.target,
+      appId: configuration.appId,
+      appSlug: configuration.appSlug,
+    });
+  } catch {
+    throw new HttpError(409, "The previous exact-head contract binding cannot be authenticated.");
+  }
+}
+
 async function guardManagedBase(encodedRepository, defaultBranch, controllerSha, token) {
   const baseRef = await github(
     `/repos/${encodedRepository}/git/ref/heads/${encodeRef(defaultBranch)}`,
@@ -4116,7 +4273,7 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
     repo,
     body?.target,
     readCredential.token,
-    { baseRef: body?.target?.baseRef, headRef: body?.target?.headRef },
+    { baseRef: body?.target?.baseRef, headRef: body?.target?.headRef, requireUnique: true },
   );
   let request;
   try {
@@ -4138,7 +4295,7 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
     repo,
     body.target,
     readCredential.token,
-    { baseRef: body.target.baseRef, headRef: body.target.headRef },
+    { baseRef: body.target.baseRef, headRef: body.target.headRef, requireUnique: true },
   );
   if (finalBaseRef?.object?.sha !== workflowSha || finalTarget.current !== true
     || finalTarget.headSha !== currentTarget.headSha || finalTarget.baseSha !== currentTarget.baseSha
@@ -4152,12 +4309,25 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
   if (stable.length > 1) throw new HttpError(409, "The dedicated guard publication is ambiguous.");
   const incomingMarker = decodeGuardRunMarker(request.check.output.text);
   const beginState = assertGuardRunCanBegin(stable[0], incomingMarker);
+  const previousContractDigest = guardPreviousContractDigest(stable[0], request, configuration);
+  const beginCheck = {
+    ...request.check,
+    output: {
+      ...request.check.output,
+      text: encodeGuardRunMarker({
+        ...incomingMarker,
+        boundContractDigest: previousContractDigest,
+        pullRequestNumber: request.target.pullRequestNumber,
+      }),
+    },
+  };
   let published = stable[0];
   const stableMarker = published ? guardRunMarker(published) : null;
   const idempotent = beginState === "idempotent"
     && published?.status === "in_progress"
     && stableMarker?.phase === "begin"
-    && compareGuardRunOrder(incomingMarker, stableMarker) === 0;
+    && compareGuardRunOrder(incomingMarker, stableMarker) === 0
+    && published.output?.text === beginCheck.output.text;
   if (!idempotent) {
     const writeCredential = await createChecksWriteInstallationAccessToken({
       appId: configuration.appId,
@@ -4183,20 +4353,32 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
         },
       });
     }
+    const mutationChecks = guardAppChecks(
+      await listGuardChecks(encodedRepository, request.target.headSha, readCredential.token),
+      configuration,
+      request.target.headSha,
+    ).filter((check) => check?.external_id === request.check.external_id);
+    if (mutationChecks.length !== stable.length || mutationChecks[0]?.id !== stable[0]?.id
+      || mutationChecks[0]?.status !== stable[0]?.status
+      || mutationChecks[0]?.conclusion !== stable[0]?.conclusion
+      || mutationChecks[0]?.output?.text !== stable[0]?.output?.text
+      || mutationChecks[0]?.output?.summary !== stable[0]?.output?.summary) {
+      throw new HttpError(409, "The dedicated guard generation changed before invalidation.");
+    }
     published = published
       ? await github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
         method: "PATCH",
-        body: Object.fromEntries(Object.entries(request.check).filter(([key]) => key !== "head_sha")),
+        body: Object.fromEntries(Object.entries(beginCheck).filter(([key]) => key !== "head_sha")),
       })
       : await github(`/repos/${encodedRepository}/check-runs`, writeCredential.token, {
         method: "POST",
-        body: request.check,
+        body: beginCheck,
       });
   }
   if (!Number.isSafeInteger(published?.id) || published.id <= 0
     || published.name !== GUARD_CHECK_NAME || published.head_sha !== request.target.headSha
     || published.status !== "in_progress" || published.external_id !== request.check.external_id
-    || published.output?.text !== request.check.output.text
+    || published.output?.text !== beginCheck.output.text
     || published.app?.id !== configuration.appId || published.app?.slug !== configuration.appSlug) {
     throw new HttpError(502, "GitHub did not return the expected in-progress dedicated-App guard.");
   }
@@ -4212,7 +4394,7 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
       publisherAppSlug: published.app.slug,
     },
     run: { id: request.workflowRunId, attempt: request.workflowRunAttempt },
-    previousContractDigest: null,
+    previousContractDigest,
   });
 }
 
@@ -4544,6 +4726,10 @@ async function guardPublish(req, res) {
   if (existing.length > 1) throw new HttpError(409, "The dedicated guard publication is ambiguous.");
   const incomingMarker = decodeGuardRunMarker(request.check.output.text);
   const currentMarker = assertGuardRunCanComplete(existing[0], incomingMarker);
+  const previousContractDigest = guardPreviousContractDigest(existing[0], request, configuration);
+  if (previousContractDigest !== null && previousContractDigest !== passport.binding.contractDigest) {
+    throw new HttpError(409, "The guard passport changed the frozen exact-head contract binding.");
+  }
   await guardEvidenceChecks(encodedRepository, passport, readCredential.token, requiredChecks);
   let published = existing[0];
   const idempotent = currentMarker.phase === "complete"
@@ -4562,6 +4748,37 @@ async function guardPublish(req, res) {
       repositoryId: repo.id,
       request: github,
     });
+    const mutationBase = await github(
+      `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
+      readCredential.token,
+    );
+    const mutationTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
+      baseRef: `refs/heads/${repo.default_branch}`,
+      headRef: body.gitRef,
+      requireUnique: true,
+    });
+    if (mutationBase?.object?.sha !== workflowSha || mutationTarget.current !== true
+      || mutationTarget.headSha !== currentTarget.headSha || mutationTarget.baseSha !== currentTarget.baseSha) {
+      throw new HttpError(409, "The GitHub target changed while guard evidence was being verified.");
+    }
+    // Evidence and credential calls can outlive this generation. Re-read after
+    // both, immediately before writing. This is a freshness check, not a CAS:
+    // GitHub Checks does not provide a documented conditional PATCH contract.
+    const mutationChecks = guardAppChecks(
+      await listGuardChecks(encodedRepository, passport.target.headSha, readCredential.token),
+      configuration,
+      passport.target.headSha,
+    ).filter((check) => check?.external_id === request.check.external_id);
+    if (mutationChecks.length !== 1 || mutationChecks[0].id !== existing[0].id) {
+      throw new HttpError(409, "The dedicated guard publication changed before completion.");
+    }
+    assertGuardRunCanComplete(mutationChecks[0], incomingMarker);
+    if (mutationChecks[0].status !== existing[0].status
+      || mutationChecks[0].conclusion !== existing[0].conclusion
+      || mutationChecks[0].output?.text !== existing[0].output?.text
+      || mutationChecks[0].output?.summary !== existing[0].output?.summary) {
+      throw new HttpError(409, "The dedicated guard generation changed before completion.");
+    }
     published = await github(`/repos/${encodedRepository}/check-runs/${existing[0].id}`, writeCredential.token, {
       method: "PATCH",
       body: Object.fromEntries(Object.entries(request.check).filter(([key]) => key !== "head_sha")),
@@ -5675,7 +5892,10 @@ export default async function handler(req, res) {
       res.setHeader("allow", allowedMethods.join(", "));
       throw new HttpError(405, "Method not allowed for this API action.");
     }
-    if (EXTERNAL_ACCESS_ACTIONS.has(action)) assertExternalAccessSourceProvenance();
+    if (EXTERNAL_ACCESS_ACTIONS.has(action)) {
+      assertExternalAccessSourceProvenance();
+      assertRolloutAccessAuthorized();
+    }
     if (method === "GET" && action === "readiness") {
       const state = readiness();
       sendJson(res, state.ready ? 200 : 503, {
@@ -5703,6 +5923,7 @@ export default async function handler(req, res) {
       const session = readSession(req);
       const configured = oauthIsConfigured() && hasSourceProvenance();
       const mode = rolloutMode();
+      const accessBlock = rolloutAccessBlock();
       sendJson(res, 200, session && configured ? {
         authenticated: true,
         configured,
@@ -5716,6 +5937,7 @@ export default async function handler(req, res) {
         configured,
         authMode: githubAppSlug() ? "github_app" : "oauth",
         rolloutMode: mode,
+        ...(accessBlock ? { accessBlock } : {}),
       });
       return;
     }

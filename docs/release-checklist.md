@@ -1,5 +1,22 @@
 # Production release checklist
 
+## Managed-v14 customer-readiness candidate — 2026-09-07
+
+The items below apply to the current candidate. Historical checked items remain evidence only for their recorded revisions.
+
+- [x] Preserve v13 Full and Verify Lite manifest hashes and upgrade each profile without widening authority.
+- [x] Vendor scheduled/manual least-privilege recovery into both profiles, with failed-workflow notification signals and no ability to create PASS.
+- [x] Keep customer alpha/self-service closed when legal, principal separation, publication serialization or commercial runtime prerequisites are absent; explain the safe block in the UI.
+- [x] Retain the authenticated contract through same-SHA generations and timeout reconciliation; revalidate target and generation after evidence/token work.
+- [x] Add reproducible operator-attested pilot measurement; empty evidence remains `not_started` and incomplete reliability coverage remains unknown.
+- [ ] Implement and adversarially verify a single fenced publication writer spanning begin, completion and reconciliation, including cancellation and delayed external requests. Do not remove `guardPublicationSerialized: false` on an operator attestation alone.
+- [ ] Prove organization-owned same-SHA Strict Head, new-head invalidation, actual scheduled recovery latency and failed-run notification delivery using the exact candidate release.
+- [ ] Complete separate Guard App, legal entity/jurisdiction/contact/payment terms and signed design-partner order forms before alpha activation.
+- [ ] Record reviewed CI, Preview denial, protected Production provenance, signed-out production smoke and rollback evidence for this candidate before calling it deployed.
+- [ ] Collect the real 30-day customer outcomes. Do not substitute synthetic proof, local tests or a store schema for customer activation and payment.
+
+See [automated SDLC architecture](automated-sdlc-architecture.md) and [launch measurement](launch-measurement.md).
+
 ## Product 1.0.0 / managed v13 protected release — 2026-09-01
 
 Managed v13 and its dedicated GitHub App publisher are deployed from protected `main`. The live public canary proves exact-head success, publisher identity, stale-head re-evaluation, protected-evidence refusal, and the inputs required for Strict Head. Queue Certified remains unproven because the available personal-account repository cannot enable GitHub Merge Queue; the real Cursor Origin mirror canary is `BLOCKED_NO_SUBSCRIPTION`. See `evidence/changeplane-v13-production-release.json`.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { reconcileGuardState } from "./guard-reconciliation.js";
+import { decodeGuardRunMarker } from "./github-guard-controller.js";
 
 const NOW = "2026-09-01T12:30:00.000Z";
 
@@ -53,4 +54,22 @@ test("does not interrupt a generation inside its bounded window", () => {
   });
   assert.equal(result.state, "within_window");
   assert.equal(result.patch, null);
+});
+
+test("preserves an earlier exact-head contract when an interrupted generation times out", () => {
+  const boundContractDigest = "a".repeat(64);
+  const result = reconcileGuardState({
+    checkRun: {
+      id: 44,
+      name: "ChangePlane / guard",
+      status: "in_progress",
+      conclusion: null,
+      started_at: "2026-09-01T12:00:00.000Z",
+      output: { text: `changeplane.guard-run/v1;run_id=8001;run_attempt=1;phase=begin;contract_digest=${boundContractDigest};pull_request_number=42` },
+    },
+    now: NOW,
+  });
+  assert.equal(result.patch.conclusion, "action_required");
+  assert.equal(decodeGuardRunMarker(result.patch.output.text).boundContractDigest, boundContractDigest);
+  assert.equal(decodeGuardRunMarker(result.patch.output.text).pullRequestNumber, 42);
 });

@@ -48,6 +48,8 @@ export function reconcileGuardState({ checkRun, now = new Date().toISOString() }
           runId: marker.runId,
           runAttempt: marker.runAttempt,
           phase: "complete",
+          boundContractDigest: marker.boundContractDigest ?? null,
+          pullRequestNumber: marker.pullRequestNumber ?? null,
         }),
       },
     },

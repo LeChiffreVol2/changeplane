@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const APP_ORIGIN = "http://127.0.0.1:43117";
-const MANAGED_VERSION = 13;
+const MANAGED_VERSION = 14;
 const INITIAL_HEAD_SHA = "71b04c2e8a5d3101cce89d4f0a0b13273f2b631d";
 const REPAIRED_HEAD_SHA = "9fc82a1b650d7a77340588f1b04f8ca4e788e7a2";
 const PAYLOAD_PROFILES = Object.freeze({
@@ -153,6 +153,26 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   await page.getByRole("tab", { name: "Delivery: Exact SHA" }).click();
   await expect(page.locator(".revision-stage-detail")).toContainText("informational only");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(externalRequests).toEqual([]);
+});
+
+test("paused alpha explains the release blocker and offers no connection action", async ({ page }) => {
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    expect(url.searchParams.get("action")).toBe("session");
+    return json(route, {
+      configured: false, authenticated: false, authMode: "github_app", rolloutMode: "private_alpha",
+      accessBlock: {
+        reason: "publication_serialization_required",
+        message: "Customer access is paused while Guard publication is being hardened. No repository was accessed or changed.",
+        nextAction: "Ask the release owner to complete the serialized publication canary.",
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("No repository was accessed or changed.");
+  await expect(page.getByRole("alert")).toContainText("complete the serialized publication canary");
+  await expect(page.getByRole("button", { name: /Install ChangePlane|Continue with GitHub/u })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open RouteThai example workspace" })).toBeVisible();
   expect(externalRequests).toEqual([]);
 });
 
@@ -387,7 +407,7 @@ test("write collaborators cannot reach autonomous expansion before owner activat
 
   await expect(page.locator(".app-stage")).toHaveCount(0);
   await expect(page.getByText("RouteThai use case · synthetic contract reconstruction")).toHaveCount(0);
-  await expect(page.getByText("Verify Lite · managed v13")).toBeVisible();
+  await expect(page.getByText(`Verify Lite · managed v${MANAGED_VERSION}`)).toBeVisible();
   await expect(page.getByRole("heading", { name: "One evidence spine. Existing tools keep their authority." })).toBeVisible();
   await expect(page.locator(".sdlc-map-stage")).toHaveCount(7);
   await expect(page.locator(".sdlc-map-stage").filter({ hasText: "Operate" })).toContainText("External");
@@ -1026,7 +1046,7 @@ test("fresh self-serve installs Verify Lite before protected Autonomous expansio
   await expect(page.getByRole("button", { name: /Create .* PR/u })).toHaveCount(0);
   await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
   await expect(page.getByText("Exact-head merge protection is active.")).toBeVisible();
-  await expect(page.getByText("Verify Lite · managed v13")).toBeVisible();
+  await expect(page.getByText(`Verify Lite · managed v${MANAGED_VERSION}`)).toBeVisible();
   await expect(page.locator(".runtime-enforcement")).toContainText("one strict, no-bypass default-branch Ruleset requires Merge Queue");
   const exploreAutonomous = page.getByRole("button", { name: /Explore Autonomous repair/u });
   await expect(exploreAutonomous).toBeVisible();
@@ -1177,7 +1197,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
       installPayload = route.request().postDataJSON();
       return json(route, {
         repository: "acme/payments-api",
-        branch: "changeplane/observe-upgrade-v13",
+        branch: `changeplane/observe-upgrade-v${MANAGED_VERSION}`,
         operation: "upgrade",
         harnessMode: "observe",
         managedVersion: MANAGED_VERSION,
@@ -1197,7 +1217,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await page.getByRole("radio", { name: /acme\/payments-api/u }).click();
 
   await expect(page.getByText("Upgrade ready")).toBeVisible();
-  await expect(page.getByText("Update managed files to version 13 without changing your policy.")).toBeVisible();
+  await expect(page.getByText(`Update managed files to version ${MANAGED_VERSION} without changing your policy.`)).toBeVisible();
   await expect(page.getByText("Current installation stays active until merge")).toBeVisible();
   await expect(page.locator(".repository-capabilities")).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Choose what the first receipt proves" })).toHaveCount(0);
@@ -1217,7 +1237,7 @@ test("a pristine legacy install offers one policy-preserving upgrade pull reques
   await expect(page.getByRole("button", { name: /Create .* PR/u })).toHaveCount(0);
   await expect(page.locator(".install-summary").getByText("acme/payments-api", { exact: true })).toBeVisible();
   await expect(page.getByText("Exact-head merge protection is active.")).toBeVisible();
-  await expect(page.getByText("Full · managed v13")).toBeVisible();
+  await expect(page.getByText(`Full · managed v${MANAGED_VERSION}`)).toBeVisible();
   await expect(page.getByText("Queue Certified active", { exact: true })).toBeVisible();
   await expect(page.getByText("Verify only is enforced by one verified GitHub Ruleset.")).toBeVisible();
   await expect(page.locator(".runtime-enforcement")).toContainText("one strict, no-bypass default-branch Ruleset requires Merge Queue");
@@ -1318,7 +1338,7 @@ test("a legacy enforce policy recovers through one reviewed Verify upgrade witho
       installPayload = route.request().postDataJSON();
       return json(route, {
         repository: "acme/legacy-service",
-        branch: "changeplane/observe-upgrade-v13",
+        branch: `changeplane/observe-upgrade-v${MANAGED_VERSION}`,
         operation: "upgrade",
         harnessMode: "verify",
         managedVersion: MANAGED_VERSION,
@@ -1635,7 +1655,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
 
   await page.getByRole("radio", { name: /acme\/current-api/u }).click();
   await expect(page.getByText("Managed files installed. Finish activation.")).toBeVisible();
-  await expect(page.getByText("Verify Lite · managed v13")).toBeVisible();
+  await expect(page.getByText(`Verify Lite · managed v${MANAGED_VERSION}`)).toBeVisible();
   await expect(page.getByRole("button", { name: "Recheck guard and enforcement" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create upgrade PR" })).toHaveCount(0);
 
@@ -1647,7 +1667,7 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   await retryButton.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("Managed files installed. Finish activation.")).toBeVisible();
-  await expect(page.getByText("Verify Lite · managed v13")).toBeVisible();
+  await expect(page.getByText(`Verify Lite · managed v${MANAGED_VERSION}`)).toBeVisible();
   await expect(page.getByRole("radio", { name: /acme\/retry-api/u })).toBeChecked();
   expect(retryPreflightRequests).toBe(2);
 

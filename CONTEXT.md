@@ -81,3 +81,7 @@ _Avoid_: Public launch, self-serve GA, enterprise-ready
 **Launch Evidence Gate**:
 The thirty-day outcome contract requiring five hands-on installations, four successful activations, median time to first protected pull request under ten minutes, two paying Customer Organizations, zero false PASS, fewer than two percent disputed false blocks, no Guard stuck longer than ten minutes, three customer-confirmed valuable blocks, and at least eighty percent gross margin.
 _Avoid_: YC-grade code, feature complete, launch ready
+
+**Launch Scorecard**:
+A reproducible summary of the Launch Evidence Gate from operator-attested customer outcomes. Missing coverage remains unknown; meeting numerical targets does not authorize customer access or establish assurance for a revision.
+_Avoid_: Launch approval, certification, live telemetry

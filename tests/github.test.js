@@ -230,7 +230,7 @@ function assuranceProofFetch(fixture, {
 }
 
 function managedManifestFileResponse(managedProfile = "verify-lite") {
-  const content = Buffer.from(managedVersionSnapshot(13, managedProfile).manifest).toString("base64");
+  const content = Buffer.from(managedVersionSnapshot(14, managedProfile).manifest).toString("base64");
   return {
     ok: true,
     status: 200,
@@ -917,7 +917,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 2);
-  assert.equal(manifest.managedVersion, 13);
+  assert.equal(manifest.managedVersion, 14);
   assert.equal(manifest.managedProfile, "verify-lite");
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
@@ -952,7 +952,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
   ]) assert.equal(fullFiles.has(expected), true, `Full Autonomous is missing ${expected}`);
   const fullManifest = JSON.parse(fullFiles.get("changeplane/manifest.json"));
   assert.equal(fullManifest.schemaVersion, 2);
-  assert.equal(fullManifest.managedVersion, 13);
+  assert.equal(fullManifest.managedVersion, 14);
   assert.equal(fullManifest.managedProfile, "full");
   assert.equal(Object.keys(fullManifest.managedFiles).length, 18);
 
@@ -986,12 +986,12 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
   assert.match(workflow, /contents: read/u);
   assert.match(workflow, /deployments: read/u);
   assert.match(workflow, /statuses: read/u);
-  assert.match(workflow, /group: changeplane-pr-\$\{\{ github\.event\.pull_request\.number \|\| github\.event\.client_payload\.pullRequestNumber \|\| github\.event\.merge_group\.head_sha \|\| github\.event\.deployment\.sha \|\| github\.run_id \}\}/u);
+  assert.match(workflow, /group: changeplane-pr-\$\{\{ github.event_name == 'schedule' && 'reconcile' \|\| github.event_name == 'workflow_dispatch' && 'reconcile' \|\| github\.event\.pull_request\.number \|\| github\.event\.client_payload\.pullRequestNumber \|\| github\.event\.merge_group\.head_sha \|\| github\.event\.deployment\.sha \|\| github\.run_id \}\}/u);
   assert.match(workflow, /actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683/u);
   assert.match(workflow, /ref: \$\{\{ github\.event\.merge_group\.base_sha \|\| \(github\.event\.pull_request\.base\.ref == github\.event\.repository\.default_branch && github\.event\.pull_request\.base\.sha\) \|\| github\.event\.repository\.default_branch \}\}/u);
   assert.match(workflow, /Bind the trusted controller revision/u);
   assert.match(workflow, /trusted_controller_sha: \$\{\{ steps\.controller\.outputs\.sha \}\}/u);
-  const guardJob = workflow.match(/  guard:\n([\s\S]*?)\n  review_propose:/u)?.[1] ?? "";
+  const guardJob = workflow.match(/  guard:\n([\s\S]*?)\n  reconcile:/u)?.[1] ?? "";
   assert.doesNotMatch(guardJob, /\n    concurrency:/u);
   const verifyStep = guardJob.match(/- name: Verify the exact revision without repair authority\n([\s\S]*?)(?=\n      - name: Run the autonomous exact-revision harness)/u)?.[1] ?? "";
   assert.match(verifyStep, /agent_dispatch: none/u);
@@ -1153,8 +1153,8 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 13,
-    targetVersion: 13,
+    currentVersion: 14,
+    targetVersion: 14,
     managedProfile: "verify-lite",
     conflicts: [],
   });
@@ -1175,7 +1175,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "conflict",
     currentVersion: null,
-    targetVersion: 13,
+    targetVersion: 14,
     conflicts: [".github/workflows/changeplane.yml"],
   });
 
@@ -1202,12 +1202,156 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(repairWorkflowConflict.conflicts, [".github/workflows/changeplane-repair.yml"]);
 });
 
+test("every installed profile includes a separate least-privilege reconciliation job", () => {
+  for (const mode of ["verify", "autonomous"]) {
+    const files = buildSetupFiles({
+      name: "CI / verify",
+      appSlug: "github-actions",
+      workflowPath: ".github/workflows/ci.yml",
+    }, mode);
+    const workflow = files.find((file) => file.path === ".github/workflows/changeplane.yml").content;
+    assert.match(workflow, /schedule:\n    - cron: "\*\/5 \* \* \* \*"\n  workflow_dispatch:/u);
+    assert.match(workflow, /guard:\n    name: ChangePlane guard\n    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'/u);
+    assert.match(workflow, /github.event_name == 'schedule' && 'reconcile' \|\| github.event_name == 'workflow_dispatch' && 'reconcile'/u);
+    const reconciliation = workflow.split("\n  reconcile:\n")[1]?.split("\n  review_propose:\n")[0];
+    assert.ok(reconciliation, `${mode} installation is missing scheduled Guard recovery`);
+    assert.match(reconciliation, /if: github.event_name == 'schedule' \|\| github.event_name == 'workflow_dispatch'/u);
+    assert.match(reconciliation, /permissions:\n      contents: read\n      id-token: write\n    steps:/u);
+    assert.match(reconciliation, /ref: \$\{\{ github.event.repository.default_branch \}\}\n          persist-credentials: false/u);
+    assert.match(reconciliation, /operation: reconcile/u);
+    assert.match(reconciliation, /trusted_controller_sha: \$\{\{ steps.controller.outputs.sha \}\}/u);
+    assert.match(reconciliation, /if: steps.reconcile.outputs.decision == 'ACTION_REQUIRED'[\s\S]*exit 1/u);
+    assert.doesNotMatch(reconciliation, /secrets\.|checks: write|contents: write|pull-requests:|OPENAI|agent_dispatch|harness\.js|review-run|operation: evaluate/u);
+    for (const action of reconciliation.matchAll(/uses: (actions\/[^\n]+)/gu)) {
+      assert.match(action[1], /^actions\/[a-z-]+@[a-f0-9]{40}$/u);
+    }
+  }
+});
+
+test("v13 profiles preserve their immutable hashes and upgrade without adding another profile's authority", () => {
+  for (const [profile, workflowHash, count] of [
+    ["full", "71919b7998ce010f25e1b078febd7722a8c4662504ec3ac6cc3b4a4a0f262b1b", 18],
+    ["verify-lite", "550ef2f0fd030686ac5b2d9b285cbc0019d751a171e239515f86f61279de1f20", 7],
+  ]) {
+    const previous = managedVersionSnapshot(13, profile);
+    const current = managedVersionSnapshot(14, profile);
+    assert.equal(previous.managedProfile, profile);
+    assert.equal(previous.managedHashes[".github/workflows/changeplane.yml"], workflowHash);
+    assert.equal(Object.keys(previous.managedHashes).length, count);
+    assert.deepEqual(Object.keys(current.managedHashes), Object.keys(previous.managedHashes));
+    assert.notEqual(current.managedHashes[".github/workflows/changeplane.yml"], workflowHash);
+    const classification = {
+      digests: { ...previous.managedHashes },
+      manifest: previous.manifest,
+      policyPresent: true,
+      reservedEntries: Object.keys(previous.managedHashes),
+    };
+    assert.deepEqual(classifyManagedInstallationDigests(classification), {
+      state: "outdated",
+      currentVersion: 13,
+      targetVersion: 14,
+      managedProfile: profile,
+      conflicts: [],
+    });
+    classification.digests[".github/workflows/changeplane.yml"] = "f".repeat(64);
+    assert.deepEqual(classifyManagedInstallationDigests(classification).conflicts, [".github/workflows/changeplane.yml"]);
+  }
+});
+
+test("a Verify Lite managed upgrade preserves its profile and repository policy", async () => {
+  const check = { name: "CI / verify", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" };
+  const files = new Map(buildSetupFiles(check, "verify").map((file) => [file.path, file.content]));
+  files.set("changeplane/manifest.json", managedVersionSnapshot(13, "verify-lite").manifest);
+  files.set(".github/workflows/changeplane.yml", "name: Previous reviewed ChangePlane workflow\n");
+  const baseSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const baseTreeSha = "c".repeat(40);
+  const newTreeSha = "d".repeat(40);
+  const mutations = [];
+  const blobs = new Map();
+  let upgradeTree = [];
+  const originalFetch = globalThis.fetch;
+  let branchCreated = false;
+  globalThis.fetch = async (request, options = {}) => {
+    const url = new URL(String(request));
+    const method = options.method ?? "GET";
+    if (method === "POST") {
+      const body = JSON.parse(options.body);
+      mutations.push({ path: url.pathname, body });
+      if (url.pathname.endsWith("/git/blobs")) {
+        const sha = createHash("sha1").update(`blob ${Buffer.byteLength(body.content)}\0`).update(body.content).digest("hex");
+        blobs.set(sha, body.content);
+        return githubJsonResponse({ sha }, 201);
+      }
+      if (url.pathname.endsWith("/git/trees")) {
+        upgradeTree = body.tree;
+        return githubJsonResponse({ sha: newTreeSha }, 201);
+      }
+      if (url.pathname.endsWith("/git/commits")) return githubJsonResponse({ sha: headSha }, 201);
+      if (url.pathname.endsWith("/git/refs")) {
+        branchCreated = true;
+        return githubJsonResponse({ ref: body.ref, object: { sha: headSha } }, 201);
+      }
+      if (url.pathname.endsWith("/pulls")) return githubJsonResponse({
+        number: 17, html_url: "https://github.com/alice/service/pull/17", state: "open",
+        body: body.body, base: { sha: baseSha }, head: { sha: headSha },
+      }, 201);
+    }
+    if (url.pathname.includes("/contents/")) {
+      const filePath = decodeURIComponent(url.pathname.split("/contents/")[1]);
+      if (url.searchParams.get("ref") === headSha) {
+        const entry = upgradeTree.find(({ path }) => path === filePath);
+        return githubJsonResponse({ type: "file", encoding: "base64", sha: entry.sha,
+          content: Buffer.from(blobs.get(entry.sha)).toString("base64") });
+      }
+      return files.has(filePath) ? managedFileResponse(files.get(filePath)) : githubJsonResponse({}, 404);
+    }
+    if (url.pathname.endsWith("/pulls")) return githubJsonResponse([]);
+    if (url.pathname.endsWith("/git/ref/heads/main")) return githubJsonResponse({ object: { sha: baseSha } });
+    if (url.pathname.endsWith("/git/ref/heads/changeplane/observe-upgrade-v14")) {
+      return branchCreated ? githubJsonResponse({ object: { sha: headSha } }) : githubJsonResponse({}, 404);
+    }
+    if (url.pathname.endsWith(`/git/commits/${baseSha}`)) return githubJsonResponse({ tree: { sha: baseTreeSha } });
+    if (url.pathname.endsWith(`/git/commits/${headSha}`)) {
+      return githubJsonResponse({ tree: { sha: newTreeSha }, parents: [{ sha: baseSha }] });
+    }
+    if (url.pathname.endsWith(`/git/trees/${newTreeSha}`)) return githubJsonResponse({ tree: upgradeTree, truncated: false });
+    if (url.pathname.endsWith(`/compare/${baseSha}...${headSha}`)) return githubJsonResponse({
+      base_commit: { sha: baseSha }, merge_base_commit: { sha: baseSha },
+      ahead_by: 1, behind_by: 0, total_commits: 1,
+      files: upgradeTree.map(({ path }) => ({ filename: path, status: "modified" })),
+    });
+    throw new Error(`Unexpected upgrade request: ${method} ${url.pathname}`);
+  };
+  try {
+    const result = await createObserveUpgradePullRequest({
+      encodedRepository: "alice/service",
+      repo: { full_name: "alice/service", owner: { login: "alice" }, default_branch: "main", permissions: { admin: true } },
+      baseSha,
+    }, { token: "test-upgrade-token" });
+    assert.equal(result.managedProfile, "verify-lite");
+    assert.equal(result.managedVersion, 14);
+    assert.equal(result.policyIncluded, false);
+    const tree = mutations.find(({ path }) => path.endsWith("/git/trees")).body;
+    assert.equal(tree.base_tree, baseTreeSha);
+    assert.deepEqual(tree.tree.map(({ path }) => path).sort(), [
+      ".github/workflows/changeplane.yml", "changeplane/manifest.json",
+    ]);
+    const manifestBlob = mutations.filter(({ path }) => path.endsWith("/git/blobs"))
+      .map(({ body }) => body.content).find((content) => content.includes('"managedFiles"'));
+    assert.equal(JSON.parse(manifestBlob).managedProfile, "verify-lite");
+    assert.equal(Object.keys(JSON.parse(manifestBlob).managedFiles).length, 7);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime trusts a managed profile only after exact tree and reserved-path verification", () => {
   const policy = `${JSON.stringify({
     version: 1,
     harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
   }, null, 2)}\n`;
-  const liteManifest = managedVersionSnapshot(13, "verify-lite").manifest;
+  const liteManifest = managedVersionSnapshot(14, "verify-lite").manifest;
   const liteTree = managedRuntimeTreeFixture("verify-lite", policy).payload.tree;
   assert.deepEqual(classifyManagedRuntimeTree({
     manifest: liteManifest,
@@ -1239,7 +1383,7 @@ test("runtime trusts a managed profile only after exact tree and reserved-path v
   });
 
   const forgedFullProfile = classifyManagedRuntimeTree({
-    manifest: managedVersionSnapshot(13, "full").manifest,
+    manifest: managedVersionSnapshot(14, "full").manifest,
     policy,
     treeEntries: liteTree,
   });
@@ -1249,9 +1393,9 @@ test("runtime trusts a managed profile only after exact tree and reserved-path v
   assert.equal(forgedFullProfile.conflicts.includes(".github/workflows/changeplane-repair.yml"), true);
 });
 
-test("pristine v11 is safely classified for a v13 Full upgrade", () => {
+test("pristine v11 is safely classified for a v14 Full upgrade", () => {
   const v11 = managedVersionSnapshot(11);
-  const v13 = managedVersionSnapshot(13);
+  const v14 = managedVersionSnapshot(14);
   assert.equal(v11.managedVersion, 11);
   assert.equal(Object.keys(v11.managedHashes).length, 18);
   assert.equal(v11.manifest.includes('"managedVersion": 11'), true);
@@ -1265,13 +1409,13 @@ test("pristine v11 is safely classified for a v13 Full upgrade", () => {
   }), {
     state: "outdated",
     currentVersion: 11,
-    targetVersion: 13,
+    targetVersion: 14,
     managedProfile: "full",
     conflicts: [],
   });
 
-  const changedManagedPaths = Object.keys(v13.managedHashes)
-    .filter((filePath) => v11.managedHashes[filePath] !== v13.managedHashes[filePath]);
+  const changedManagedPaths = Object.keys(v14.managedHashes)
+    .filter((filePath) => v11.managedHashes[filePath] !== v14.managedHashes[filePath]);
   assert.equal(changedManagedPaths.length > 0, true);
   assert.equal(changedManagedPaths.includes(".github/workflows/changeplane.yml"), true);
   assert.equal(changedManagedPaths.includes("changeplane/action/index.js"), true);
@@ -1288,7 +1432,7 @@ test("pristine v11 is safely classified for a v13 Full upgrade", () => {
   }), {
     state: "conflict",
     currentVersion: null,
-    targetVersion: 13,
+    targetVersion: 14,
     conflicts: ["changeplane/action/index.js"],
   });
 });
@@ -1433,7 +1577,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
     if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
       return githubJsonResponse(upgradePullRequest ? [upgradePullRequest] : []);
     }
-    if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v13") {
+    if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v14") {
       return upgradeBranch
         ? githubJsonResponse({ object: { sha: upgradeBranch } })
         : githubJsonResponse({}, 404);
@@ -1463,7 +1607,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
     }
     if (url.pathname === "/repos/alice/service/git/refs" && method === "POST") {
       assert.deepEqual(body, {
-        ref: "refs/heads/changeplane/observe-upgrade-v13",
+        ref: "refs/heads/changeplane/observe-upgrade-v14",
         sha: upgradeHeadSha,
       });
       upgradeBranch = upgradeHeadSha;
@@ -1514,7 +1658,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
       permissions: { push: true, admin: true },
     },
     baseSha,
-    installation: { state: "outdated", currentVersion: 12, targetVersion: 13 },
+    installation: { state: "outdated", currentVersion: 12, targetVersion: 14 },
   };
   try {
     const first = await createObserveUpgradePullRequest(target, { token: "alice-token" }, exactCheck);
@@ -1555,7 +1699,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
   }
 });
 
-test("pristine manifestless Full install creates one manifest-only v13 upgrade PR from the base commit tree", async () => {
+test("pristine manifestless Full install creates one manifest-only v14 upgrade PR from the base commit tree", async () => {
   await withOAuthEnvironment(async () => {
     const session = seal({
       kind: "session",
@@ -1630,7 +1774,7 @@ test("pristine manifestless Full install creates one manifest-only v13 upgrade P
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v13") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v14") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1732,7 +1876,7 @@ test("pristine manifestless Full install creates one manifest-only v13 upgrade P
       assert.equal(staleRecoveryPreflight.statusCode, 200);
       assert.equal(JSON.parse(staleRecoveryPreflight.body).installable, false);
       assert.equal(JSON.parse(staleRecoveryPreflight.body).setup.state, "stale");
-      assert.match(JSON.parse(staleRecoveryPreflight.body).setup.message, /Close it and delete changeplane\/observe-upgrade-v13/u);
+      assert.match(JSON.parse(staleRecoveryPreflight.body).setup.message, /Close it and delete changeplane\/observe-upgrade-v14/u);
       assert.equal(calls.filter(({ method }) => method !== "GET").length, firstMutationCount);
 
       repoAdmin = false;
@@ -1802,7 +1946,7 @@ test("Verify-first setup defaults a selected Check to Verify and reuses one GitH
       goal: "Install the ChangePlane verify harness",
       scope: [...new Set(scope)],
       harnessMode: "verify",
-      managedVersion: 13,
+      managedVersion: 14,
       managedProfile: "verify-lite",
       requiredCheck: configuredCheck,
     };
@@ -2029,7 +2173,7 @@ test("Verify-first setup defaults a selected Check to Verify and reuses one GitH
         goal: "Install the ChangePlane observe harness",
         scope: [...new Set(scope)],
         harnessMode: "observe",
-        managedVersion: 13,
+        managedVersion: 14,
         managedProfile: "verify-lite",
       };
       const conflictingBehaviorResponse = responseRecorder();
@@ -2054,7 +2198,7 @@ test("Verify-first setup defaults a selected Check to Verify and reuses one GitH
         goal: "Install the ChangePlane autonomous harness",
         scope: [...new Set(autonomousScope)],
         harnessMode: "autonomous",
-        managedVersion: 13,
+        managedVersion: 14,
         managedProfile: "full",
         requiredCheck: configuredCheck,
       };
@@ -2357,11 +2501,14 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         appOrigin: true,
         guardPublisher: true,
         guardPrincipalSeparated: false,
+        guardPublicationSerialized: false,
         commercialStore: false,
         commercialStoreVerified: false,
+        commercialRuntimeIntegrated: false,
         legalRelease: false,
         sourceProvenance: false,
         canaryRepository: true,
+        rolloutAuthorized: true,
       },
       authMode: "github_app",
       rolloutMode: "controlled_canary",
@@ -2414,11 +2561,14 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         appOrigin: true,
         guardPublisher: true,
         guardPrincipalSeparated: false,
+        guardPublicationSerialized: false,
         commercialStore: false,
         commercialStoreVerified: false,
+        commercialRuntimeIntegrated: false,
         legalRelease: false,
         sourceProvenance: true,
         canaryRepository: true,
+        rolloutAuthorized: true,
       },
       authMode: "github_app",
       rolloutMode: "controlled_canary",
@@ -2498,7 +2648,7 @@ test("readiness marks explicit Installer App reuse as operational but not commer
   });
 });
 
-test("readiness becomes commercially ready only with distinct Apps, event storage, and legal approval", async () => {
+test("readiness cannot claim commercial integration from configuration and release approvals", async () => {
   await withOAuthEnvironment(async () => {
     Object.assign(process.env, {
       GITHUB_APP_ID: "111111",
@@ -2536,7 +2686,8 @@ test("readiness becomes commercially ready only with distinct Apps, event storag
     assert.equal(commercial.checks.commercialStore, true);
     assert.equal(commercial.checks.commercialStoreVerified, true);
     assert.equal(commercial.checks.legalRelease, true);
-    assert.equal(commercial.commercialReady, true);
+    assert.equal(commercial.checks.commercialRuntimeIntegrated, false);
+    assert.equal(commercial.commercialReady, false);
     assert.equal(commercial.principalSeparation, "separate_guard_app");
   });
 });
@@ -2580,7 +2731,7 @@ test("hosted rollout stays closed when the disposable canary setting is missing"
   });
 });
 
-test("production self-serve stays closed until legal approval is bound to the exact release", async () => {
+test("production self-serve stays closed without exact legal approval and commercial integration", async () => {
   await withGitHubAppEnvironment(async () => {
     Object.assign(process.env, {
       CHANGEPLANE_SELF_SERVE_ENABLED: "true",
@@ -2608,8 +2759,8 @@ test("production self-serve stays closed until legal approval is bound to the ex
       const closedResponse = responseRecorder();
       await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, closedResponse);
       const closed = JSON.parse(closedResponse.body);
-      assert.equal(closedResponse.statusCode, 200);
-      assert.equal(closed.rolloutMode, "controlled_canary");
+      assert.equal(closedResponse.statusCode, 503);
+      assert.equal(closed.rolloutMode, "self_serve");
       assert.equal(closed.checks.canaryRepository, true);
       assert.equal(closed.commercialReady, false);
     }
@@ -2621,7 +2772,7 @@ test("production self-serve stays closed until legal approval is bound to the ex
     const openResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, openResponse);
     const open = JSON.parse(openResponse.body);
-    assert.equal(openResponse.statusCode, 200);
+    assert.equal(openResponse.statusCode, 503);
     assert.equal(open.rolloutMode, "self_serve");
     assert.equal(open.checks.canaryRepository, true);
     assert.equal(open.checks.legalRelease, true);
@@ -2629,12 +2780,12 @@ test("production self-serve stays closed until legal approval is bound to the ex
 
     const sessionResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=session", headers: {} }, sessionResponse);
-    assert.deepEqual(JSON.parse(sessionResponse.body), {
-      authenticated: false,
-      configured: true,
-      authMode: "github_app",
-      rolloutMode: "self_serve",
-    });
+    const blockedSession = JSON.parse(sessionResponse.body);
+    assert.equal(blockedSession.authenticated, false);
+    assert.equal(blockedSession.configured, false);
+    assert.equal(blockedSession.authMode, "github_app");
+    assert.equal(blockedSession.rolloutMode, "self_serve");
+    assert.equal(blockedSession.accessBlock.reason, "separate_guard_required");
   });
 });
 
@@ -2977,9 +3128,11 @@ test("controlled canary mode lists and authorizes only the exact disposable repo
   });
 });
 
-test("private alpha exposes only its exact invited repository allowlist", async () => {
+test("private alpha cannot access invited or uninvited repositories before publication serialization", async () => {
   await withGitHubAppEnvironment(async () => {
     Object.assign(process.env, {
+      GITHUB_APP_ID: "111111",
+      GITHUB_APP_SLUG: "changeplane-installer",
       CHANGEPLANE_ALPHA_REPOSITORIES_JSON: JSON.stringify([
         "acme/payment-api",
         "beta/agent-service",
@@ -2997,20 +3150,11 @@ test("private alpha exposes only its exact invited repository allowlist", async 
       installationId: 123,
       installationIds: [123],
     }, SECRET);
-    const repositories = [
-      { full_name: "acme/payment-api", private: true, default_branch: "main", permissions: { push: true, admin: true } },
-      { full_name: "beta/agent-service", private: true, default_branch: "main", permissions: { push: true, admin: true } },
-      { full_name: "stranger/uninvited", private: true, default_branch: "main", permissions: { push: true, admin: true } },
-    ];
     let calls = 0;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async () => {
       calls += 1;
-      const requestUrl = new URL(String(url));
-      if (requestUrl.pathname === "/user/installations/123/repositories") {
-        return githubJsonResponse({ repositories });
-      }
-      throw new Error(`Unexpected request: ${requestUrl.pathname}`);
+      throw new Error("Customer publication containment must fail before GitHub");
     };
     try {
       const sessionResponse = responseRecorder();
@@ -3023,12 +3167,9 @@ test("private alpha exposes only its exact invited repository allowlist", async 
         url: "/api/github?action=repos",
         headers: { cookie: `__Host-changeplane_session=${session}` },
       }, listResponse);
-      assert.equal(listResponse.statusCode, 200, listResponse.body);
-      assert.deepEqual(
-        JSON.parse(listResponse.body).repositories.map(({ fullName }) => fullName),
-        ["acme/payment-api", "beta/agent-service"],
-      );
-      assert.equal(calls, 1);
+      assert.equal(listResponse.statusCode, 503, listResponse.body);
+      assert.match(JSON.parse(listResponse.body).error, /overlapping evaluations/u);
+      assert.equal(calls, 0);
 
       const rejectedResponse = responseRecorder();
       await handler({
@@ -3036,9 +3177,9 @@ test("private alpha exposes only its exact invited repository allowlist", async 
         url: "/api/github?action=preflight&repository=stranger%2Funinvited",
         headers: { cookie: `__Host-changeplane_session=${session}` },
       }, rejectedResponse);
-      assert.equal(rejectedResponse.statusCode, 403);
-      assert.match(JSON.parse(rejectedResponse.body).error, /invite-only alpha/iu);
-      assert.equal(calls, 1);
+      assert.equal(rejectedResponse.statusCode, 503);
+      assert.match(JSON.parse(rejectedResponse.body).error, /overlapping evaluations/u);
+      assert.equal(calls, 0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -3389,7 +3530,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 13,
+        targetVersion: 14,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
@@ -5058,6 +5199,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
     let evidenceWorkflowPath = ".github/workflows/ci.yml@refs/heads/main";
     let associatedPullRequests = [fixture.pullRequest];
     let liveGuardCheck = null;
+    let supersedeOnNextWriteToken = false;
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input, options = {}) => {
       const url = new URL(String(input));
@@ -5078,6 +5220,16 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       if (url.pathname === "/app/installations/7007/access_tokens") {
         const requested = JSON.parse(options.body);
         const kind = requested.permissions.checks;
+        if (kind === "write" && supersedeOnNextWriteToken) {
+          supersedeOnNextWriteToken = false;
+          liveGuardCheck = {
+            ...liveGuardCheck,
+            output: {
+              ...liveGuardCheck.output,
+              text: liveGuardCheck.output.text.replace("run_id=8002", "run_id=8003"),
+            },
+          };
+        }
         return githubJsonResponse({
           token: kind === "write" ? "ghs_guard_write_only" : "ghs_guard_read_only",
           expires_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
@@ -5428,6 +5580,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       }, nextBegin);
       assert.equal(nextBegin.statusCode, 200, nextBegin.body);
       assert.deepEqual(JSON.parse(nextBegin.body).run, { id: 8002, attempt: 1 });
+      assert.equal(JSON.parse(nextBegin.body).previousContractDigest, passport.binding.contractDigest);
       assert.equal(calls.filter(({ method, path }) => (
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
       )).length, writesBeforeNextGeneration + 1);
@@ -5435,7 +5588,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       assert.equal(liveGuardCheck.conclusion, null);
       assert.equal(
         liveGuardCheck.output.text,
-        "changeplane.guard-run/v1;run_id=8002;run_attempt=1;phase=begin",
+        `changeplane.guard-run/v1;run_id=8002;run_attempt=1;phase=begin;contract_digest=${passport.binding.contractDigest};pull_request_number=42`,
       );
 
       const staleGenerationCompletion = responseRecorder();
@@ -5461,6 +5614,65 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       assert.equal(staleGenerationCompletion.statusCode, 409, staleGenerationCompletion.body);
       assert.match(JSON.parse(staleGenerationCompletion.body).error, /lease/iu);
       assert.equal(liveGuardCheck.status, "in_progress");
+
+      const nextGenerationRequest = (body) => ({
+        method: "POST",
+        url: "/api/github?action=guard-publish",
+        headers: { authorization: `Bearer ${nextOidcToken}`, "content-type": "application/json" },
+        body: {
+          schemaVersion: 1,
+          repository: fixture.repository,
+          defaultBranch: "main",
+          gitRef: "refs/heads/main",
+          workflowRunId: 8002,
+          workflowRunAttempt: 1,
+          ...body,
+        },
+      });
+      const resumedBegin = responseRecorder();
+      await handler(nextGenerationRequest({
+        type: "changeplane.guard-publication-begin",
+        repositoryId: fixture.repositoryId,
+        controllerSha: fixture.baseSha,
+        target: {
+          type: "pull_request",
+          pullRequestNumber: fixture.pullRequestNumber,
+          baseSha: fixture.baseSha,
+          headSha: fixture.headSha,
+          baseRef: "main",
+          headRef: "agent/retry-fix",
+        },
+      }), resumedBegin);
+      assert.equal(resumedBegin.statusCode, 200, resumedBegin.body);
+      assert.equal(JSON.parse(resumedBegin.body).previousContractDigest, passport.binding.contractDigest);
+
+      const changedReceipt = { ...fixture.receipt, contractDigest: "c".repeat(64), boundContractDigest: "c".repeat(64) };
+      const changedContractResponse = responseRecorder();
+      const writesBeforeChangedContract = calls.filter(({ method }) => method === "PATCH").length;
+      await handler(nextGenerationRequest({
+        type: "changeplane.guard-publication-request",
+        passport: buildAssurancePassport(changedReceipt),
+        summary: renderReceiptComment(changedReceipt),
+      }), changedContractResponse);
+      assert.equal(changedContractResponse.statusCode, 409, changedContractResponse.body);
+      assert.match(JSON.parse(changedContractResponse.body).error, /frozen exact-head contract/iu);
+      assert.equal(calls.filter(({ method }) => method === "PATCH").length, writesBeforeChangedContract);
+
+      const beforeSupersession = structuredClone(liveGuardCheck);
+      supersedeOnNextWriteToken = true;
+      const delayedCompletion = responseRecorder();
+      const writesBeforeDelayedCompletion = calls.filter(({ method }) => method === "PATCH").length;
+      await handler(nextGenerationRequest({
+        type: "changeplane.guard-publication-request",
+        passport,
+        summary: fixture.guardCheck.output.summary,
+      }), delayedCompletion);
+      assert.equal(delayedCompletion.statusCode, 409, delayedCompletion.body);
+      assert.match(JSON.parse(delayedCompletion.body).error, /lease/iu);
+      assert.equal(calls.filter(({ method }) => method === "PATCH").length, writesBeforeDelayedCompletion);
+      assert.match(liveGuardCheck.output.text, /run_id=8003/u);
+      assert.equal(liveGuardCheck.status, "in_progress");
+      liveGuardCheck = beforeSupersession;
 
       const nextCompletion = responseRecorder();
       await handler({
@@ -5557,6 +5769,48 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
       )).length;
       assert.equal(guardWritesAfterStaleAttempt, guardWritesBeforeStaleAttempt);
+
+      // A different PR can reuse the same commit after the old PR closes. Its
+      // authenticated old PASS must be invalidated without inheriting PR42's contract.
+      const closedPullRequest = { ...fixture.pullRequest, state: "closed" };
+      fixture.pullRequestNumber = 43;
+      fixture.pullRequest = { ...fixture.pullRequest, number: 43 };
+      associatedPullRequests = [closedPullRequest, fixture.pullRequest];
+      const replacementPayload = Buffer.from(JSON.stringify({
+        ...nextClaims,
+        run_id: "8003",
+        jti: "changeplane-api-test-8003-1",
+      })).toString("base64url");
+      const replacementInput = `${oidcHeader}.${replacementPayload}`;
+      const replacementSignature = sign("RSA-SHA256", Buffer.from(replacementInput), {
+        key: oidcPrivateKey,
+        padding: constants.RSA_PKCS1_PADDING,
+      }).toString("base64url");
+      const replacementRequest = nextGenerationRequest({
+        type: "changeplane.guard-publication-begin",
+        workflowRunId: 8003,
+        repositoryId: fixture.repositoryId,
+        controllerSha: fixture.baseSha,
+        target: {
+          type: "pull_request",
+          pullRequestNumber: 43,
+          baseSha: fixture.baseSha,
+          headSha: fixture.headSha,
+          baseRef: "main",
+          headRef: "agent/retry-fix",
+        },
+      });
+      replacementRequest.headers.authorization = `Bearer ${replacementInput}.${replacementSignature}`;
+      const replacementBegin = responseRecorder();
+      assert.equal(liveGuardCheck.conclusion, "success");
+      await handler(replacementRequest, replacementBegin);
+      assert.equal(replacementBegin.statusCode, 200, replacementBegin.body);
+      assert.equal(JSON.parse(replacementBegin.body).previousContractDigest, null);
+      assert.equal(liveGuardCheck.id, 919);
+      assert.equal(liveGuardCheck.status, "in_progress");
+      assert.equal(liveGuardCheck.conclusion, null);
+      assert.equal(liveGuardCheck.output.text, "changeplane.guard-run/v1;run_id=8003;run_attempt=1;phase=begin;pull_request_number=43");
+      assert.notEqual(liveGuardCheck.output.summary, fixture.guardCheck.output.summary);
     } finally {
       globalThis.fetch = originalFetch;
     }

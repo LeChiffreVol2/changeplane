@@ -12,6 +12,8 @@ const paths = [
   "TERMS.md",
   "EVALUATION.md",
   "docs/agentic-sdlc.md",
+  "docs/automated-sdlc-architecture.md",
+  "docs/launch-measurement.md",
   "docs/commercial-plan.md",
   "docs/cursor-origin-boundary.md",
   "docs/data-handling.md",

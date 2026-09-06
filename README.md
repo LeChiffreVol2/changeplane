@@ -4,7 +4,7 @@
 
 The independent assurance plane for code written and repaired by AI agents.
 
-Deployed technical baseline: **1.0.0** · managed repository payload: **v13**. The current source is a later protected-release candidate. New customer onboarding remains closed until that exact release passes its owner canary, and then opens only to an explicit Design Partner Alpha repository allowlist.
+Deployed technical baseline: **1.0.0** · managed repository payload: **v13**. The current source prepares managed **v14** with installed reconciliation and profile-preserving upgrades. Customer onboarding remains closed: serialized Guard publication must be implemented and live-proven, then exact-release legal approval, separate Guard identity and a Design Partner Alpha repository allowlist must pass. See [automated SDLC architecture and release blockers](docs/automated-sdlc-architecture.md).
 
 The managed-v13 release places publisher-bound assurance between an agent-authored pull request and GitHub policy. The GitHub-owned Actions job reports operational liveness as `ChangePlane guard`; it is not merge authority. A separately credentialed GitHub App owns the assurance result `ChangePlane / guard`. A model may propose a bounded patch, the deterministic harness decides, and the controller applies only an accepted patch. Only the same authenticated workflow run and attempt may complete the App-owned guard from the latest workflow-bound evidence on the exact head.
 
@@ -50,6 +50,8 @@ flowchart LR
 The proposal job receives no GitHub token, App private key, controller secret, push credential, approval authority, merge permission, or Check authority. A model cannot return `PASS`.
 
 ## Agentic SDLC assurance
+
+The immediate commercial outcome is founder-led Verify Lite plus Strict Head, measured with the [30-day launch scorecard](docs/launch-measurement.md). Run `npm run report:launch` for the empty evidence baseline; it reports `not_started` rather than inferring customer traction from engineering tests.
 
 ChangePlane now projects its existing exact-revision controls across the software-delivery lifecycle without becoming another planning board, IDE, CI service, deployment platform, or operations console. The repository runtime-readiness response describes which lifecycle checkpoints are controlled, supported, external, or still need setup. The signed-out RouteThai workspace teaches the same boundary through an interactive seven-step synthetic spine: **Intent → Change → Review → Verify → Delivery → Merge → Operate**. A live per-pull-request SDLC API or managed receipt field is not part of this candidate.
 
