@@ -1,0 +1,135 @@
+# Guard publication journal — candidate operating design
+
+**Status:** A candidate operating design for review. It is not a provisioned service, production approval, measured capacity report, or customer release. Customer access stays closed until the implementation, integration, and operating drills below pass for the exact protected release. This document does not override `guardPublicationSerialized`, legal approval, principal separation, or commercial-runtime gates.
+
+Hosted Production requires the journal for every Guard mutation, including the owner canary. Missing, disabled, unhealthy, or mismatched journal configuration stops publication; disabling the journal never restores the unjournaled publisher. Do not promote this candidate before the dedicated database enrollment and a separate new Guard App principal are ready. The customer capability gate remains false until live serialized-canary evidence passes. Only non-hosted tests may retain legacy behavior when no journal was requested; that path is not a supported Production fallback.
+
+The [engineering policy](../AGENTS.md) permits a database expansion only with reviewed isolation, metering, budgets, billing, and incident controls. This journal exists solely to exclude overlapping Guard writes. GitHub remains the forge, Check surface, policy surface, and merge authority. The deterministic evaluator decides assurance; a journal claim cannot authorize PASS, broaden a patch, or replace fresh exact-revision evidence.
+
+## Authority boundary
+
+Every Guard begin, completion, and reconciliation mutation must pass through the same journal adapter after GitHub authentication and repository binding. A durable lane is keyed by the authenticated repository ID and a revision fingerprint. The fingerprint must identify the shared GitHub Check mutation target consistently across all three operations; generation or operation must not create a second lane for the same target. The trusted server derives this scope, its installation binding, and its deployment release. Request fields and models cannot select a different tenant, epoch, release, or lane.
+
+Claiming a lane is a short database transaction. The committed row survives connection loss and process death. GitHub writes happen only after confirmed acquisition, with the lane held durably throughout every awaited external write and response validation. The same owner may release a reservation when no write has begun, or release a successful operation after all writes and validation finish. Any failure after a write starts, a pending write when the handler exits, or an ambiguous database acknowledgement leaves the lane occupied or poisoned. A conflicting request stops safely; it does not wait in a new ChangePlane queue.
+
+There is no lease expiry, timer takeover, retry that clears another owner, or automatic poison recovery. An abandoned `reserved` row may also need incident recovery because elapsed time cannot prove its owner will never resume. A GitHub Actions cancellation, Vercel timeout, token-rotation request, or observed Check state is not by itself proof that a previously dispatched request cannot still finish.
+
+PostgreSQL row locks end with their transaction, and advisory locks can end with a session. They coordinate the transition that writes the durable lane; they are insufficient by themselves to fence an external GitHub request after a process or connection failure. See PostgreSQL's [explicit locking documentation](https://www.postgresql.org/docs/current/explicit-locking.html).
+
+## Candidate schema and metadata
+
+The candidate [migration](../database/002_guard_publication_journal.sql) uses a separate `changeplane_guard` schema. Enrollment is keyed by `repository_id` and binds `tenant_id`, `installation_id`, `guard_app_id`, an epoch UUID, the exact 40-character protected release SHA, enabled state, and `max_lanes`. A lane includes that enrollment binding, its revision fingerprint, a private owner UUID, operation (`begin`, `complete`, or `reconcile`), phase (`reserved`, `writing`, or `poisoned`), and claim/update timestamps. Enrollment references restrict deletion rather than cascading unresolved authority away.
+
+The [server adapter](../server/guard-publication-journal.js) exposes `withPublication(scope, callback)` and `callback({ write })`. Every mutable Guard read belongs inside the callback. Every external mutation belongs inside an awaited `write` operation, and response validation must finish before the publication callback returns and releases ownership. Detached work and transport retries must not outlive that boundary. SQL transitions use `changeplane_guard.transition` with `claim`, `write`, `release_reserved`, `release_written`, or `poison`; release matches the private owner and exact scope. Disabling enrollment rejects all transitions, including release and poison annotation. It is a hard halt: an already-held row remains held, rather than draining automatically.
+
+| Stored item | Purpose and restriction |
+| --- | --- |
+| Numeric tenant, installation, repository, and Guard App IDs | Authorization binding; derive from authenticated GitHub identity and approved enrollment. They are pseudonymous identifiers, not anonymous data. |
+| Revision fingerprint | Identify one exact Check target without storing customer source or repository names. Preserve the same derivation across operations and releases. |
+| Protected source release SHA and epoch UUID | Reject unenrolled deployments and old enrollment epochs. These do not fence a GitHub write already in flight. |
+| Private lane-owner UUID | Match the active server operation during transitions. Treat it as an internal capability; never expose it to the browser, model, public response, or logs. |
+| Operation, phase, timestamps, enabled state, finite lane cap | Enforce exclusion, contain ambiguous work, and measure bounded operational usage. |
+
+Do not store GitHub credentials, App private keys, database passwords, OAuth sessions, provider keys, source, diffs, prompts, patches, provider responses, repository names, customer business data, or complete GitHub request/response bodies. Credentials remain in the separately controlled server environment and short-lived request memory. Journal errors and metrics contain request IDs, bounded reason codes, counts, and redacted metadata only.
+
+Successful lane release removes the live exclusion row. The candidate is not an append-only event history, cached-result service, billing ledger, or Fleet database. Operational audit evidence must not be invented from rows that no longer exist.
+
+## Isolation and database roles
+
+Use a dedicated authority database and credentials with no commercial-store access. A separate schema name alone does not isolate shared backups, privileged operators, failure domains, or credentials. Reuse of a managed database service requires a separate reviewed isolation decision before activation; the default operating design is a separate authority database.
+
+| Role | Required boundary |
+| --- | --- |
+| Migration/enrollment operator | Applies reviewed schema and enrollment changes through controlled operations. Credentials are absent from the hosted request runtime. It may not erase uncertain lanes as routine maintenance. |
+| Transition-function owner | `changeplane_guard_journal_owner`: `NOLOGIN`, no superuser or `BYPASSRLS`, fixed trusted function search path, and only the authority needed by reviewed transitions. The runtime cannot assume this role or replace its functions. |
+| Hosted runtime | `changeplane_guard_journal_runtime`: execute-only access to reviewed state transitions and tenant-scoped enrollment reads; no direct table DML, enrollment, reset, deletion, schema creation, role administration, or arbitrary recovery. A provisioned login receives only this role's approved privileges. |
+| Monitoring reader | Redacted operational counts with no lane-owner capability or customer content. No write, takeover, or enrollment authority. |
+| Backup/recovery operator | Separate privileged operational identity. Proves complete authority-state backup and restoration; credentials are never supplied to the web runtime or customer. |
+
+Require forced row-level security with `changeplane.guard_tenant_id` scoped to each transaction; missing or wrong context must fail closed. Revoke public function execution and unneeded schema privileges. A `SECURITY DEFINER` transition function must use a fixed search path and validated arguments. The service sets tenant context only after authenticating the GitHub installation/repository binding; a custom database setting is not authentication by itself. Monitoring and recovery access are separate provisioning requirements, not roles automatically granted by this candidate migration.
+
+Test role membership and actual grants, not just policy text. PostgreSQL documents that superusers and `BYPASSRLS` roles bypass row security; owners normally do too unless forced RLS applies. Backup completeness also needs separate verification because an RLS-filtered backup can omit rows. See [row security policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
+
+## Admission, capacity, and cost
+
+The candidate serializes admission on the enrollment row and counts occupied and poisoned lanes against that repository's `max_lanes`. The schema permits a finite cap from 1 to 1,000; this is an input bound, not evidence that any value supports a particular workload. Normal release of a successfully completed lane returns capacity. There is no stored backlog, automatic retry storm, or eviction of uncertain rows to create capacity.
+
+The adapter currently limits each locally created pool to four connections, with a five-second connection timeout and ten-second idle timeout. Each transition sets a two-second lock timeout, five-second statement timeout, and synchronous commit. These are configuration bounds, not global service capacity, end-to-end request deadlines, or measured performance. A timeout never clears a previously held lane. The repository cap and pool settings do not implement global enrollment, physical storage, transaction-rate, or provider-spend enforcement; those remain activation requirements.
+
+Before a canary, the release owner must record the selected cap and an operating budget for the exact deployment. Before any customer activation, the following limits must have measured enforcement and a named owner. Missing limits keep enrollment closed.
+
+| Required budget | Measurement and action |
+| --- | --- |
+| Repository and tenant enrollment count | Admit only the explicitly reviewed repository set; start with the single owner canary. Record finite per-tenant and service-wide caps before expansion. |
+| Occupied lanes and physical storage | Measure rows, indexes, table growth, WAL, and backup storage. A repository cap does not establish a global byte limit. Reserve capacity for finishing or poisoning work already admitted. |
+| Database connections and transition duration | Bound the runtime pool, statement/lock waits, and request duration. A database timeout stops admission; it never releases or steals a durable lane. |
+| Transaction rate and retries | Meter claim attempts, conflicts, transitions, and upstream attempts. Deny excess new admission and honor GitHub rate limits. Never replay an ambiguous external write to improve a success metric. |
+| Monthly provider spend | The release owner records a finite currency budget covering database compute, storage, WAL/backup, network, and Vercel overhead. No amount has been approved or measured by this document. |
+
+The proposed operating target is to alert and stop expansion at 80% of an approved capacity or spend budget, and stop new admission at its hard limit. These thresholds are operating targets, not measured capacity or an availability promise. Reaching a budget never deletes a poisoned lane or returns an unevaluated success. If the provider cannot preserve already-admitted authority safely at the limit, halt publication and enter incident recovery.
+
+Journal costs belong to ChangePlane's service operator. Lane claims, conflicts, poison events, and database transactions create no customer charge and are not customer Evaluation Events. Any paid product remains governed by a separately reviewed order form, cost evidence, and commercial ingestion/entitlements. The journal cannot turn `commercialReady` true.
+
+## Durability, restore, and failover
+
+Required authority RPO is zero: no acknowledged exclusion decision may disappear or move backward while an old writer could still affect the same Guard principal. This is a safety requirement, not a claim that a selected provider delivers it. Ordinary backups, a retention setting, or an available replica do not establish it.
+
+PostgreSQL streaming replication is asynchronous by default and can lose transactions that have not reached the promoted standby. Therefore an unproven failover cannot admit new writers against the old Guard principal. See [standby and synchronous replication](https://www.postgresql.org/docs/current/warm-standby.html).
+
+Require durable WAL acknowledgement for every authority transition and verify the actual primary, synchronous-standby, promotion, and storage configuration. PostgreSQL's `synchronous_commit` modes have different durability guarantees; a synchronous setting without configured synchronous standbys does not prove remote durability. `remote_write` is insufficient evidence of standby disk durability after an operating-system crash. See [WAL configuration](https://www.postgresql.org/docs/current/runtime-config-wal.html). Provider-specific failover and split-brain fencing still require their own evidence.
+
+After restore, failover, point-in-time rollback, or suspected authority loss, halt all publication and new enrollment. Do not interpret a missing lane as a clean initial state. Resume the same principal only after proving complete, non-regressed authority state and fencing every prior writer. If either proof is unavailable, keep the old principal disabled, establish a new Guard App principal and epoch, and have repository administrators approve and verify fresh publisher-bound Ruleset requirements. Changing only an epoch, a database password, or the enabled flag does not fence an already-issued GitHub request.
+
+The candidate has no automatic recovery that manufactures this proof. A restore drill for `001_commercial_plane.sql` does not satisfy an authority-journal restore drill.
+
+## Release enrollment, rotation, and rollback
+
+Enroll only an attributed Vercel Production deployment from the protected `LeChiffreVol2/changeplane` `main` revision. The stored release SHA must match the exact source commit, and the epoch must match the approved enrollment. Previews, forks, CLI uploads, unenrolled releases, changed principal/installation bindings, and disabled enrollments fail before a Check mutation.
+
+| Server configuration | Required binding |
+| --- | --- |
+| `CHANGEPLANE_GUARD_JOURNAL_ENABLED` | Exact `true` for the reviewed adapter. Missing or disabled stops hosted Guard writes, including canary writes. |
+| `CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL` | Server-only `postgres:` or `postgresql:` connection for the dedicated authority database and least-privilege runtime role. The parser requires a host, username, database path, and exactly one query pair, `sslmode=verify-full`. It rejects `sslmode=require`, duplicate or extra options, fragments, and encoded hosts. Verify actual certificate handling, role grants, and provider configuration during enrollment; never return or log the URL. |
+| `CHANGEPLANE_GUARD_JOURNAL_EPOCH` | Exact UUID of the approved enrollment epoch. A different epoch cannot inherit or clear occupied authority. |
+| `CHANGEPLANE_GUARD_JOURNAL_VERIFIED_RELEASE` | Exact protected source SHA approved for the journal deployment; the operation scope also carries `releaseSha` and must match the database enrollment. This setting cannot substitute for missing implementation or live canary evidence. |
+
+Configuration additionally requires a distinct Guard App and an exact 40-character current source SHA matching `CHANGEPLANE_GUARD_JOURNAL_VERIFIED_RELEASE`; `development` is not a journal release binding. Every `VERCEL=1` environment requires this configuration, while external access still independently requires attributed Production provenance. Non-hosted fixtures may use the old test path only if no journal setting is present and no journal adapter was requested; even an empty `CHANGEPLANE_GUARD_JOURNAL_` setting requests validation.
+
+Readiness separates `checks.guardJournalConfiguration` (local configuration validation) from `checks.guardJournalConfigured` (a journal configuration was supplied). Invalid required configuration returns `configuration_required`; configuration success performs no database connection, enrollment query, health probe, durability check, or failover proof. `checks.guardPublicationSerialized` remains false in code pending the live operating evidence. The environment attestation, parser, and database enrollment are distinct checks, not interchangeable claims of safety.
+
+A release or epoch change must not reset, delete, or orphan occupied lanes. First stop admission, prove known operations have finished, and inventory all unresolved lanes. Retain any unresolved ownership and choose incident recovery if an old writer cannot be fenced. A previous known-good code deployment is not automatically a safe database or Guard-authority rollback: it must use the same guarded protocol and an explicitly reviewed enrollment. If the rollback target cannot satisfy that boundary, keep Guard publication paused. Never clear `CHANGEPLANE_GUARD_JOURNAL_ENABLED` or roll back to an unjournaled writer to recover availability.
+
+Rotate database credentials through a reviewed operation: halt admission, issue the new least-privilege credential, verify its grants and tenant restrictions, revoke the old credential, and confirm old sessions cannot admit new work. Database credential rotation does not invalidate already-minted GitHub tokens. Rotate App credentials separately, preserve lane state, and prove outstanding-writer containment; unresolved writes require the principal-recovery procedure above. Record secret identifiers, owners, rotation dates, and outcomes outside public materials; never record secret values.
+
+## Retention and deletion
+
+An occupied, `writing`, poisoned, or otherwise uncertain authority row has no automatic retention expiry. Commercial event deletion, tenant deletion, backup pruning, and administrative cascades must not remove it or its enrollment. Do not truncate the journal, reset an epoch, or recreate the schema as a deletion procedure.
+
+Successful operations remove their lane through the verified owner transition. A customer deletion request first disables new admission and is reviewed against unresolved authority, issued credentials, required Guard bindings, and retained backups. Deletion can finish only after prior writers are fenced and deleting records cannot recreate an authorization gap. If that cannot be proven, keep the minimum authority state under restricted access and resolve the retention obligation through the approved legal/incident process; do not silently promise deletion that would reopen unsafe publication.
+
+Before customer activation, the legal pack must explicitly cover this authority metadata and its exceptional retention. The commercial store's 90-day event target, aggregate retention, and deletion procedures do not apply automatically to the journal. Backup pruning must preserve all authority evidence needed for the approved zero-loss recovery path.
+
+## Incident procedure
+
+1. On a poisoned lane, ambiguous external write, unexpected ownership transition, durability alarm, or restore/failover event, stop affected admission. Expand to a service-wide halt if isolation or history is uncertain. Keep required GitHub Checks in force and Repair disabled.
+2. Preserve the enrollment, lane owner/phase, exact release and epoch, and redacted request evidence. Do not retry the GitHub write, delete the lane, or mark it successful from an observation alone.
+3. Determine whether the old writer or issued credentials can still affect GitHub. A timeout, cancellation, process restart, or clean-looking Check does not establish fencing.
+4. Resume through a reviewed recovery operation only with complete authority-state and writer-fencing proof. Otherwise replace the Guard principal, obtain fresh administrator-approved publisher binding, and re-evaluate the exact revision.
+5. Record cause, containment, capacity impact, recovery evidence, and an updated regression test. Customer notification follows the approved support/incident channel; this design does not promise an on-call rotation or response SLA.
+
+## Activation evidence
+
+All entries below remain live gates until evidence is recorded for the exact source release, schema, database configuration, enrollment epoch, and Guard principal.
+
+| Drill | Required observation |
+| --- | --- |
+| Tenant and role isolation | Wrong/missing tenant, installation, App, epoch, and release cannot claim or transition; runtime cannot modify enrollment, perform table DML, assume the owner role, delete poison, or alter functions. |
+| Concurrent publication | Interleave begin, complete, and reconcile for the same target across processes. Only the durable owner reaches GitHub; different approved targets remain isolated. |
+| Crash and uncertain response | Interrupt before claim acknowledgement, after reservation, after marking a write, during a delayed GitHub response, and before release acknowledgement. No successor enters an unresolved lane; no automatic expiry occurs. |
+| Fresh assurance within ownership | Superseding generations, new commits, changed policy/evidence, and stale requests remain rejected. Successful journal ownership alone never produces PASS. |
+| Capacity and provider failure | Exercise the selected lane cap, connection/time budgets, unavailable database, and storage/spend admission controls while preserving active/poisoned authority. Measure, do not assume, capacity and latency. |
+| Restore and failover | Demonstrate zero loss of acknowledged authority with old-primary/writer fencing, or demonstrate a halt followed by a fresh Guard principal and administrator-approved policy binding. No restored missing row is treated as new authorization. |
+| Rotation, deletion, and rollback | Old credentials/releases cannot admit new work; occupied lanes survive rotation/deletion attempts; rollback cannot use an unguarded publisher. |
+| Protected canary | Record organization-owned exact-revision Guard behavior, interleavings, recovery, notification delivery, and real timing without copying private repository content or credentials. |
+
+Completing local adapter or SQL tests is necessary but does not complete these operational gates. No database provisioning, provider budget, customer charge, compliance certification, or measured availability is implied by this design.

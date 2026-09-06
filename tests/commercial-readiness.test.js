@@ -133,19 +133,44 @@ test("public self-service remains unavailable even with exact release configurat
   });
 });
 
-test("existing owner canary remains available with shared principal and no legal launch approval", async () => {
+test("owner canary does not bypass mandatory publication journal configuration", async () => {
   await withProduction(async () => {
     delete process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON;
     delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED;
     process.env.CHANGEPLANE_CANARY_REPOSITORY = "owner/canary";
     process.env.CHANGEPLANE_GUARD_APP_ID = process.env.GITHUB_APP_ID;
     const readiness = await request("readiness");
-    assert.equal(readiness.statusCode, 200);
+    assert.equal(readiness.statusCode, 503);
     assert.equal(readiness.payload.rolloutMode, "controlled_canary");
     assert.equal(readiness.payload.checks.guardPublicationSerialized, false);
+    assert.equal(readiness.payload.checks.guardJournalConfigured, false);
     assert.equal(readiness.payload.commercialReady, false);
     assert.equal((await request("session")).payload.configured, true);
     assert.equal((await request("authorize")).statusCode, 302);
     assert.equal((await request("login")).statusCode, 403);
+    const publication = await request("guard-publish", "POST");
+    assert.equal(publication.statusCode, 503);
+    assert.equal(publication.payload.code, "GUARD_PUBLICATION_AUTHORITY");
+  });
+});
+
+test("journal configuration is reported separately from live publication and commercial readiness", async () => {
+  await withProduction(async () => {
+    delete process.env.CHANGEPLANE_ALPHA_REPOSITORIES_JSON;
+    delete process.env.CHANGEPLANE_LEGAL_RELEASE_APPROVED;
+    Object.assign(process.env, {
+      CHANGEPLANE_CANARY_REPOSITORY: "owner/canary",
+      CHANGEPLANE_GUARD_JOURNAL_ENABLED: "true",
+      CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL: "postgresql://runtime:fixture-only@db.example/journal?sslmode=verify-full",
+      CHANGEPLANE_GUARD_JOURNAL_EPOCH: "11111111-1111-4111-8111-111111111111",
+      CHANGEPLANE_GUARD_JOURNAL_VERIFIED_RELEASE: SOURCE_SHA,
+    });
+    const readiness = await request("readiness");
+    assert.equal(readiness.statusCode, 200);
+    assert.equal(readiness.payload.checks.guardJournalConfigured, true);
+    assert.equal(readiness.payload.checks.guardJournalConfiguration, true);
+    assert.equal(readiness.payload.checks.guardPublicationSerialized, false);
+    assert.equal(readiness.payload.commercialReady, false);
+    assert.equal(readiness.body.includes("fixture-only"), false);
   });
 });

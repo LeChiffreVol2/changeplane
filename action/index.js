@@ -864,6 +864,35 @@ function guardTarget(value) {
   });
 }
 
+// Only this definitive admission failure proves no publication callback ran.
+// Ambiguous HTTP outcomes must never cause a repeated mutation request. Sweeps
+// do not use this helper: a busy lane can follow already-completed recoveries.
+async function postGuardPublication(endpoint, options, { fetchImpl, sleepImpl, nowImpl }) {
+  const started = nowImpl();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const response = await fetchImpl(endpoint, options);
+    if (response.ok !== false || response.status !== 423 || attempt === 3
+      || response.headers?.get?.("retry-after") !== "1"
+      || !/^application\/json(?:;|$)/iu.test(response.headers?.get?.("content-type") ?? "")) {
+      return response;
+    }
+    let body;
+    try { body = await response.json(); } catch { return response; }
+    if (!body || typeof body !== "object" || Array.isArray(body)
+      || Object.keys(body).some((field) => !["code", "error", "requestId"].includes(field))
+      || body.code !== "GUARD_PUBLICATION_BUSY"
+      || typeof body.error !== "string" || body.error.length === 0 || body.error.length > 1000
+      || typeof body.requestId !== "string" || !/^[A-Za-z0-9._:-]{8,80}$/u.test(body.requestId)
+      || nowImpl() - started + 1000 > 2000) {
+      return response;
+    }
+    await sleepImpl(1000);
+    // Scheduler delays also consume the bounded retry window.
+    if (nowImpl() - started > 2000) return response;
+  }
+  throw new Error("Dedicated guard publication exhausted its contention retry budget.");
+}
+
 /**
  * Supersede any prior App-owned PASS before reading mutable evaluation inputs.
  * The matching workflow job remains the independent GitHub-owned liveness gate.
@@ -876,6 +905,8 @@ export async function beginDedicatedGuard({
   target,
   publisherUrl = process.env.INPUT_GUARD_PUBLISHER_URL || DEFAULT_GUARD_PUBLISHER_URL,
   fetchImpl = fetch,
+  sleepImpl = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  nowImpl = () => performance.now(),
 } = {}) {
   if (typeof repository !== "string" || !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(repository)) {
     throw new Error("The guard publication repository is invalid.");
@@ -893,7 +924,7 @@ export async function beginDedicatedGuard({
   const identity = guardWorkflowIdentity();
   const endpoint = validatedGuardPublisherUrl(publisherUrl);
   const oidcToken = await githubOidcToken(GUARD_PUBLISHER_AUDIENCE, fetchImpl);
-  const response = await fetchImpl(endpoint, {
+  const response = await postGuardPublication(endpoint, {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -910,7 +941,7 @@ export async function beginDedicatedGuard({
       ...identity,
       target: exactTarget,
     }),
-  });
+  }, { fetchImpl, sleepImpl, nowImpl });
   if (!response.ok) throw new Error(`Dedicated guard invalidation failed (${response.status}).`);
   const result = await response.json();
   if (result?.schemaVersion !== 1
@@ -997,6 +1028,8 @@ export async function publishDedicatedGuard({
   summary,
   publisherUrl = process.env.INPUT_GUARD_PUBLISHER_URL || DEFAULT_GUARD_PUBLISHER_URL,
   fetchImpl = fetch,
+  sleepImpl = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  nowImpl = () => performance.now(),
 } = {}) {
   const verifiedPassport = verifyAssurancePassportIntegrity(passport);
   if (typeof repository !== "string" || repository !== verifiedPassport.target.repository) {
@@ -1013,7 +1046,7 @@ export async function publishDedicatedGuard({
   const { workflowRunId, workflowRunAttempt, gitRef } = guardWorkflowIdentity();
   const endpoint = validatedGuardPublisherUrl(publisherUrl);
   const oidcToken = await githubOidcToken(GUARD_PUBLISHER_AUDIENCE, fetchImpl);
-  const response = await fetchImpl(endpoint, {
+  const response = await postGuardPublication(endpoint, {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -1031,7 +1064,7 @@ export async function publishDedicatedGuard({
       passport: verifiedPassport,
       summary,
     }),
-  });
+  }, { fetchImpl, sleepImpl, nowImpl });
   if (!response.ok) throw new Error(`Dedicated guard publication failed (${response.status}).`);
   const result = await response.json();
   const expectedConclusion = expectedGuardConclusion(verifiedPassport);

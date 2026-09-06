@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js server/*.test.js tests/*.test.js",
+    "test:guard-journal": "node scripts/test-guard-journal-postgres.mjs",
     "test:e2e": "npm run build && playwright test",
     "verify": "npm test && npm run prove:origin-boundary && npm run build && npm run audit:public && npm run audit:claims",
     "prove:origin-boundary": "node scripts/prove-origin-boundary.mjs",

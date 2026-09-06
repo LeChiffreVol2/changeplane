@@ -2502,6 +2502,8 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         guardPublisher: true,
         guardPrincipalSeparated: false,
         guardPublicationSerialized: false,
+        guardJournalConfigured: false,
+        guardJournalConfiguration: false,
         commercialStore: false,
         commercialStoreVerified: false,
         commercialRuntimeIntegrated: false,
@@ -2548,9 +2550,9 @@ test("readiness exposes the exact Vercel source commit without secret values", a
     process.env.VERCEL_DEPLOYMENT_ID = "dpl_test_release_identifier";
     const response = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, response);
-    assert.equal(response.statusCode, 200);
+    assert.equal(response.statusCode, 503);
     assert.deepEqual(JSON.parse(response.body), {
-      status: "ready",
+      status: "configuration_required",
       commercialReady: false,
       principalSeparation: "installer_app_not_configured",
       checks: {
@@ -2562,6 +2564,8 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         guardPublisher: true,
         guardPrincipalSeparated: false,
         guardPublicationSerialized: false,
+        guardJournalConfigured: false,
+        guardJournalConfiguration: false,
         commercialStore: false,
         commercialStoreVerified: false,
         commercialRuntimeIntegrated: false,
@@ -2889,7 +2893,8 @@ test("repair kill switch stays closed even when every other controller setting i
     const readinessResponse = responseRecorder();
     await handler({ method: "GET", url: "/api/github?action=readiness", headers: {} }, readinessResponse);
     const repairState = JSON.parse(readinessResponse.body).repairController;
-    assert.equal(readinessResponse.statusCode, 200);
+    assert.equal(readinessResponse.statusCode, 503);
+    assert.equal(JSON.parse(readinessResponse.body).checks.guardJournalConfigured, false);
     assert.equal(repairState.enabled, false);
     assert.equal(repairState.configured, false);
     assert.deepEqual(repairState.checks, {
@@ -6109,7 +6114,8 @@ test("controlled-canary guard publication rejects missing, invalid, or mismatche
           }, response);
 
           assert.equal(response.statusCode, scenario.status, response.body);
-          assert.match(JSON.parse(response.body).error, /canary|CHANGEPLANE_CANARY_REPOSITORY/iu);
+          if (scenario.vercel) assert.equal(JSON.parse(response.body).code, "GUARD_PUBLICATION_AUTHORITY");
+          else assert.match(JSON.parse(response.body).error, /canary|CHANGEPLANE_CANARY_REPOSITORY/iu);
           assert.equal(externalCalls, 0);
         } finally {
           globalThis.fetch = originalFetch;

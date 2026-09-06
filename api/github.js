@@ -71,6 +71,7 @@ import {
   repairLedgerPublicKeyValue,
 } from "../server/repair-ledger.js";
 import { reconcileGuardState } from "../server/guard-reconciliation.js";
+import { createPostgresGuardJournal, GuardPublicationError } from "../server/guard-publication-journal.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -472,9 +473,75 @@ const EXTERNAL_ACCESS_ACTIONS = new Set([
 ]);
 // The store and quota contracts remain candidates until production ingestion is implemented.
 const COMMERCIAL_RUNTIME_INTEGRATED = false;
-// A shared Check GET-to-PATCH race remains until publication is serialized in code.
-// Operator attestations cannot enable customer access across that missing boundary.
+// The durable journal candidate needs live topology, migration and canary proof.
+// Configuration alone cannot enable customer access across that release gate.
 const GUARD_PUBLICATION_SERIALIZED = false;
+let guardJournalCache = null;
+
+function guardJournalConfiguration({ required = process.env.VERCEL === "1" } = {}) {
+  const requested = required || Object.keys(process.env).some((name) => name.startsWith("CHANGEPLANE_GUARD_JOURNAL_"));
+  if (!requested) return null;
+  const releaseSha = currentReleaseBinding();
+  const epoch = process.env.CHANGEPLANE_GUARD_JOURNAL_EPOCH;
+  const connectionString = process.env.CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL;
+  let validUrl = false;
+  try {
+    const url = new URL(connectionString);
+    validUrl = ["postgres:", "postgresql:"].includes(url.protocol)
+      && Boolean(url.hostname && url.username && url.pathname.length > 1)
+      && !url.hostname.includes("%") && !url.hash
+      // pg takes the last duplicate query value and permits host/TLS/file
+      // overrides. Accept only the one reviewed TLS option, exactly once.
+      && url.searchParams.size === 1
+      && url.searchParams.get("sslmode") === "verify-full";
+  } catch { /* Configuration errors never include the credential-bearing URL. */ }
+  if (process.env.CHANGEPLANE_GUARD_JOURNAL_ENABLED !== "true"
+    || !validUrl || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(epoch ?? "")
+    || !/^[a-f0-9]{40}$/u.test(releaseSha ?? "")
+    || process.env.CHANGEPLANE_GUARD_JOURNAL_VERIFIED_RELEASE !== releaseSha
+    || guardPrincipalSeparation() !== "separate_guard_app") {
+    throw new GuardPublicationError("GUARD_PUBLICATION_AUTHORITY");
+  }
+  return { connectionString, epoch, releaseSha };
+}
+
+function guardJournalRuntime(suppliedJournal = null) {
+  const configuration = guardJournalConfiguration({ required: process.env.VERCEL === "1" || suppliedJournal !== null });
+  if (!configuration) return null;
+  if (suppliedJournal) return { ...configuration, journal: suppliedJournal };
+  if (guardJournalCache?.connectionString !== configuration.connectionString) {
+    // Credentials never leave this closure. Rotation must first drain or fence
+    // writers: closing an old pool cannot release its durable reservations.
+    const previous = guardJournalCache;
+    guardJournalCache = {
+      connectionString: configuration.connectionString,
+      journal: createPostgresGuardJournal({ connectionString: configuration.connectionString }),
+    };
+    previous?.journal.close().catch(() => {});
+  }
+  return { ...configuration, journal: guardJournalCache.journal };
+}
+
+async function withGuardPublication(runtime, { repo, installation, configuration, headSha, operation }, callback) {
+  // Non-hosted fixtures retain their existing adapter; hosted writes cannot enter
+  // this branch, including when an operator disables a previously active journal.
+  if (!runtime) return callback({ write: (mutateAndValidate) => mutateAndValidate() });
+  const tenantId = repo?.owner?.id;
+  if (!Number.isSafeInteger(tenantId) || tenantId < 1 || installation?.account?.id !== tenantId
+    || !/^[a-f0-9]{40}$/u.test(headSha ?? "")) {
+    throw new GuardPublicationError("GUARD_PUBLICATION_AUTHORITY");
+  }
+  return runtime.journal.withPublication({
+    tenantId,
+    repositoryId: repo.id,
+    installationId: installation.id,
+    guardAppId: configuration.appId,
+    epoch: runtime.epoch,
+    releaseSha: runtime.releaseSha,
+    revisionFingerprint: createHash("sha256").update(`${repo.id}\0${headSha}`).digest("hex"),
+    operation,
+  }, callback);
+}
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -709,6 +776,9 @@ function readiness() {
   const mode = rolloutMode();
   const sourceSha = process.env.VERCEL_GIT_COMMIT_SHA;
   const sourceProvenance = hasSourceProvenance();
+  let journalConfigured = false;
+  let journalConfigurationValid = true;
+  try { journalConfigured = guardJournalConfiguration() !== null; } catch { journalConfigurationValid = false; }
   const operationalChecks = {
     githubClientId: Boolean(process.env.GITHUB_CLIENT_ID),
     githubClientSecret: Boolean(process.env.GITHUB_CLIENT_SECRET),
@@ -722,6 +792,7 @@ function readiness() {
     sourceProvenance,
     canaryRepository: hasValidCanaryRepository(),
     rolloutAuthorized: rolloutAccessBlock() === null,
+    guardJournalConfiguration: journalConfigurationValid,
   };
   const principalSeparation = guardPrincipalSeparation();
   const commercialStore = commercialStoreIsConfigured();
@@ -734,6 +805,7 @@ function readiness() {
     ...operationalChecks,
     guardPrincipalSeparated: principalSeparation === "separate_guard_app",
     guardPublicationSerialized: GUARD_PUBLICATION_SERIALIZED,
+    guardJournalConfigured: journalConfigured,
     commercialStore,
     commercialStoreVerified,
     commercialRuntimeIntegrated: COMMERCIAL_RUNTIME_INTEGRATED,
@@ -4247,7 +4319,7 @@ async function trustedGuardRecoveryState({ encodedRepository, repo, configuratio
   return sourceRunCompleted ? earlyRecovery : fallback;
 }
 
-async function guardBegin({ body, oidcToken, configuration, repository }, res) {
+async function guardBegin({ body, oidcToken, configuration, repository, journalRuntime }) {
   const targetType = body?.target?.type;
   const expectedRef = body?.gitRef;
   if (targetType === "merge_group"
@@ -4295,143 +4367,153 @@ async function guardBegin({ body, oidcToken, configuration, repository }, res) {
     || repo.default_branch !== body?.defaultBranch) {
     throw new HttpError(409, "The live repository identity does not match the guard invalidation.");
   }
-  const { workflowSha } = await guardManagedBase(
-    encodedRepository,
-    repo.default_branch,
-    body?.controllerSha,
-    readCredential.token,
-  );
-  const currentTarget = await guardCurrentTarget(
-    encodedRepository,
-    repo,
-    body?.target,
-    readCredential.token,
-    { baseRef: body?.target?.baseRef, headRef: body?.target?.headRef, requireUnique: true },
-  );
-  let request;
-  try {
-    request = validateGuardBeginBody(body, {
-      oidcClaims: claims,
-      expectedWorkflowSha: workflowSha,
-      currentTarget,
-    });
-  } catch {
-    throw new HttpError(409, "The guard invalidation request is stale or outside the trusted workflow boundary.");
-  }
+  return withGuardPublication(journalRuntime, {
+    repo, installation, configuration, headSha: body?.target?.headSha, operation: "begin",
+  }, async ({ write }) => {
+    const { workflowSha } = await guardManagedBase(
+      encodedRepository,
+      repo.default_branch,
+      body?.controllerSha,
+      readCredential.token,
+    );
+    const currentTarget = await guardCurrentTarget(
+      encodedRepository,
+      repo,
+      body?.target,
+      readCredential.token,
+      { baseRef: body?.target?.baseRef, headRef: body?.target?.headRef, requireUnique: true },
+    );
+    let request;
+    try {
+      request = validateGuardBeginBody(body, {
+        oidcClaims: claims,
+        expectedWorkflowSha: workflowSha,
+        currentTarget,
+      });
+    } catch {
+      throw new HttpError(409, "The guard invalidation request is stale or outside the trusted workflow boundary.");
+    }
 
-  const finalBaseRef = await github(
-    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
-    readCredential.token,
-  );
-  const finalTarget = await guardCurrentTarget(
-    encodedRepository,
-    repo,
-    body.target,
-    readCredential.token,
-    { baseRef: body.target.baseRef, headRef: body.target.headRef, requireUnique: true },
-  );
-  if (finalBaseRef?.object?.sha !== workflowSha || finalTarget.current !== true
-    || finalTarget.headSha !== currentTarget.headSha || finalTarget.baseSha !== currentTarget.baseSha
-    || finalTarget.headRef !== currentTarget.headRef || finalTarget.baseRef !== currentTarget.baseRef) {
-    throw new HttpError(409, "The GitHub target changed before guard invalidation.");
-  }
+    const finalBaseRef = await github(
+      `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
+      readCredential.token,
+    );
+    const finalTarget = await guardCurrentTarget(
+      encodedRepository,
+      repo,
+      body.target,
+      readCredential.token,
+      { baseRef: body.target.baseRef, headRef: body.target.headRef, requireUnique: true },
+    );
+    if (finalBaseRef?.object?.sha !== workflowSha || finalTarget.current !== true
+      || finalTarget.headSha !== currentTarget.headSha || finalTarget.baseSha !== currentTarget.baseSha
+      || finalTarget.headRef !== currentTarget.headRef || finalTarget.baseRef !== currentTarget.baseRef) {
+      throw new HttpError(409, "The GitHub target changed before guard invalidation.");
+    }
 
-  const allChecks = await listGuardChecks(encodedRepository, request.target.headSha, readCredential.token);
-  const appChecks = guardAppChecks(allChecks, configuration, request.target.headSha);
-  const stable = appChecks.filter((check) => check?.external_id === request.check.external_id);
-  if (stable.length > 1) throw new HttpError(409, "The dedicated guard publication is ambiguous.");
-  const incomingMarker = decodeGuardRunMarker(request.check.output.text);
-  const beginState = assertGuardRunCanBegin(stable[0], incomingMarker);
-  const previousContractDigest = guardPreviousContractDigest(stable[0], request, configuration);
-  const beginCheck = {
-    ...request.check,
-    output: {
-      ...request.check.output,
-      text: encodeGuardRunMarker({
-        ...incomingMarker,
-        boundContractDigest: previousContractDigest,
-        pullRequestNumber: request.target.pullRequestNumber,
-      }),
-    },
-  };
-  let published = stable[0];
-  const stableMarker = published ? guardRunMarker(published) : null;
-  const idempotent = beginState === "idempotent"
-    && published?.status === "in_progress"
-    && stableMarker?.phase === "begin"
-    && compareGuardRunOrder(incomingMarker, stableMarker) === 0
-    && published.output?.text === beginCheck.output.text;
-  if (!idempotent) {
-    const writeCredential = await createChecksWriteInstallationAccessToken({
-      appId: configuration.appId,
-      privateKey: configuration.privateKey,
-      installationId: installation.id,
-      repositoryId: repo.id,
-      request: github,
-    });
-    for (const legacy of appChecks.filter((check) => (
-      check?.external_id !== request.check.external_id
-      && check?.status === "completed"
-      && ["success", "neutral", "skipped"].includes(check?.conclusion)
-    ))) {
-      await github(`/repos/${encodedRepository}/check-runs/${legacy.id}`, writeCredential.token, {
-        method: "PATCH",
-        body: {
-          status: "completed",
-          conclusion: "action_required",
-          output: {
-            title: "Superseded by a new evaluation",
-            summary: "A new trusted ChangePlane run started for this exact revision. This older result no longer applies.",
+    const allChecks = await listGuardChecks(encodedRepository, request.target.headSha, readCredential.token);
+    const appChecks = guardAppChecks(allChecks, configuration, request.target.headSha);
+    const stable = appChecks.filter((check) => check?.external_id === request.check.external_id);
+    if (stable.length > 1) throw new HttpError(409, "The dedicated guard publication is ambiguous.");
+    const incomingMarker = decodeGuardRunMarker(request.check.output.text);
+    const beginState = assertGuardRunCanBegin(stable[0], incomingMarker);
+    const previousContractDigest = guardPreviousContractDigest(stable[0], request, configuration);
+    const beginCheck = {
+      ...request.check,
+      output: {
+        ...request.check.output,
+        text: encodeGuardRunMarker({
+          ...incomingMarker,
+          boundContractDigest: previousContractDigest,
+          pullRequestNumber: request.target.pullRequestNumber,
+        }),
+      },
+    };
+    let published = stable[0];
+    const stableMarker = published ? guardRunMarker(published) : null;
+    const idempotent = beginState === "idempotent"
+      && published?.status === "in_progress"
+      && stableMarker?.phase === "begin"
+      && compareGuardRunOrder(incomingMarker, stableMarker) === 0
+      && published.output?.text === beginCheck.output.text;
+    if (!idempotent) {
+      const writeCredential = await createChecksWriteInstallationAccessToken({
+        appId: configuration.appId,
+        privateKey: configuration.privateKey,
+        installationId: installation.id,
+        repositoryId: repo.id,
+        request: github,
+      });
+      for (const legacy of appChecks.filter((check) => (
+        check?.external_id !== request.check.external_id
+        && check?.status === "completed"
+        && ["success", "neutral", "skipped"].includes(check?.conclusion)
+      ))) {
+        const retired = await write(() => github(`/repos/${encodedRepository}/check-runs/${legacy.id}`, writeCredential.token, {
+          method: "PATCH",
+          body: {
+            status: "completed",
+            conclusion: "action_required",
+            output: {
+              title: "Superseded by a new evaluation",
+              summary: "A new trusted ChangePlane run started for this exact revision. This older result no longer applies.",
+            },
           },
-        },
-      });
+        }));
+        if (retired?.id !== legacy.id || retired?.name !== GUARD_CHECK_NAME
+          || retired?.head_sha !== request.target.headSha || retired?.status !== "completed"
+          || retired?.conclusion !== "action_required"
+          || retired?.app?.id !== configuration.appId || retired?.app?.slug !== configuration.appSlug) {
+          throw new HttpError(502, "GitHub did not confirm that the previous Guard was invalidated.");
+        }
+      }
+      const mutationChecks = guardAppChecks(
+        await listGuardChecks(encodedRepository, request.target.headSha, readCredential.token),
+        configuration,
+        request.target.headSha,
+      ).filter((check) => check?.external_id === request.check.external_id);
+      if (mutationChecks.length !== stable.length || mutationChecks[0]?.id !== stable[0]?.id
+        || mutationChecks[0]?.status !== stable[0]?.status
+        || mutationChecks[0]?.conclusion !== stable[0]?.conclusion
+        || mutationChecks[0]?.output?.text !== stable[0]?.output?.text
+        || mutationChecks[0]?.output?.summary !== stable[0]?.output?.summary) {
+        throw new HttpError(409, "The dedicated guard generation changed before invalidation.");
+      }
+      published = published
+        ? await write(() => github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
+          method: "PATCH",
+          body: Object.fromEntries(Object.entries(beginCheck).filter(([key]) => key !== "head_sha")),
+        }))
+        : await write(() => github(`/repos/${encodedRepository}/check-runs`, writeCredential.token, {
+          method: "POST",
+          body: beginCheck,
+        }));
     }
-    const mutationChecks = guardAppChecks(
-      await listGuardChecks(encodedRepository, request.target.headSha, readCredential.token),
-      configuration,
-      request.target.headSha,
-    ).filter((check) => check?.external_id === request.check.external_id);
-    if (mutationChecks.length !== stable.length || mutationChecks[0]?.id !== stable[0]?.id
-      || mutationChecks[0]?.status !== stable[0]?.status
-      || mutationChecks[0]?.conclusion !== stable[0]?.conclusion
-      || mutationChecks[0]?.output?.text !== stable[0]?.output?.text
-      || mutationChecks[0]?.output?.summary !== stable[0]?.output?.summary) {
-      throw new HttpError(409, "The dedicated guard generation changed before invalidation.");
+    if (!Number.isSafeInteger(published?.id) || published.id <= 0
+      || published.name !== GUARD_CHECK_NAME || published.head_sha !== request.target.headSha
+      || published.status !== "in_progress" || published.external_id !== request.check.external_id
+      || published.output?.text !== beginCheck.output.text
+      || published.app?.id !== configuration.appId || published.app?.slug !== configuration.appSlug) {
+      throw new HttpError(502, "GitHub did not return the expected in-progress dedicated-App guard.");
     }
-    published = published
-      ? await github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
-        method: "PATCH",
-        body: Object.fromEntries(Object.entries(beginCheck).filter(([key]) => key !== "head_sha")),
-      })
-      : await github(`/repos/${encodedRepository}/check-runs`, writeCredential.token, {
-        method: "POST",
-        body: beginCheck,
-      });
-  }
-  if (!Number.isSafeInteger(published?.id) || published.id <= 0
-    || published.name !== GUARD_CHECK_NAME || published.head_sha !== request.target.headSha
-    || published.status !== "in_progress" || published.external_id !== request.check.external_id
-    || published.output?.text !== beginCheck.output.text
-    || published.app?.id !== configuration.appId || published.app?.slug !== configuration.appSlug) {
-    throw new HttpError(502, "GitHub did not return the expected in-progress dedicated-App guard.");
-  }
-  sendJson(res, 200, {
-    schemaVersion: 1,
-    type: "changeplane.guard-publication-begin",
-    check: {
-      id: published.id,
-      name: published.name,
-      headSha: published.head_sha,
-      status: published.status,
-      publisherAppId: published.app.id,
-      publisherAppSlug: published.app.slug,
-    },
-    run: { id: request.workflowRunId, attempt: request.workflowRunAttempt },
-    previousContractDigest,
+    return {
+      schemaVersion: 1,
+      type: "changeplane.guard-publication-begin",
+      check: {
+        id: published.id,
+        name: published.name,
+        headSha: published.head_sha,
+        status: published.status,
+        publisherAppId: published.app.id,
+        publisherAppSlug: published.app.slug,
+      },
+      run: { id: request.workflowRunId, attempt: request.workflowRunAttempt },
+      previousContractDigest,
+    };
   });
 }
 
-async function guardReconciliationSweep({ body, oidcToken, configuration, repository }, res) {
+async function guardReconciliationSweep({ body, oidcToken, configuration, repository, journalRuntime }) {
   let claims;
   try {
     claims = await verifyGitHubActionsOidcToken({
@@ -4496,118 +4578,99 @@ async function guardReconciliationSweep({ body, oidcToken, configuration, reposi
     throw new HttpError(409, "The open pull-request inventory is invalid or exceeds the bounded reconciliation sweep.");
   }
   const seenHeads = new Set();
-  const candidates = [];
+  const inventory = [];
   for (const pull of pulls) {
     if (pull?.state !== "open" || pull?.merged === true
       || pull?.head?.repo?.id !== repo.id || pull?.head?.repo?.full_name !== repository
       || pull?.base?.repo?.id !== repo.id || pull?.base?.repo?.full_name !== repository
       || pull?.base?.ref !== repo.default_branch
       || !Number.isSafeInteger(pull?.number) || pull.number <= 0
-      || !/^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? "")) {
-      continue;
-    }
+      || !/^[a-f0-9]{40}$/u.test(pull?.head?.sha ?? "")) continue;
     if (seenHeads.has(pull.head.sha)) {
       throw new HttpError(409, "One exact head belongs to multiple open pull requests; reconciliation stopped without mutation.");
     }
     seenHeads.add(pull.head.sha);
-    const checks = guardAppChecks(
-      await listGuardChecks(encodedRepository, pull.head.sha, readCredential.token),
-      configuration,
-      pull.head.sha,
-    );
-    const expectedExternalId = stableGuardCheckExternalId({
-      repositoryId: repo.id,
-      targetType: "pull_request",
-      headSha: pull.head.sha,
-    });
-    const stable = checks.filter((item) => item?.external_id === expectedExternalId);
-    if (stable.length > 1) {
-      throw new HttpError(409, "The dedicated guard reconciliation target is ambiguous; nothing was changed.");
-    }
-    for (const check of stable.filter((item) => item?.status === "in_progress")) {
-      let reconciliation;
-      try {
-        reconciliation = await trustedGuardRecoveryState({ encodedRepository, repo, configuration, checkRun: check, trustedHarnessMode, token: readCredential.token });
-      } catch {
-        throw new HttpError(409, "An in-progress Guard has a malformed reconciliation state; nothing was changed.");
+    inventory.push(pull);
+  }
+
+  let inProgress = 0;
+  let reconciled = 0;
+  for (const discovered of inventory) {
+    const headSha = discovered.head.sha;
+    const result = await withGuardPublication(journalRuntime, {
+      repo, installation, configuration, headSha, operation: "reconcile",
+    }, async ({ write }) => {
+      // Inventory selects immutable head lanes only. Policy, target, publisher,
+      // generation and owning-run evidence are freshly read while holding one.
+      const trusted = await guardManagedBase(encodedRepository, repo.default_branch, workflowSha, readCredential.token);
+      const target = {
+        type: "pull_request", pullRequestNumber: discovered.number,
+        headSha, baseSha: discovered.base.sha,
+        headRef: discovered.head.ref, baseRef: discovered.base.ref,
+      };
+      const readTarget = () => guardCurrentTarget(encodedRepository, repo, target, readCredential.token, { requireUnique: journalRuntime !== null });
+      const current = await readTarget();
+      if (!current.current || current.headRepositoryId !== repo.id || current.baseRepositoryId !== repo.id
+        || current.baseRef !== repo.default_branch) {
+        throw new HttpError(409, "A Guard recovery target changed. Inspect the current revision before retrying the sweep.");
       }
-      candidates.push({ pullRequestNumber: pull.number, headSha: pull.head.sha, check, reconciliation });
-    }
-  }
+      const expectedExternalId = stableGuardCheckExternalId({ repositoryId: repo.id, targetType: "pull_request", headSha });
+      const stable = guardAppChecks(await listGuardChecks(encodedRepository, headSha, readCredential.token), configuration, headSha)
+        .filter((check) => check?.external_id === expectedExternalId);
+      if (stable.length > 1) throw new HttpError(409, "The dedicated Guard recovery target is ambiguous.");
+      const check = stable[0];
+      if (check?.status !== "in_progress") return { inProgress: 0, reconciled: 0 };
+      const context = { encodedRepository, repo, configuration, trustedHarnessMode: trusted.trustedHarnessMode, token: readCredential.token };
+      const recovery = await trustedGuardRecoveryState({ ...context, checkRun: check });
+      if (recovery.patch === null) return { inProgress: 1, reconciled: 0 };
 
-  const required = candidates.filter(({ reconciliation }) => reconciliation.state === "reconcile_required");
-  const finalBaseRef = await github(
-    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(request.defaultBranch)}`,
-    readCredential.token,
-  );
-  if (finalBaseRef?.object?.sha !== workflowSha) {
-    throw new HttpError(409, "The trusted default branch changed before guard reconciliation.");
-  }
-  const revalidated = [];
-  for (const candidate of required) {
-    const [pull, check] = await Promise.all([
-      github(`/repos/${encodedRepository}/pulls/${candidate.pullRequestNumber}`, readCredential.token),
-      github(`/repos/${encodedRepository}/check-runs/${candidate.check.id}`, readCredential.token),
-    ]);
-    if (pull?.state !== "open" || pull?.merged === true
-      || pull?.head?.sha !== candidate.headSha
-      || pull?.head?.repo?.id !== repo.id || pull?.base?.repo?.id !== repo.id
-      || check?.name !== GUARD_CHECK_NAME || check?.head_sha !== candidate.headSha
-      || check?.external_id !== stableGuardCheckExternalId({
-        repositoryId: repo.id,
-        targetType: "pull_request",
-        headSha: candidate.headSha,
-      })
-      || check?.app?.id !== configuration.appId || check?.app?.slug !== configuration.appSlug) {
-      throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
-    }
-    let reconciliation;
-    try {
-      reconciliation = await trustedGuardRecoveryState({ encodedRepository, repo, configuration, checkRun: check, trustedHarnessMode, token: readCredential.token });
-    } catch {
-      throw new HttpError(409, "A reconciliation target became malformed before mutation; nothing was changed.");
-    }
-    if (reconciliation.state !== "reconcile_required"
-      || reconciliation.generation !== candidate.reconciliation.generation) {
-      throw new HttpError(409, "A reconciliation target changed before mutation; nothing was changed.");
-    }
-    revalidated.push({ check, reconciliation });
-  }
-
-  if (revalidated.length > 0) {
-    const writeCredential = await createChecksWriteInstallationAccessToken({
-      appId: configuration.appId,
-      privateKey: configuration.privateKey,
-      installationId: installation.id,
-      repositoryId: repo.id,
-      request: github,
-    });
-    for (const { check, reconciliation } of revalidated) {
-      const published = await github(`/repos/${encodedRepository}/check-runs/${check.id}`, writeCredential.token, {
-        method: "PATCH",
-        body: reconciliation.patch,
+      const [finalTarget, finalBase, finalCheck] = await Promise.all([
+        readTarget(),
+        github(`/repos/${encodedRepository}/git/ref/heads/${encodeRef(request.defaultBranch)}`, readCredential.token),
+        github(`/repos/${encodedRepository}/check-runs/${check.id}`, readCredential.token),
+      ]);
+      if (!finalTarget.current || finalTarget.headRepositoryId !== repo.id || finalTarget.baseRepositoryId !== repo.id
+        || finalBase?.object?.sha !== workflowSha || finalCheck?.id !== check.id
+        || finalCheck?.name !== GUARD_CHECK_NAME || finalCheck?.head_sha !== headSha
+        || finalCheck?.external_id !== expectedExternalId
+        || finalCheck?.app?.id !== configuration.appId || finalCheck?.app?.slug !== configuration.appSlug) {
+        throw new HttpError(409, "A Guard recovery target changed before mutation. Inspect its current revision.");
+      }
+      const finalRecovery = await trustedGuardRecoveryState({ ...context, checkRun: finalCheck });
+      if (finalRecovery.state !== "reconcile_required" || finalRecovery.generation !== recovery.generation) {
+        throw new HttpError(409, "The owning Guard generation changed before reconciliation.");
+      }
+      const writeCredential = await createChecksWriteInstallationAccessToken({
+        appId: configuration.appId, privateKey: configuration.privateKey,
+        installationId: installation.id, repositoryId: repo.id, request: github,
       });
+      const published = await write(() => github(`/repos/${encodedRepository}/check-runs/${check.id}`, writeCredential.token, {
+        method: "PATCH", body: finalRecovery.patch,
+      }));
       if (published?.id !== check.id || published?.name !== GUARD_CHECK_NAME
-        || published?.head_sha !== check.head_sha || published?.status !== "completed"
-        || published?.conclusion !== "action_required"
-        || published?.external_id !== check.external_id
+        || published?.head_sha !== headSha || published?.status !== "completed"
+        || published?.conclusion !== "action_required" || published?.external_id !== expectedExternalId
+        || published?.output?.text !== finalRecovery.patch.output.text
         || published?.app?.id !== configuration.appId || published?.app?.slug !== configuration.appSlug) {
         throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
       }
-    }
+      return { inProgress: 1, reconciled: 1 };
+    });
+    inProgress += result.inProgress;
+    reconciled += result.reconciled;
   }
-
-  sendJson(res, 200, {
+  return {
     schemaVersion: 1,
     type: "changeplane.guard-reconciliation-sweep",
     scannedHeads: seenHeads.size,
-    inProgress: candidates.length,
-    reconciled: revalidated.length,
-    withinWindow: candidates.length - revalidated.length,
-  });
+    inProgress,
+    reconciled,
+    withinWindow: inProgress - reconciled,
+  };
 }
 
-async function guardPublish(req, res) {
+async function guardPublish(req, res, suppliedJournal) {
+  const journalRuntime = guardJournalRuntime(suppliedJournal);
   const configuration = guardPublisherConfiguration();
   const oidcToken = guardPublisherBearer(req);
   assertJsonRequest(req);
@@ -4620,10 +4683,14 @@ async function guardPublish(req, res) {
   }
   assertGuardPublisherRolloutScope(repository);
   if (body?.type === "changeplane.guard-publication-begin") {
-    return guardBegin({ body, oidcToken, configuration, repository }, res);
+    const result = await guardBegin({ body, oidcToken, configuration, repository, journalRuntime });
+    sendJson(res, 200, result);
+    return;
   }
   if (body?.type === "changeplane.guard-reconciliation-sweep") {
-    return guardReconciliationSweep({ body, oidcToken, configuration, repository }, res);
+    const result = await guardReconciliationSweep({ body, oidcToken, configuration, repository, journalRuntime });
+    sendJson(res, 200, result);
+    return;
   }
   let passport;
   try {
@@ -4683,167 +4750,172 @@ async function guardPublish(req, res) {
     || repo.default_branch !== body.defaultBranch) {
     throw new HttpError(409, "The live repository identity does not match the guard request.");
   }
-  const baseRef = await github(
-    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
-    readCredential.token,
-  );
-  const workflowSha = baseRef?.object?.sha;
-  if (!/^[a-f0-9]{40}$/u.test(workflowSha ?? "") || workflowSha !== passport.target.baseSha) {
-    throw new HttpError(409, "The trusted default branch changed before guard publication.");
-  }
-  const [policyContent, manifestContent] = await Promise.all([
-    readRepositoryFile(encodedRepository, passport.binding.policyPath, workflowSha, readCredential.token),
-    readRepositoryFile(encodedRepository, MANAGED_MANIFEST_PATH, workflowSha, readCredential.token),
-  ]);
-  if (typeof policyContent !== "string" || typeof manifestContent !== "string") {
-    throw new HttpError(409, "The trusted managed guard policy is missing.");
-  }
-  await readCurrentManagedRuntimeProfile(
-    encodedRepository,
-    workflowSha,
-    manifestContent,
-    policyContent,
-    readCredential.token,
-  );
-  let policy;
-  let requiredChecks;
-  try {
-    policy = JSON.parse(policyContent);
-    requiredChecks = validateRequiredChecks(policy?.evidence?.requiredChecks, {
-      mode: passport.decision.mode === "observe" ? "observe" : "enforce",
-    });
-  } catch {
-    throw new HttpError(409, "The trusted guard policy is malformed.");
-  }
-  if (canonicalDigest(policy) !== passport.binding.policyDigest
-    || !guardPolicyEvidenceMatches(passport, requiredChecks)) {
-    throw new HttpError(409, "The guard passport does not match the trusted policy evidence contract.");
-  }
-  const currentTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
-    baseRef: `refs/heads/${repo.default_branch}`,
-    headRef: body.gitRef,
-    requireUnique: true,
-  });
-  let request;
-  try {
-    request = validateGuardPublishBody(body, {
-      oidcClaims: claims,
-      expectedWorkflowSha: workflowSha,
-      expectedControllerSha: passport.binding.trustedControllerSha,
-      currentTarget,
-    });
-  } catch {
-    throw new HttpError(409, "The guard publication request is stale or outside the trusted workflow boundary.");
-  }
-
-  const finalBaseRef = await github(
-    `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
-    readCredential.token,
-  );
-  if (finalBaseRef?.object?.sha !== workflowSha) {
-    throw new HttpError(409, "The trusted default branch changed before guard mutation.");
-  }
-  const finalTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
-    baseRef: `refs/heads/${repo.default_branch}`,
-    headRef: body.gitRef,
-    requireUnique: true,
-  });
-  if (finalTarget.current !== true
-    || finalTarget.headSha !== currentTarget.headSha
-    || finalTarget.baseSha !== currentTarget.baseSha) {
-    throw new HttpError(409, "The GitHub target changed before guard mutation.");
-  }
-
-  const allChecks = await listGuardChecks(encodedRepository, passport.target.headSha, readCredential.token);
-  const existing = guardAppChecks(allChecks, configuration, passport.target.headSha)
-    .filter((check) => check?.external_id === request.check.external_id);
-  if (existing.length > 1) throw new HttpError(409, "The dedicated guard publication is ambiguous.");
-  const incomingMarker = decodeGuardRunMarker(request.check.output.text);
-  const currentMarker = assertGuardRunCanComplete(existing[0], incomingMarker);
-  const previousContractDigest = guardPreviousContractDigest(existing[0], request, configuration);
-  if (previousContractDigest !== null && previousContractDigest !== passport.binding.contractDigest) {
-    throw new HttpError(409, "The guard passport changed the frozen exact-head contract binding.");
-  }
-  await guardEvidenceChecks(encodedRepository, passport, readCredential.token, requiredChecks);
-  let published = existing[0];
-  const idempotent = currentMarker.phase === "complete"
-    && published?.status === "completed"
-    && published?.conclusion === request.check.conclusion
-    && published?.output?.summary === request.check.output.summary
-    && published?.output?.text === request.check.output.text;
-  if (currentMarker.phase === "complete" && !idempotent) {
-    throw new HttpError(409, "The current run already completed with a different assurance passport.");
-  }
-  if (!idempotent) {
-    const writeCredential = await createChecksWriteInstallationAccessToken({
-      appId: configuration.appId,
-      privateKey: configuration.privateKey,
-      installationId: installation.id,
-      repositoryId: repo.id,
-      request: github,
-    });
-    const mutationBase = await github(
+  const result = await withGuardPublication(journalRuntime, {
+    repo, installation, configuration, headSha: passport.target.headSha, operation: "complete",
+  }, async ({ write }) => {
+    const baseRef = await github(
       `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
       readCredential.token,
     );
-    const mutationTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
+    const workflowSha = baseRef?.object?.sha;
+    if (!/^[a-f0-9]{40}$/u.test(workflowSha ?? "") || workflowSha !== passport.target.baseSha) {
+      throw new HttpError(409, "The trusted default branch changed before guard publication.");
+    }
+    const [policyContent, manifestContent] = await Promise.all([
+      readRepositoryFile(encodedRepository, passport.binding.policyPath, workflowSha, readCredential.token),
+      readRepositoryFile(encodedRepository, MANAGED_MANIFEST_PATH, workflowSha, readCredential.token),
+    ]);
+    if (typeof policyContent !== "string" || typeof manifestContent !== "string") {
+      throw new HttpError(409, "The trusted managed guard policy is missing.");
+    }
+    await readCurrentManagedRuntimeProfile(
+      encodedRepository,
+      workflowSha,
+      manifestContent,
+      policyContent,
+      readCredential.token,
+    );
+    let policy;
+    let requiredChecks;
+    try {
+      policy = JSON.parse(policyContent);
+      requiredChecks = validateRequiredChecks(policy?.evidence?.requiredChecks, {
+        mode: passport.decision.mode === "observe" ? "observe" : "enforce",
+      });
+    } catch {
+      throw new HttpError(409, "The trusted guard policy is malformed.");
+    }
+    if (canonicalDigest(policy) !== passport.binding.policyDigest
+      || !guardPolicyEvidenceMatches(passport, requiredChecks)) {
+      throw new HttpError(409, "The guard passport does not match the trusted policy evidence contract.");
+    }
+    const currentTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
       baseRef: `refs/heads/${repo.default_branch}`,
       headRef: body.gitRef,
       requireUnique: true,
     });
-    if (mutationBase?.object?.sha !== workflowSha || mutationTarget.current !== true
-      || mutationTarget.headSha !== currentTarget.headSha || mutationTarget.baseSha !== currentTarget.baseSha) {
-      throw new HttpError(409, "The GitHub target changed while guard evidence was being verified.");
+    let request;
+    try {
+      request = validateGuardPublishBody(body, {
+        oidcClaims: claims,
+        expectedWorkflowSha: workflowSha,
+        expectedControllerSha: passport.binding.trustedControllerSha,
+        currentTarget,
+      });
+    } catch {
+      throw new HttpError(409, "The guard publication request is stale or outside the trusted workflow boundary.");
     }
-    // Evidence and credential calls can outlive this generation. Re-read after
-    // both, immediately before writing. This is a freshness check, not a CAS:
-    // GitHub Checks does not provide a documented conditional PATCH contract.
-    const mutationChecks = guardAppChecks(
-      await listGuardChecks(encodedRepository, passport.target.headSha, readCredential.token),
-      configuration,
-      passport.target.headSha,
-    ).filter((check) => check?.external_id === request.check.external_id);
-    if (mutationChecks.length !== 1 || mutationChecks[0].id !== existing[0].id) {
-      throw new HttpError(409, "The dedicated guard publication changed before completion.");
+
+    const finalBaseRef = await github(
+      `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
+      readCredential.token,
+    );
+    if (finalBaseRef?.object?.sha !== workflowSha) {
+      throw new HttpError(409, "The trusted default branch changed before guard mutation.");
     }
-    assertGuardRunCanComplete(mutationChecks[0], incomingMarker);
-    if (mutationChecks[0].status !== existing[0].status
-      || mutationChecks[0].conclusion !== existing[0].conclusion
-      || mutationChecks[0].output?.text !== existing[0].output?.text
-      || mutationChecks[0].output?.summary !== existing[0].output?.summary) {
-      throw new HttpError(409, "The dedicated guard generation changed before completion.");
-    }
-    published = await github(`/repos/${encodedRepository}/check-runs/${existing[0].id}`, writeCredential.token, {
-      method: "PATCH",
-      body: Object.fromEntries(Object.entries(request.check).filter(([key]) => key !== "head_sha")),
+    const finalTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
+      baseRef: `refs/heads/${repo.default_branch}`,
+      headRef: body.gitRef,
+      requireUnique: true,
     });
-  }
-  if (!Number.isSafeInteger(published?.id) || published.id <= 0
-    || published.name !== GUARD_CHECK_NAME
-    || published.head_sha !== passport.target.headSha
-    || published.status !== "completed"
-    || published.conclusion !== request.check.conclusion
-    || published.external_id !== request.check.external_id
-    || published.output?.text !== request.check.output.text
-    || published.app?.id !== configuration.appId
-    || published.app?.slug !== configuration.appSlug) {
-    throw new HttpError(502, "GitHub did not return the expected dedicated-App guard.");
-  }
-  const proofLocator = buildProofLocator(passport, published);
-  sendJson(res, 200, {
-    schemaVersion: 1,
-    type: "changeplane.guard-publication",
-    passportDigest: passport.digest,
-    check: {
-      id: published.id,
-      name: published.name,
-      headSha: published.head_sha,
-      conclusion: published.conclusion,
-      publisherAppId: published.app.id,
-      publisherAppSlug: published.app.slug,
-    },
-    proofLocator,
+    if (finalTarget.current !== true
+      || finalTarget.headSha !== currentTarget.headSha
+      || finalTarget.baseSha !== currentTarget.baseSha) {
+      throw new HttpError(409, "The GitHub target changed before guard mutation.");
+    }
+
+    const allChecks = await listGuardChecks(encodedRepository, passport.target.headSha, readCredential.token);
+    const existing = guardAppChecks(allChecks, configuration, passport.target.headSha)
+      .filter((check) => check?.external_id === request.check.external_id);
+    if (existing.length > 1) throw new HttpError(409, "The dedicated guard publication is ambiguous.");
+    const incomingMarker = decodeGuardRunMarker(request.check.output.text);
+    const currentMarker = assertGuardRunCanComplete(existing[0], incomingMarker);
+    const previousContractDigest = guardPreviousContractDigest(existing[0], request, configuration);
+    if (previousContractDigest !== null && previousContractDigest !== passport.binding.contractDigest) {
+      throw new HttpError(409, "The guard passport changed the frozen exact-head contract binding.");
+    }
+    await guardEvidenceChecks(encodedRepository, passport, readCredential.token, requiredChecks);
+    let published = existing[0];
+    const idempotent = currentMarker.phase === "complete"
+      && published?.status === "completed"
+      && published?.conclusion === request.check.conclusion
+      && published?.output?.summary === request.check.output.summary
+      && published?.output?.text === request.check.output.text;
+    if (currentMarker.phase === "complete" && !idempotent) {
+      throw new HttpError(409, "The current run already completed with a different assurance passport.");
+    }
+    if (!idempotent) {
+      const writeCredential = await createChecksWriteInstallationAccessToken({
+        appId: configuration.appId,
+        privateKey: configuration.privateKey,
+        installationId: installation.id,
+        repositoryId: repo.id,
+        request: github,
+      });
+      const mutationBase = await github(
+        `/repos/${encodedRepository}/git/ref/heads/${encodeRef(repo.default_branch)}`,
+        readCredential.token,
+      );
+      const mutationTarget = await guardCurrentTarget(encodedRepository, repo, passport, readCredential.token, {
+        baseRef: `refs/heads/${repo.default_branch}`,
+        headRef: body.gitRef,
+        requireUnique: true,
+      });
+      if (mutationBase?.object?.sha !== workflowSha || mutationTarget.current !== true
+        || mutationTarget.headSha !== currentTarget.headSha || mutationTarget.baseSha !== currentTarget.baseSha) {
+        throw new HttpError(409, "The GitHub target changed while guard evidence was being verified.");
+      }
+      // Evidence and credential calls can outlive this generation. Re-read after
+      // both, immediately before writing. This is a freshness check, not a CAS:
+      // GitHub Checks does not provide a documented conditional PATCH contract.
+      const mutationChecks = guardAppChecks(
+        await listGuardChecks(encodedRepository, passport.target.headSha, readCredential.token),
+        configuration,
+        passport.target.headSha,
+      ).filter((check) => check?.external_id === request.check.external_id);
+      if (mutationChecks.length !== 1 || mutationChecks[0].id !== existing[0].id) {
+        throw new HttpError(409, "The dedicated guard publication changed before completion.");
+      }
+      assertGuardRunCanComplete(mutationChecks[0], incomingMarker);
+      if (mutationChecks[0].status !== existing[0].status
+        || mutationChecks[0].conclusion !== existing[0].conclusion
+        || mutationChecks[0].output?.text !== existing[0].output?.text
+        || mutationChecks[0].output?.summary !== existing[0].output?.summary) {
+        throw new HttpError(409, "The dedicated guard generation changed before completion.");
+      }
+      published = await write(() => github(`/repos/${encodedRepository}/check-runs/${existing[0].id}`, writeCredential.token, {
+        method: "PATCH",
+        body: Object.fromEntries(Object.entries(request.check).filter(([key]) => key !== "head_sha")),
+      }));
+    }
+    if (!Number.isSafeInteger(published?.id) || published.id <= 0
+      || published.name !== GUARD_CHECK_NAME
+      || published.head_sha !== passport.target.headSha
+      || published.status !== "completed"
+      || published.conclusion !== request.check.conclusion
+      || published.external_id !== request.check.external_id
+      || published.output?.text !== request.check.output.text
+      || published.app?.id !== configuration.appId
+      || published.app?.slug !== configuration.appSlug) {
+      throw new HttpError(502, "GitHub did not return the expected dedicated-App guard.");
+    }
+    const proofLocator = buildProofLocator(passport, published);
+    return {
+      schemaVersion: 1,
+      type: "changeplane.guard-publication",
+      passportDigest: passport.digest,
+      check: {
+        id: published.id,
+        name: published.name,
+        headSha: published.head_sha,
+        conclusion: published.conclusion,
+        publisherAppId: published.app.id,
+        publisherAppSlug: published.app.slug,
+      },
+      proofLocator,
+    };
   });
+  sendJson(res, 200, result);
 }
 
 function unavailableAssuranceProof(error, facts = {}) {
@@ -5539,7 +5611,8 @@ async function applyRulesetPlan(req, res) {
   });
 }
 
-async function reconcileGuard(req, res) {
+async function reconcileGuard(req, res, suppliedJournal) {
+  const journalRuntime = guardJournalRuntime(suppliedJournal);
   assertOrigin(req);
   const session = requireSession(req);
   assertCsrf(req, session);
@@ -5577,64 +5650,79 @@ async function reconcileGuard(req, res) {
     `/repos/${target.encodedRepository}/git/ref/heads/${encodeRef(target.repo.default_branch)}`,
     readCredential.token,
   );
-  const baseRef = await readBaseRef();
-  const { workflowSha, trustedHarnessMode } = await guardManagedBase(
-    target.encodedRepository,
-    target.repo.default_branch,
-    baseRef?.object?.sha,
-    readCredential.token,
-  );
-  let checkRun = await readCheck();
-  if (checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
-    throw new HttpError(409, "Only the configured Guard App Check can be reconciled. Nothing was changed.");
+  // Check head_sha is immutable. Discovery chooses a lane only; every mutable
+  // decision is re-read after acquiring it, including the Check publisher/head.
+  const discovered = await readCheck();
+  const headSha = discovered?.head_sha;
+  if (!/^[a-f0-9]{40}$/u.test(headSha ?? "") || discovered?.name !== GUARD_CHECK_NAME
+    || discovered?.app?.id !== configuration.appId || discovered?.app?.slug !== configuration.appSlug) {
+    throw new HttpError(409, "The Guard recovery target cannot be authenticated. Nothing was changed.");
   }
-  const recoveryContext = { encodedRepository: target.encodedRepository, repo: target.repo, configuration, trustedHarnessMode, token: readCredential.token };
-  let reconciliation = await trustedGuardRecoveryState({ ...recoveryContext, checkRun });
-  if (reconciliation.patch == null) {
-    sendJson(res, 200, { repository, ...reconciliation });
-    return;
-  }
+  const result = await withGuardPublication(journalRuntime, {
+    repo: target.repo, installation, configuration, headSha, operation: "reconcile",
+  }, async ({ write }) => {
+    const baseRef = await readBaseRef();
+    const { workflowSha, trustedHarnessMode } = await guardManagedBase(
+      target.encodedRepository,
+      target.repo.default_branch,
+      baseRef?.object?.sha,
+      readCredential.token,
+    );
+    let checkRun = await readCheck();
+    if (checkRun?.head_sha !== headSha || checkRun?.name !== GUARD_CHECK_NAME
+      || checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
+      throw new HttpError(409, "Only the configured Guard App Check can be reconciled. Nothing was changed.");
+    }
+    const recoveryContext = { encodedRepository: target.encodedRepository, repo: target.repo, configuration, trustedHarnessMode, token: readCredential.token };
+    let reconciliation = await trustedGuardRecoveryState({ ...recoveryContext, checkRun });
+    if (reconciliation.patch == null) {
+      return { repository, ...reconciliation };
+    }
 
-  const recoveryGeneration = reconciliation.generation;
-  const writeCredential = await createChecksWriteInstallationAccessToken({
-    appId: configuration.appId,
-    privateKey: configuration.privateKey,
-    installationId: installation.id,
-    repositoryId: target.repo.id,
-    request: github,
+    const recoveryGeneration = reconciliation.generation;
+    const writeCredential = await createChecksWriteInstallationAccessToken({
+      appId: configuration.appId,
+      privateKey: configuration.privateKey,
+      installationId: installation.id,
+      repositoryId: target.repo.id,
+      request: github,
+    });
+    const [finalCheckRun, finalBaseRef] = await Promise.all([readCheck(), readBaseRef()]);
+    checkRun = finalCheckRun;
+    if (finalBaseRef?.object?.sha !== workflowSha
+      || checkRun?.head_sha !== headSha || checkRun?.name !== GUARD_CHECK_NAME
+      || checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
+      throw new HttpError(409, "The trusted recovery policy or Guard publisher changed before reconciliation. Nothing was changed.");
+    }
+    reconciliation = await trustedGuardRecoveryState({ ...recoveryContext, checkRun });
+    if (reconciliation.patch == null) {
+      return { repository, ...reconciliation };
+    }
+    if (reconciliation.generation !== recoveryGeneration) {
+      throw new HttpError(409, "The owning Guard generation changed before reconciliation. Nothing was changed.");
+    }
+    const published = await write(() => github(
+      `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
+      writeCredential.token,
+      { method: "PATCH", body: reconciliation.patch },
+    ));
+    if (published?.id !== checkRunId || published?.head_sha !== headSha
+      || published?.name !== GUARD_CHECK_NAME || published?.app?.id !== configuration.appId
+      || published?.app?.slug !== configuration.appSlug
+      || published.status !== "completed"
+      || published.conclusion !== "action_required"
+      || published?.output?.text !== reconciliation.patch.output.text) {
+      throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
+    }
+    return {
+      repository,
+      state: "reconciled",
+      checkRunId,
+      generation: reconciliation.generation,
+      conclusion: "action_required",
+    };
   });
-  const [finalCheckRun, finalBaseRef] = await Promise.all([readCheck(), readBaseRef()]);
-  checkRun = finalCheckRun;
-  if (finalBaseRef?.object?.sha !== workflowSha
-    || checkRun?.app?.id !== configuration.appId || checkRun?.app?.slug !== configuration.appSlug) {
-    throw new HttpError(409, "The trusted recovery policy or Guard publisher changed before reconciliation. Nothing was changed.");
-  }
-  reconciliation = await trustedGuardRecoveryState({ ...recoveryContext, checkRun });
-  if (reconciliation.patch == null) {
-    sendJson(res, 200, { repository, ...reconciliation });
-    return;
-  }
-  if (reconciliation.generation !== recoveryGeneration) {
-    throw new HttpError(409, "The owning Guard generation changed before reconciliation. Nothing was changed.");
-  }
-  const published = await github(
-    `/repos/${target.encodedRepository}/check-runs/${checkRunId}`,
-    writeCredential.token,
-    { method: "PATCH", body: reconciliation.patch },
-  );
-  if (published?.id !== checkRunId
-    || published.status !== "completed"
-    || published.conclusion !== "action_required"
-    || decodeGuardRunMarker(published?.output?.text).phase !== "complete") {
-    throw new HttpError(502, "GitHub did not return the safely reconciled Guard Check.");
-  }
-  sendJson(res, 200, {
-    repository,
-    state: "reconciled",
-    checkRunId,
-    generation: reconciliation.generation,
-    conclusion: "action_required",
-  });
+  sendJson(res, 200, result);
 }
 
 export async function prepareAutonomousHarness(repository, session, authorityAnchor = null) {
@@ -5933,7 +6021,7 @@ async function logout(req, res) {
   sendJson(res, 200, { authenticated: false }, [clearCookie(SESSION_COOKIE), clearCookie(OAUTH_COOKIE)]);
 }
 
-export default async function handler(req, res) {
+async function handleRequest(req, res, suppliedJournal) {
   const requestId = apiRequestId(req);
   const startedAt = Date.now();
   const method = String(req.method ?? "GET").toUpperCase();
@@ -6004,10 +6092,10 @@ export default async function handler(req, res) {
     if (method === "GET" && action === "preflight") return await preflight(req, res);
     if (method === "GET" && action === "ruleset-plan") return await rulesetPlanStatus(req, res);
     if (method === "POST" && action === "ruleset-apply") return await applyRulesetPlan(req, res);
-    if (method === "POST" && action === "reconcile") return await reconcileGuard(req, res);
+    if (method === "POST" && action === "reconcile") return await reconcileGuard(req, res, suppliedJournal);
     if (method === "GET" && action === "runtime") return await runtimeStatus(req, res);
     if (method === "GET" && action === "proof") return await assuranceProofStatus(req, res);
-    if (method === "POST" && action === "guard-publish") return await guardPublish(req, res);
+    if (method === "POST" && action === "guard-publish") return await guardPublish(req, res, suppliedJournal);
     if (method === "POST" && action === "runtime") return await configureRuntime(req, res);
     if (method === "GET" && action === "byok") return await runtimeStatus(req, res);
     if (method === "POST" && action === "byok") return await configureByok(req, res);
@@ -6020,12 +6108,18 @@ export default async function handler(req, res) {
     if (method === "POST" && action === "logout") return await logout(req, res);
     throw new HttpError(404, "Unknown GitHub API action.");
   } catch (error) {
-    const status = error instanceof HttpError
+    const status = error instanceof GuardPublicationError
+      ? error.code === "GUARD_PUBLICATION_BUSY" ? 423 : 503
+      : error instanceof HttpError
       ? error.status
       : error instanceof GitHubError && error.status >= 400 && error.status < 500
         ? error.status
         : 500;
-    const message = error instanceof HttpError
+    const message = error instanceof GuardPublicationError
+      ? error.code === "GUARD_PUBLICATION_BUSY"
+        ? "A previous publication still holds this revision. Its required Guard remains in force. Re-run ChangePlane; if it stays blocked, ask the release owner to inspect the request ID."
+        : "Guard publication is paused because its authority journal could not confirm a safe operation. Keep the required Guard and ask the release owner to inspect the request ID."
+      : error instanceof HttpError
       ? error.message
       : error instanceof GitHubError
         ? `GitHub request failed (${error.status}).${error.requestId ? ` GitHub request ${error.requestId}.` : ""}`
@@ -6033,7 +6127,8 @@ export default async function handler(req, res) {
     if (error instanceof GitHubError && error.retryDelayMs > SERVERLESS_MAX_RETRY_DELAY_MS) {
       res.setHeader("retry-after", String(Math.ceil(error.retryDelayMs / 1000)));
     }
-    sendJson(res, status, { error: message, requestId });
+    if (error instanceof GuardPublicationError && status === 423) res.setHeader("retry-after", "1");
+    sendJson(res, status, { error: message, requestId, ...(error instanceof GuardPublicationError ? { code: error.code } : {}) });
     logApiRequest(status >= 500 ? "error" : "warn", {
       event: "request_failed",
       requestId,
@@ -6042,6 +6137,7 @@ export default async function handler(req, res) {
       status,
       durationMs: Date.now() - startedAt,
       errorType: error?.constructor?.name || "UnknownError",
+      ...(error instanceof GuardPublicationError ? { errorCode: error.code } : {}),
       ...(error instanceof GitHubError ? {
         githubStatus: error.status,
         githubRequestId: error.requestId,
@@ -6061,3 +6157,12 @@ export default async function handler(req, res) {
     }
   }
 }
+
+export function createGitHubHandler({ guardJournal = null } = {}) {
+  if (guardJournal !== null && typeof guardJournal?.withPublication !== "function") {
+    throw new TypeError("A Guard publication journal must implement withPublication.");
+  }
+  return (req, res) => handleRequest(req, res, guardJournal);
+}
+
+export default createGitHubHandler();
