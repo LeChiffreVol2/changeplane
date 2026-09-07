@@ -1,7 +1,12 @@
 -- Candidate authority storage. Apply with an administrative migration role only.
 -- Acknowledged claims must survive every accepted failover/restore history (RPO 0).
 -- Never expire or delete held lanes to recover availability. Fence old publishers first.
+-- PostgreSQL 16+: operator needs CREATEROLE and CREATE on this database.
+-- Precreated roles also require an explicitly reviewed SET grant on the owner.
 begin;
+-- Only the trusted migration operator gains SET on roles it creates. This does
+-- not grant owner membership to runtime; existing memberships are left intact.
+set local createrole_self_grant = 'set';
 
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'changeplane_guard_journal_owner') then
@@ -16,9 +21,15 @@ do $$ begin
       where member_role.rolname in ('changeplane_guard_journal_owner', 'changeplane_guard_journal_runtime')) then
     raise exception 'Guard journal roles require separate unprivileged NOINHERIT non-login roles without memberships';
   end if;
+  if not pg_has_role(current_user, 'changeplane_guard_journal_owner', 'SET') then
+    raise exception 'Guard journal migration operator requires SET on the precreated owner role' using errcode = '42501';
+  end if;
 end $$;
 
 create schema changeplane_guard authorization changeplane_guard_journal_owner;
+-- Create objects with the actual owner, without inherited admin privileges or
+-- a database-wide CREATE grant to the owner. COMMIT restores the caller role.
+set local role changeplane_guard_journal_owner;
 revoke all on schema changeplane_guard from public;
 grant usage on schema changeplane_guard to changeplane_guard_journal_runtime;
 

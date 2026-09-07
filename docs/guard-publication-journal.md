@@ -50,6 +50,14 @@ Require forced row-level security with `changeplane.guard_tenant_id` scoped to e
 
 Test role membership and actual grants, not just policy text. PostgreSQL documents that superusers and `BYPASSRLS` roles bypass row security; owners normally do too unless forced RLS applies. Backup completeness also needs separate verification because an RLS-filtered backup can omit rows. See [row security policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
 
+### Migration operator privileges
+
+The journal and pilot-admission migrations require PostgreSQL 16 or newer and a trusted operator with `CREATEROLE` and `CREATE` on its dedicated database. They do not require superuser or `BYPASSRLS`. For newly created roles, transaction-local `createrole_self_grant = 'set'` gives the operator explicit role-switching capability without inherited privileges. After creating the schema, `SET LOCAL ROLE` creates tables and functions as the unprivileged owner; the owner does not receive database-wide schema-creation rights. Commit or rollback restores the caller's role and session setting. PostgreSQL retains the creator's administrative memberships, so the operator remains privileged and must never be used as a hosted runtime credential. See [role creation grants](https://www.postgresql.org/docs/17/role-attributes.html) and [the self-grant setting](https://www.postgresql.org/docs/17/runtime-config-client.html#GUC-CREATEROLE-SELF-GRANT).
+
+If roles already exist, review their attributes and memberships first. A role administrator must explicitly grant the operator `SET` on the owner with `INHERIT FALSE`; the migration rejects a missing grant rather than taking over an existing role. Owner and runtime roles must remain bare, unprivileged non-login roles, and runtime must never receive owner membership. Apply each reviewed migration once as one transaction; a failed attempt requires rollback before retry. Do not reset an installed schema to retry or migrate live authority data.
+
+Both scratch PostgreSQL suites exercise fresh and precreated roles through a non-superuser operator, missing-privilege rollback, object ownership, restored session state, and runtime isolation. These are local PostgreSQL results. Supabase's default administrator is [not a superuser](https://supabase.com/docs/guides/database/postgres/roles-superuser); its deployed role controls, extensions, TLS and durability still require provider-specific verification before activation.
+
 ## Admission, capacity, and cost
 
 The candidate serializes admission on the enrollment row and counts occupied and poisoned lanes against that repository's `max_lanes`. The schema permits a finite cap from 1 to 1,000; this is an input bound, not evidence that any value supports a particular workload. Normal release of a successfully completed lane returns capacity. There is no stored backlog, automatic retry storm, or eviction of uncertain rows to create capacity.

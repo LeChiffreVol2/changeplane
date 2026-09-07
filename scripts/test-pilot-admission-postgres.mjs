@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client, Pool } from "pg";
 import { createPostgresPilotAdmission } from "../server/pilot-admission.js";
+import { assertManagedMigration } from "./assert-managed-migration.mjs";
 
 // Keep the socket path below macOS's 103-byte Unix socket limit.
 const root = await mkdtemp(join(tmpdir(), "cp-pilot-"));
@@ -53,7 +54,9 @@ try {
     assert.equal((await admin.query("select to_regnamespace('changeplane_commercial') as namespace")).rows[0].namespace, null);
     await admin.query(`drop role ${name}`);
   }
-  await admin.query(migration);
+  await assertManagedMigration({ admin, connect, migration, operator: "pilot_migrator",
+    owner: "changeplane_commercial_owner", runtime: "changeplane_commercial_runtime", schema: "changeplane_commercial" });
+  pass("non-superuser migration supports fresh/precreated roles, rolls back missing privileges, and restores caller session without runtime escalation");
   await admin.query("create role pilot_test_runtime login nosuperuser nocreatedb nocreaterole nobypassrls in role changeplane_commercial_runtime");
   // All runtime connections use a non-UTC timezone; accounting must still be UTC.
   await admin.query("alter role pilot_test_runtime set timezone='Pacific/Kiritimati'");

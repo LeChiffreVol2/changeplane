@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client, Pool } from "pg";
 import { createPostgresGuardJournal } from "../server/guard-publication-journal.js";
+import { assertManagedMigration } from "./assert-managed-migration.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "changeplane-guard-journal-"));
 const data = join(root, "data");
@@ -70,7 +71,9 @@ try {
     await admin.query(`drop role ${name}`);
   }
   pass("preexisting INHERIT and owner/runtime role memberships reject migration and roll back before schema creation");
-  await admin.query(migration);
+  await assertManagedMigration({ admin, connect, migration, operator: "journal_migrator",
+    owner: "changeplane_guard_journal_owner", runtime: "changeplane_guard_journal_runtime", schema: "changeplane_guard" });
+  pass("non-superuser migration supports fresh/precreated roles, rolls back missing privileges, and restores caller session without runtime escalation");
   await admin.query("create role journal_test_runtime login nosuperuser nocreatedb nocreaterole nobypassrls in role changeplane_guard_journal_runtime");
   for (const repository of [20, 21, 22, 23, 24, 25, 26, 27]) {
     await admin.query(`insert into changeplane_guard.enrollments
