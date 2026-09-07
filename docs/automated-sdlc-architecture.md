@@ -72,7 +72,7 @@ Before removing the capability gate, adversarial integration and protected organ
 | Separate principals | Distinct Installer/Guard Apps, exact repository installation binding, allowed permissions | Release owner |
 | Customer enforcement | Organization-owned Strict Head same-SHA canary, failed evidence, supersession and timeout recovery | Engineering + customer administrator |
 | Legal and support | Reviewed entity/jurisdiction/contact/payment terms, exact-release legal pack and signed order form | Founder + qualified legal reviewer |
-| Design partners | Three to five approved customer organizations, named support owners and narrow repository allowlist | Founder |
+| Design partners | Three to five approved Customer Accounts covering personal and organization ownership, named support owners and narrow repository allowlist; retain the separate paying-organization business target | Founder |
 | Willingness to pay | Reviewed manual invoice or payment link, actual net revenue and variable costs | Founder |
 | Thirty-day outcomes | Private ledger, coverage references and reproducible scorecard | Founder + release owner |
 

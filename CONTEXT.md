@@ -8,9 +8,13 @@ ChangePlane provides independent behavioral merge assurance for AI-authored pull
 The product category in which an authority independent from the authoring agent verifies trusted behavioral evidence for one exact revision before GitHub may merge it.
 _Avoid_: Agentic SDLC platform, AI code review, agent workspace
 
+**Customer Account**:
+A GitHub personal account or organization that owns repositories protected by ChangePlane. Its owner or authorized administrators choose the policy for agent-authored pull requests.
+_Avoid_: Signed-in user, workspace, customer organization when including individuals
+
 **Customer Organization**:
-A GitHub organization whose platform, application-security, or engineering leader owns the policy for agent-authored pull requests.
-_Avoid_: Account, workspace, tenant
+A Customer Account owned by a GitHub organization, including an organization within GitHub Enterprise Cloud. It is the business-customer subset used by the business validation gate.
+_Avoid_: Every customer, personal account, enterprise account
 
 **Agent-Authored Pull Request**:
 A GitHub pull request whose code was created or materially changed by one or more coding agents, regardless of vendor.
@@ -59,7 +63,7 @@ _Avoid_: Enterprise mode, fully safe
 ## Commercial operations
 
 **Fleet Posture**:
-The customer-visible state of assurance level, activation, configuration drift, and recent Guard outcomes across a Customer Organization's repositories.
+The customer-visible state of assurance level, activation, configuration drift, and recent Guard outcomes across a Customer Account's repositories.
 _Avoid_: Dashboard, analytics page
 
 **Evaluation Event**:
@@ -71,11 +75,11 @@ The monotonically increasing evaluation of one Assured Revision. Starting a newe
 _Avoid_: Retry, workflow attempt
 
 **Entitlement**:
-The server-enforced commercial allowance for a Customer Organization to use a named assurance level, repository count, evaluation volume, history window, and support class.
+The server-enforced commercial allowance for a Customer Account to use a named assurance level, repository count, evaluation volume, history window, and support class.
 _Avoid_: Feature flag, subscription status
 
 **Design Partner Alpha**:
-The invite-only, founder-led launch stage for three to five qualified Customer Organizations using Verify Lite and Strict Head under an approved order form, private support path, measured activation, and explicit pre-release boundaries.
+The invite-only, founder-led launch stage for three to five qualified Customer Accounts using Verify Lite and Strict Head under an approved order form, private support path, measured activation, and explicit pre-release boundaries. Both individual and business accounts are eligible; business validation retains its separate Customer Organization target.
 _Avoid_: Public launch, self-serve GA, enterprise-ready
 
 **Launch Evidence Gate**:

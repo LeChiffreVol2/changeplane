@@ -114,8 +114,8 @@ function journalFixture() {
   };
 }
 
-function targetFixture({ pullRequestNumber = 42, headSha = "b".repeat(40), harnessMode = "verify" } = {}) {
-  const repository = "acme/payments";
+function targetFixture({ pullRequestNumber = 42, headSha = "b".repeat(40), harnessMode = "verify",
+  repository = "acme/payments" } = {}) {
   const repositoryId = 4242;
   const baseSha = "a".repeat(40);
   const files = new Map(buildSetupFiles({ name: "CI / verify", appSlug: "github-actions",
@@ -158,7 +158,8 @@ function oidc(runId, fixture, eventName = "pull_request_target", runAttempt = 1)
     padding: constants.RSA_PKCS1_PADDING }).toString("base64url")}`;
 }
 
-async function withFixture(callback, { targets = [targetFixture()], pilotAdmission = admissionFixture() } = {}) {
+async function withFixture(callback, { targets = [targetFixture()], pilotAdmission = admissionFixture(),
+  ownerAccount = { id: 77, type: "Organization", login: "acme" }, installationAccount = ownerAccount } = {}) {
   const prefix = /^(?:GITHUB_|CHANGEPLANE_|VERCEL(?:_|$))/u;
   const saved = Object.fromEntries(Object.entries(process.env).filter(([name]) => prefix.test(name)));
   for (const name of Object.keys(saved)) delete process.env[name];
@@ -192,7 +193,7 @@ async function withFixture(callback, { targets = [targetFixture()], pilotAdmissi
   const originalFetch = globalThis.fetch;
   const primary = targets[0];
   const repo = { id: primary.repositoryId, full_name: primary.repository, default_branch: "main",
-    owner: { id: 77 }, permissions: { push: true, admin: true } };
+    owner: { ...ownerAccount }, permissions: { push: true, admin: true } };
   const treeSha = "c".repeat(40);
   const tree = [...primary.files].map(([path, content]) => ({ path, type: "blob", mode: "100644",
     sha: createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex") }));
@@ -205,7 +206,7 @@ async function withFixture(callback, { targets = [targetFixture()], pilotAdmissi
     }] });
     assert.equal(url.origin, "https://api.github.com", "the fixture never makes an external request");
     if (url.pathname.endsWith("/installation")) return response({ id: 7007, app_id: 424242,
-      app_slug: "changeplane-test", account: { id: 77 } });
+      app_slug: "changeplane-test", account: { ...installationAccount } });
     if (url.pathname === "/app/installations/7007/access_tokens") {
       const requested = JSON.parse(options.body);
       return response({ token: "synthetic-guard-token", permissions: requested.permissions,
@@ -313,6 +314,46 @@ function assertBlockedCheck(check, runId) {
   assert.equal(check.output.summary.includes("changeplane-assurance-passport"), false,
     "commercial admission must never manufacture an assurance passport");
 }
+
+test("individual and business repository owners receive the same Verify pilot lifecycle", async () => {
+  for (const ownerAccount of [
+    { id: 77, type: "User", login: "solo-builder" },
+    { id: 88, type: "Organization", login: "acme" },
+  ]) {
+    const target = targetFixture({ repository: `${ownerAccount.login}/payments` });
+    await withFixture(async ({ primary, pilotAdmission, journal, controls, invoke }) => {
+      const begin = await invoke("begin", 8001);
+      assert.equal(begin.statusCode, 200, `${ownerAccount.type}: ${begin.body}`);
+      assert.equal(pilotAdmission.calls.length, 1);
+      assert.equal(pilotAdmission.calls[0].tenantId, ownerAccount.id);
+      assert.equal(journal.calls[0].tenantId, ownerAccount.id);
+      const complete = await invoke("complete", 8001);
+      assert.equal(complete.statusCode, 200, `${ownerAccount.type}: ${complete.body}`);
+      assert.equal(primary.checks[0].conclusion, "success");
+      assert.equal(pilotAdmission.calls.length, 1, "completion does not charge either account type again");
+      controls.mutateRequest = (request) => { request.body.tenantId = 999; request.body.organizationId = 999; };
+      assert.equal((await invoke("begin", 8002)).statusCode, 409,
+        "caller-selected account fields are rejected by the strict request contract");
+      assert.equal(pilotAdmission.calls.length, 1, "an account override cannot consume another account's allowance");
+    }, { targets: [target], ownerAccount });
+  }
+});
+
+test("a personal and organization account cannot substitute each other's installation binding", async () => {
+  for (const [ownerAccount, installationAccount] of [
+    [{ id: 77, type: "User", login: "solo-builder" }, { id: 88, type: "Organization", login: "acme" }],
+    [{ id: 88, type: "Organization", login: "acme" }, { id: 77, type: "User", login: "solo-builder" }],
+  ]) {
+    await withFixture(async ({ pilotAdmission, journal, writes, invoke }) => {
+      const begin = await invoke("begin", 8001);
+      assert.equal(begin.statusCode, 503, begin.body);
+      assert.equal(JSON.parse(begin.body).code, "GUARD_PUBLICATION_AUTHORITY");
+      assert.equal(pilotAdmission.calls.length, 0);
+      assert.equal(journal.calls.length, 0);
+      assert.equal(writes.length, 0, "wrong-account installation cannot reach Check authority");
+    }, { targets: [targetFixture({ repository: `${ownerAccount.login}/payments` })], ownerAccount, installationAccount });
+  }
+});
 
 test("authenticated begin retries reuse one admission and its original UTC month", async () => {
   await withFixture(async ({ primary, pilotAdmission, writes, journal, controls, invoke }) => {

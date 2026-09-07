@@ -1,6 +1,8 @@
 # Commercial plan
 
-ChangePlane sells independent behavioral merge assurance to platform, application-security, and engineering leaders at GitHub organizations with 20–200 engineers, multiple coding agents, meaningful behavioral CI, and enough agent-authored pull requests that reviewers cannot safely reconstruct every change by hand.
+ChangePlane sells independent behavioral merge assurance to individual developers and businesses using GitHub.com. A Customer Account is the personal account or organization that owns the protected repository. Business teams with 20–200 engineers, multiple coding agents and meaningful behavioral CI remain the initial assisted-sales segment; they are not an account-type eligibility requirement.
+
+Both account types use the same Verify-first installation, exact-head evidence and protected setup pull request. Enterprise Cloud organizations are included. GitHub Enterprise Server, forks and cross-repository repair remain outside this release. Private repositories need a GitHub plan that supports the required Rulesets; unavailable protection must be explained before claiming Strict Head. See the [account support matrix and $100 operating budget](operating-budget.md).
 
 Verify is the core paid product. The Autonomous Assurance Agent runs the verification and handback loop without routine human interaction. Autonomous Repair is a separately priced controlled expansion and is not required for the core outcome.
 
@@ -23,10 +25,10 @@ The table below is a post-alpha pricing hypothesis, not a currently available pu
 | Plan | Monthly price | Included use | History and support |
 | --- | ---: | --- | --- |
 | Free | $0 | 1 repository and 100 evaluations | Strict Head, 7-day detailed history, community support |
-| Starter | $99 per organization | 3 repositories and 2,500 evaluations | Strict Head, 30-day detailed history, email support |
-| Team | $399 per organization | 15 repositories and 20,000 evaluations | Strict Head and Queue Certified, 90-day detailed history |
-| Scale | $999 per organization | 50 repositories and 100,000 evaluations | 13-month aggregate metrics and priority support |
-| Enterprise | From $2,000 per organization | Contracted volume | Offered only with the promised DPA, SLA, and security-review support |
+| Starter | $99 per Customer Account | 3 repositories and 2,500 evaluations | Strict Head, 30-day detailed history, email support |
+| Team | $399 per Customer Account | 15 repositories and 20,000 evaluations | Strict Head and Queue Certified, 90-day detailed history |
+| Scale | $999 per Customer Account | 50 repositories and 100,000 evaluations | 13-month aggregate metrics and priority support |
+| Enterprise | From $2,000 per contracted Customer Account | Contracted volume | Offered only with the promised DPA, SLA, and security-review support |
 | Autonomous Repair | $149 per protected repository | BYOK bounded repairs | Controlled beta only |
 
 Post-alpha Free and Starter do not include founder-led onboarding. The design-partner Starter experiment does include founder-led onboarding and may use a legally reviewed manual invoice or payment link; a billing system is not a prerequisite for willingness-to-pay evidence. No payment is accepted before the exact order form and legal pack are approved. A paid plan does not launch until measured variable cost supports at least 80% gross margin. Quota exhaustion never produces an unevaluated success: the product provides a bounded grace window and then reports `usage_action_required` explicitly.
@@ -63,4 +65,4 @@ Free rollout requires reviewed Terms of Service, Privacy Policy, Acceptable Use 
 
 ## Distribution
 
-Distribution begins with founder-led outreach to 50 GitHub organizations matching the ICP. The Free plan and public benchmark provide product-led proof, while assisted customer bake-offs test the paid value proposition against each organization's existing GitHub-native controls. GitHub Marketplace follows ten successful external activations. Agent-specific landing pages explain compatibility with Cursor, Codex, Copilot, and Claude Code without claiming a native integration that has not been live-proven. Broad paid acquisition waits until the Demand Gate passes.
+Distribution includes individual developers as well as founder-led outreach to 50 GitHub organizations matching the business ICP. The Free plan and public benchmark provide product-led proof, while assisted customer bake-offs test the paid value proposition against each account's existing GitHub-native controls. The business evidence gate still requires paying organizations; individual purchases must not be relabeled as business validation. GitHub Marketplace follows ten successful external activations. Agent-specific landing pages explain compatibility with Cursor, Codex, Copilot, and Claude Code without claiming a native integration that has not been live-proven. Broad paid acquisition waits until the Demand Gate passes.

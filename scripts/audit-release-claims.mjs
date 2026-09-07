@@ -17,6 +17,7 @@ const paths = [
   "database/README.md",
   "docs/launch-measurement.md",
   "docs/commercial-plan.md",
+  "docs/operating-budget.md",
   "docs/cursor-origin-boundary.md",
   "docs/data-handling.md",
   "docs/design-partner-order-form.md",

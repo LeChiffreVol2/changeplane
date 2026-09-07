@@ -4,6 +4,8 @@ Run `npm run report:launch -- /absolute/private/path/launch-evidence.json` to ca
 
 Keep the filled ledger and its supporting records outside the public repository. The output contains aggregate metrics only. The template in `examples/launch-evidence.template.json` contains no fabricated installations or customer results. All evidence is explicitly **operator-attested**; the report cannot verify an invoice, legal signature, GitHub export or customer interview. It never authorizes launch, accepts a payment or contributes to PASS.
 
+This existing organization-based scorecard measures the business cohort. Individual developers are eligible Customer Accounts, but their installations and payments must be tracked separately until the collector has an explicit account-type contract. Do not relabel an individual as an organization to satisfy the two-paying-organization target. This reporting limitation is not an onboarding restriction.
+
 ## Collection contract
 
 Use canonical UTC timestamps such as `2026-09-07T00:00:00.000Z`, nonnegative integer USD cents and random version-4 UUIDs for every identifier. Identifiers are pseudonyms, not hashes of customer names. Maintain the mapping privately. Each `evidenceId` refers to supporting records in the operator's private evidence system; no URL, name, source, diff, provider response, customer business data, email or credential belongs in this ledger. Unknown fields are rejected.

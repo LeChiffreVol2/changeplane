@@ -64,7 +64,7 @@ Before a canary, the release owner must record the selected cap and an operating
 | Occupied lanes and physical storage | Measure rows, indexes, table growth, WAL, and backup storage. A repository cap does not establish a global byte limit. Reserve capacity for finishing or poisoning work already admitted. |
 | Database connections and transition duration | Bound the runtime pool, statement/lock waits, and request duration. A database timeout stops admission; it never releases or steals a durable lane. |
 | Transaction rate and retries | Meter claim attempts, conflicts, transitions, and upstream attempts. Deny excess new admission and honor GitHub rate limits. Never replay an ambiguous external write to improve a success metric. |
-| Monthly provider spend | The release owner records a finite currency budget covering database compute, storage, WAL/backup, network, and Vercel overhead. No amount has been approved or measured by this document. |
+| Monthly provider spend | The founder's operating ceiling is USD 100 per month for ChangePlane infrastructure. The [budget plan](operating-budget.md) reserves headroom and records a conditional provider estimate; actual provider limits, account selection and metering remain unverified. |
 
 The proposed operating target is to alert and stop expansion at 80% of an approved capacity or spend budget, and stop new admission at its hard limit. These thresholds are operating targets, not measured capacity or an availability promise. Reaching a budget never deletes a poisoned lane or returns an unevaluated success. If the provider cannot preserve already-admitted authority safely at the limit, halt publication and enter incident recovery.
 

@@ -65,6 +65,8 @@ This gives Codex, Cursor, Claude Code, Copilot, Trae, OpenSWE, and other coding 
 
 ## Install on GitHub
 
+ChangePlane supports individual developers with personal accounts and businesses with GitHub organizations, including Enterprise Cloud organizations. Neither group needs to create a different account type to use ChangePlane. Repository protection still depends on the customer's GitHub plan and verified Rulesets; see the [support matrix](docs/operating-budget.md#individual-and-business-support). Release-owner organization canaries are internal verification, not an organization-only customer restriction.
+
 For an accepted Design Partner Alpha repository, hosted onboarding needs no CLI, ChangePlane account provisioning, or customer Vercel configuration:
 
 1. Select **Install ChangePlane on GitHub**.
