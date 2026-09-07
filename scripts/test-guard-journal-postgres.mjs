@@ -74,6 +74,30 @@ try {
   await assertManagedMigration({ admin, connect, migration, operator: "journal_migrator",
     owner: "changeplane_guard_journal_owner", runtime: "changeplane_guard_journal_runtime", schema: "changeplane_guard" });
   pass("non-superuser migration supports fresh/precreated roles, rolls back missing privileges, and restores caller session without runtime escalation");
+  const catalogProbe = await readFile(new URL("../database/probes/guard_journal_catalog.sql", import.meta.url), "utf8");
+  for (const role of ["anon", "authenticated", "service_role"]) await admin.query(`create role ${role} nologin`);
+  const catalog = () => admin.query(catalogProbe).then((result) => result.rows[0].result);
+  const initialCatalog = await catalog();
+  assert.equal(initialCatalog.catalogChecksPassed, true);
+  assert.equal(initialCatalog.apiRolesInspected, 3);
+  assert.equal(initialCatalog.runtimeLoginVerified, false);
+  assert.equal(initialCatalog.providerDurabilityVerified, false);
+  for (const [drift, check] of [
+    ["grant usage on schema changeplane_guard to anon", "api_role_grants_absent"],
+    ["grant execute on all functions in schema changeplane_guard to public", "public_grants_absent"],
+    ["grant update on changeplane_guard.enrollments to changeplane_guard_journal_runtime", "runtime_table_privileges"],
+    ["alter table changeplane_guard.lanes disable row level security", "table_ownership_and_rls"],
+  ]) {
+    await admin.query("begin");
+    try {
+      await admin.query(drift);
+      const changed = await catalog();
+      assert.equal(changed.catalogChecksPassed, false);
+      assert.equal(changed.checks[check], false);
+    } finally { await admin.query("rollback"); }
+  }
+  assert.deepEqual(await catalog(), initialCatalog);
+  pass("read-only provider catalog probe detects API/PUBLIC grants, runtime escalation and disabled RLS without claiming live qualification");
   await admin.query("create role journal_test_runtime login nosuperuser nocreatedb nocreaterole nobypassrls in role changeplane_guard_journal_runtime");
   for (const repository of [20, 21, 22, 23, 24, 25, 26, 27]) {
     await admin.query(`insert into changeplane_guard.enrollments
