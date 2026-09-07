@@ -6,6 +6,16 @@ Verify is the core paid product. The Autonomous Assurance Agent runs the verific
 
 Customer activation remains paused in the managed-v14 candidate pending serialized Guard publication, its protected live canary, separate Guard identity and the exact-release legal pack. The [automated SDLC architecture](automated-sdlc-architecture.md) orders those dependencies. The [launch measurement contract](launch-measurement.md) makes the existing nine pilot targets executable without claiming production ingestion or customer outcomes that have not occurred.
 
+## Candidate pilot admission
+
+The current source adds a bounded admission path for operator-enrolled Verify Lite pull-request pilots using Strict Head. Each contract lasts at most 30 days and declares finite repository and monthly evaluation limits plus bounded grace. Enrollment binds the authenticated GitHub tenant, repository and Guard installation/App. This does not enable the public pricing catalog, Queue Certified, Autonomous Repair, or general plan enforcement.
+
+The database admits one evaluation per tenant, repository, exact revision fingerprint and Evaluation Generation. A transaction checks the enrolled contract and consumes one unit; exact retries reuse the original receipt. Its UTC period comes from database admission time and never moves when telemetry arrives late or expires. New admission requires the exact workflow attempt's GitHub-verified start time to fall within the currently active contract window; callers cannot supply that timestamp. Completion and recovery do not consume another unit or recheck contract expiry; fresh GitHub authentication and assurance checks still apply. A lost database acknowledgement may leave a consumed unit, so retries deduplicate instead of issuing an automatic refund.
+
+Before waiting on commercial admission, the controller retires earlier usable success and confirms the new generation's `in_progress` Guard while holding journal ownership. Missing entitlement, exhausted allowance or unavailable admission storage then ends the Guard as `action_required`, subject to journal publication authority. A worker lost during the allowance wait leaves a blocking Guard and held journal lane. Neither quota nor storage failure can issue PASS. Admission units are resource accounting, not verified successful evaluations or automatic invoice items. A manually reviewed invoice remains separate from these records.
+
+This is candidate source only. Complete commercial outcome ingestion and general entitlements are still absent, so `commercialRuntimeIntegrated` and `commercialReady` remain false. No live commercial database, billing/provider service, paid launch, effective agreement or legal entity has been established by this work. The [commercial database contract](../database/README.md#commercial-plane) and [draft retention contract](retention-deletion.md) describe the remaining operating gates.
+
 ## Plans
 
 The table below is a post-alpha pricing hypothesis, not a currently available public offer. During the invite-only design-partner alpha, ChangePlane offers only Verify Lite plus Strict Head under a reviewed order form. Queue Certified may be exercised in an owner-controlled canary but is not sold to alpha customers; Autonomous Repair, Fleet history, aggregate metrics, and service-level commitments remain unavailable.
@@ -23,7 +33,7 @@ Post-alpha Free and Starter do not include founder-led onboarding. The design-pa
 
 ## Pilot service targets
 
-These are measured pilot targets, not a contractual uptime SLA or a 24/7 promise:
+These are targets to measure during pilots, not a contractual uptime SLA or a 24/7 promise:
 
 - 99.5% monthly publisher and readiness availability.
 - P95 under 45 seconds from terminal Behavioral Evidence to a terminal Guard.

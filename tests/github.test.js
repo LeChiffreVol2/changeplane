@@ -2504,6 +2504,7 @@ test("readiness fails closed when a Vercel deployment has no source commit", asy
         guardPublicationSerialized: false,
         guardJournalConfigured: false,
         guardJournalConfiguration: false,
+        pilotAdmissionConfiguration: true,
         commercialStore: false,
         commercialStoreVerified: false,
         commercialRuntimeIntegrated: false,
@@ -2566,6 +2567,7 @@ test("readiness exposes the exact Vercel source commit without secret values", a
         guardPublicationSerialized: false,
         guardJournalConfigured: false,
         guardJournalConfiguration: false,
+        pilotAdmissionConfiguration: true,
         commercialStore: false,
         commercialStoreVerified: false,
         commercialRuntimeIntegrated: false,
@@ -2668,7 +2670,7 @@ test("readiness cannot claim commercial integration from configuration and relea
 
     Object.assign(process.env, {
       CHANGEPLANE_COMMERCIAL_STORE_ENABLED: "true",
-      CHANGEPLANE_DATABASE_URL: "postgresql://changeplane:test@db.example/changeplane?sslmode=require",
+      CHANGEPLANE_DATABASE_URL: "postgresql://changeplane:test@db.example/changeplane?sslmode=verify-full",
       CHANGEPLANE_LEGAL_RELEASE_APPROVED: "true",
     });
     const unboundResponse = responseRecorder();

@@ -72,6 +72,7 @@ import {
 } from "../server/repair-ledger.js";
 import { reconcileGuardState } from "../server/guard-reconciliation.js";
 import { createPostgresGuardJournal, GuardPublicationError } from "../server/guard-publication-journal.js";
+import { createPostgresPilotAdmission } from "../server/pilot-admission.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -477,6 +478,31 @@ const COMMERCIAL_RUNTIME_INTEGRATED = false;
 // Configuration alone cannot enable customer access across that release gate.
 const GUARD_PUBLICATION_SERIALIZED = false;
 let guardJournalCache = null;
+let pilotAdmissionCache = null;
+
+function verifiedPostgresUrl(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    return ["postgres:", "postgresql:"].includes(url.protocol)
+      && Boolean(url.hostname && url.username && url.pathname.length > 1)
+      && !url.hostname.includes("%") && !url.hash
+      // pg accepts duplicate, endpoint and file overrides. Only one reviewed
+      // TLS option is supported in hosted database configuration.
+      && url.searchParams.size === 1 && url.searchParams.get("sslmode") === "verify-full";
+  } catch { return false; }
+}
+
+function pilotAdmissionRequested(suppliedPilotAdmission = null) {
+  return suppliedPilotAdmission !== null
+    || process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED === "true"
+    || (process.env.VERCEL === "1" && rolloutMode() !== "controlled_canary");
+}
+
+function pilotAdmissionIsConfigured() {
+  const release = currentReleaseBinding();
+  return commercialStoreIsConfigured() && /^[a-f0-9]{40}$/u.test(release ?? "")
+    && process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE === release;
+}
 
 function guardJournalConfiguration({ required = process.env.VERCEL === "1" } = {}) {
   const requested = required || Object.keys(process.env).some((name) => name.startsWith("CHANGEPLANE_GUARD_JOURNAL_"));
@@ -484,19 +510,8 @@ function guardJournalConfiguration({ required = process.env.VERCEL === "1" } = {
   const releaseSha = currentReleaseBinding();
   const epoch = process.env.CHANGEPLANE_GUARD_JOURNAL_EPOCH;
   const connectionString = process.env.CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL;
-  let validUrl = false;
-  try {
-    const url = new URL(connectionString);
-    validUrl = ["postgres:", "postgresql:"].includes(url.protocol)
-      && Boolean(url.hostname && url.username && url.pathname.length > 1)
-      && !url.hostname.includes("%") && !url.hash
-      // pg takes the last duplicate query value and permits host/TLS/file
-      // overrides. Accept only the one reviewed TLS option, exactly once.
-      && url.searchParams.size === 1
-      && url.searchParams.get("sslmode") === "verify-full";
-  } catch { /* Configuration errors never include the credential-bearing URL. */ }
   if (process.env.CHANGEPLANE_GUARD_JOURNAL_ENABLED !== "true"
-    || !validUrl || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(epoch ?? "")
+    || !verifiedPostgresUrl(connectionString) || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(epoch ?? "")
     || !/^[a-f0-9]{40}$/u.test(releaseSha ?? "")
     || process.env.CHANGEPLANE_GUARD_JOURNAL_VERIFIED_RELEASE !== releaseSha
     || guardPrincipalSeparation() !== "separate_guard_app") {
@@ -547,6 +562,13 @@ class HttpError extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
+  }
+}
+
+class PilotAdmissionBlock extends HttpError {
+  constructor({ status, message, code }) {
+    super(status, message);
+    this.code = code;
   }
 }
 
@@ -793,6 +815,7 @@ function readiness() {
     canaryRepository: hasValidCanaryRepository(),
     rolloutAuthorized: rolloutAccessBlock() === null,
     guardJournalConfiguration: journalConfigurationValid,
+    pilotAdmissionConfiguration: !pilotAdmissionRequested() || pilotAdmissionIsConfigured(),
   };
   const principalSeparation = guardPrincipalSeparation();
   const commercialStore = commercialStoreIsConfigured();
@@ -1116,18 +1139,17 @@ function guardPrincipalSeparation() {
 }
 
 function commercialStoreIsConfigured() {
-  if (process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED !== "true") return false;
+  let reusesJournalLogin = false;
   try {
-    const url = new URL(process.env.CHANGEPLANE_DATABASE_URL ?? "");
-    return ["postgres:", "postgresql:"].includes(url.protocol)
-      && Boolean(url.hostname)
-      && Boolean(url.username)
-      && Boolean(url.password)
-      && url.pathname.length > 1
-      && url.searchParams.get("sslmode") === "require";
-  } catch {
-    return false;
-  }
+    const commercial = new URL(process.env.CHANGEPLANE_DATABASE_URL);
+    const journal = new URL(process.env.CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL);
+    reusesJournalLogin = commercial.hostname.toLowerCase() === journal.hostname.toLowerCase()
+      && (commercial.port || "5432") === (journal.port || "5432")
+      // PostgreSQL login roles are cluster-wide, even across selected databases.
+      && decodeURIComponent(commercial.username) === decodeURIComponent(journal.username);
+  } catch { /* Missing or invalid URLs are handled by their own configuration gate. */ }
+  return process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED === "true"
+    && verifiedPostgresUrl(process.env.CHANGEPLANE_DATABASE_URL) && !reusesJournalLogin;
 }
 
 export function assertOrigin(req) {
@@ -4276,7 +4298,7 @@ async function guardManagedBase(encodedRepository, defaultBranch, controllerSha,
   if (typeof policyContent !== "string" || typeof manifestContent !== "string") {
     throw new HttpError(409, "The trusted managed guard policy is missing.");
   }
-  await readCurrentManagedRuntimeProfile(
+  const managedProfile = await readCurrentManagedRuntimeProfile(
     encodedRepository,
     workflowSha,
     manifestContent,
@@ -4289,7 +4311,7 @@ async function guardManagedBase(encodedRepository, defaultBranch, controllerSha,
   } catch {
     throw new HttpError(409, "The trusted managed guard recovery policy is invalid.");
   }
-  return { workflowSha, policyContent, trustedHarnessMode };
+  return { workflowSha, policyContent, trustedHarnessMode, managedProfile };
 }
 
 async function trustedGuardRecoveryState({ encodedRepository, repo, configuration, checkRun, trustedHarnessMode, token }) {
@@ -4319,7 +4341,77 @@ async function trustedGuardRecoveryState({ encodedRepository, repo, configuratio
   return sourceRunCompleted ? earlyRecovery : fallback;
 }
 
-async function guardBegin({ body, oidcToken, configuration, repository, journalRuntime }) {
+const PILOT_DENIAL_REASONS = new Set([
+  "not_enrolled", "contract_inactive", "contract_not_started", "contract_expired",
+  "repository_limit", "unsupported_capability", "quota_exhausted", "workflow_outside_contract",
+]);
+
+function pilotAdmissionBlock(reason) {
+  const unavailable = !PILOT_DENIAL_REASONS.has(reason);
+  const message = unavailable
+    ? "ChangePlane could not confirm the pilot allowance. The Guard is blocked. Re-run ChangePlane with a new workflow attempt after the service recovers."
+    : reason === "quota_exhausted"
+      ? "This organization's pilot evaluation allowance is used up. The Guard is blocked. Ask the organization owner to review the allowance, then re-run ChangePlane."
+      : reason === "unsupported_capability"
+        ? "This pilot supports Verify Lite pull requests. The Guard is blocked. Use the reviewed Verify Lite setup before re-running ChangePlane."
+        : "This evaluation does not have an active pilot allowance. The Guard is blocked. Ask the organization owner to check pilot enrollment, then start a new workflow attempt.";
+  return { status: unavailable ? 503 : 402, message,
+    code: unavailable ? "PILOT_ADMISSION_UNAVAILABLE" : "PILOT_ADMISSION_DENIED" };
+}
+
+// Admission is commercial resource accounting, never evidence or Check authority.
+// Its failures become explicit terminal Guard states, not exceptions after a
+// known Check write. Only the enclosing journal can release publication ownership.
+async function admitPilotEvaluation({ suppliedPilotAdmission, repo, installation, configuration,
+  request, claims, managedProfile, trustedHarnessMode, encodedRepository, token }) {
+  if (!pilotAdmissionRequested(suppliedPilotAdmission)) return null;
+  if (managedProfile !== MANAGED_PROFILE.VERIFY_LITE
+    || trustedHarnessMode !== HARNESS_MODE.VERIFY || request.target.type !== "pull_request") {
+    return pilotAdmissionBlock("unsupported_capability");
+  }
+  if (!pilotAdmissionIsConfigured()
+    || !Number.isSafeInteger(repo.owner?.id) || repo.owner.id <= 0
+    || installation.account?.id !== repo.owner.id) return pilotAdmissionBlock("unavailable");
+  try {
+    const run = await github(`/repos/${encodedRepository}/actions/runs/${request.workflowRunId}/attempts/${request.workflowRunAttempt}`, token);
+    const started = Date.parse(run?.run_started_at ?? "");
+    if (String(run?.id) !== String(request.workflowRunId)
+      || String(run?.run_attempt) !== String(request.workflowRunAttempt)
+      || run?.repository?.id !== repo.id || run?.repository?.full_name !== repo.full_name
+      || githubWorkflowFilePath(run?.path) !== GUARD_WORKFLOW_PATH
+      || run?.event !== claims.eventName || !Number.isFinite(started)) return pilotAdmissionBlock("unavailable");
+    let admission = suppliedPilotAdmission;
+    if (!admission) {
+      const connectionString = process.env.CHANGEPLANE_DATABASE_URL;
+      if (pilotAdmissionCache?.connectionString !== connectionString) {
+        const previous = pilotAdmissionCache;
+        pilotAdmissionCache = { connectionString, admission: createPostgresPilotAdmission({ connectionString }) };
+        previous?.admission.close().catch(() => {});
+      }
+      admission = pilotAdmissionCache.admission;
+    }
+    const result = await admission.admitEvaluation({
+      tenantId: repo.owner.id, repositoryId: repo.id, installationId: installation.id,
+      guardAppId: configuration.appId,
+      revisionFingerprint: createHash("sha256")
+        .update(`${repo.id}\0pull_request\0${request.target.pullRequestNumber}\0${request.target.headSha}`).digest("hex"),
+      evaluationGeneration: `${request.workflowRunId}.${request.workflowRunAttempt}`,
+      capability: "verify", targetType: "pull_request", workflowStartedAt: new Date(started).toISOString(),
+    });
+    if (result?.admitted === false) return pilotAdmissionBlock(result.reason);
+    if (result?.admitted !== true || typeof result.duplicate !== "boolean"
+      || result.reason !== (result.duplicate ? "already_admitted" : "admitted")
+      || !/^[0-9]{4}-(?:0[1-9]|1[0-2])$/u.test(result.period ?? "")
+      || !Number.isSafeInteger(result.evaluations) || result.evaluations < 1
+      || !Number.isSafeInteger(result.included) || result.included < 1
+      || !Number.isSafeInteger(result.graceRemaining) || result.graceRemaining < 0
+      || !Number.isFinite(Date.parse(result.admittedAt))
+      || new Date(result.admittedAt).toISOString() !== result.admittedAt) return pilotAdmissionBlock("unavailable");
+    return null;
+  } catch { return pilotAdmissionBlock("unavailable"); }
+}
+
+async function guardBegin({ body, oidcToken, configuration, repository, journalRuntime, suppliedPilotAdmission }) {
   const targetType = body?.target?.type;
   const expectedRef = body?.gitRef;
   if (targetType === "merge_group"
@@ -4370,7 +4462,7 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
   return withGuardPublication(journalRuntime, {
     repo, installation, configuration, headSha: body?.target?.headSha, operation: "begin",
   }, async ({ write }) => {
-    const { workflowSha } = await guardManagedBase(
+    const { workflowSha, managedProfile, trustedHarnessMode } = await guardManagedBase(
       encodedRepository,
       repo.default_branch,
       body?.controllerSha,
@@ -4436,8 +4528,9 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
       && stableMarker?.phase === "begin"
       && compareGuardRunOrder(incomingMarker, stableMarker) === 0
       && published.output?.text === beginCheck.output.text;
+    let writeCredential;
     if (!idempotent) {
-      const writeCredential = await createChecksWriteInstallationAccessToken({
+      writeCredential = await createChecksWriteInstallationAccessToken({
         appId: configuration.appId,
         privateKey: configuration.privateKey,
         installationId: installation.id,
@@ -4495,6 +4588,30 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
       || published.output?.text !== beginCheck.output.text
       || published.app?.id !== configuration.appId || published.app?.slug !== configuration.appSlug) {
       throw new HttpError(502, "GitHub did not return the expected in-progress dedicated-App guard.");
+    }
+    // The previous usable success is gone before any commercial network/DB wait.
+    // A process loss here leaves an occupied lane AND an in-progress Guard.
+    const admissionBlock = await admitPilotEvaluation({ suppliedPilotAdmission, repo, installation,
+      configuration, request, claims, managedProfile, trustedHarnessMode, encodedRepository, token: readCredential.token });
+    if (admissionBlock) {
+      writeCredential ??= await createChecksWriteInstallationAccessToken({
+        appId: configuration.appId, privateKey: configuration.privateKey,
+        installationId: installation.id, repositoryId: repo.id, request: github,
+      });
+      const text = encodeGuardRunMarker({ ...decodeGuardRunMarker(beginCheck.output.text), phase: "complete" });
+      const blocked = await write(() => github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
+        method: "PATCH", body: { status: "completed", conclusion: "action_required",
+          output: { title: admissionBlock.code === "PILOT_ADMISSION_DENIED" ? "Pilot allowance needs attention" : "Pilot allowance could not be confirmed",
+            summary: admissionBlock.message, text } },
+      }));
+      if (blocked?.id !== published.id || blocked?.name !== GUARD_CHECK_NAME
+        || blocked?.head_sha !== request.target.headSha || blocked?.external_id !== request.check.external_id
+        || blocked?.status !== "completed" || blocked?.conclusion !== "action_required"
+        || blocked?.output?.text !== text || blocked?.output?.summary !== admissionBlock.message
+        || blocked?.app?.id !== configuration.appId || blocked?.app?.slug !== configuration.appSlug) {
+        throw new HttpError(502, "GitHub did not confirm the blocked pilot Guard.");
+      }
+      return { admissionBlock };
     }
     return {
       schemaVersion: 1,
@@ -4669,7 +4786,7 @@ async function guardReconciliationSweep({ body, oidcToken, configuration, reposi
   };
 }
 
-async function guardPublish(req, res, suppliedJournal) {
+async function guardPublish(req, res, suppliedJournal, suppliedPilotAdmission) {
   const journalRuntime = guardJournalRuntime(suppliedJournal);
   const configuration = guardPublisherConfiguration();
   const oidcToken = guardPublisherBearer(req);
@@ -4683,7 +4800,10 @@ async function guardPublish(req, res, suppliedJournal) {
   }
   assertGuardPublisherRolloutScope(repository);
   if (body?.type === "changeplane.guard-publication-begin") {
-    const result = await guardBegin({ body, oidcToken, configuration, repository, journalRuntime });
+    const result = await guardBegin({ body, oidcToken, configuration, repository, journalRuntime, suppliedPilotAdmission });
+    // HTTP denial occurs only after the journal has durably released the fully
+    // acknowledged action_required result. It cannot poison a known safe write.
+    if (result.admissionBlock) throw new PilotAdmissionBlock(result.admissionBlock);
     sendJson(res, 200, result);
     return;
   }
@@ -6021,7 +6141,7 @@ async function logout(req, res) {
   sendJson(res, 200, { authenticated: false }, [clearCookie(SESSION_COOKIE), clearCookie(OAUTH_COOKIE)]);
 }
 
-async function handleRequest(req, res, suppliedJournal) {
+async function handleRequest(req, res, suppliedJournal, suppliedPilotAdmission) {
   const requestId = apiRequestId(req);
   const startedAt = Date.now();
   const method = String(req.method ?? "GET").toUpperCase();
@@ -6095,7 +6215,7 @@ async function handleRequest(req, res, suppliedJournal) {
     if (method === "POST" && action === "reconcile") return await reconcileGuard(req, res, suppliedJournal);
     if (method === "GET" && action === "runtime") return await runtimeStatus(req, res);
     if (method === "GET" && action === "proof") return await assuranceProofStatus(req, res);
-    if (method === "POST" && action === "guard-publish") return await guardPublish(req, res, suppliedJournal);
+    if (method === "POST" && action === "guard-publish") return await guardPublish(req, res, suppliedJournal, suppliedPilotAdmission);
     if (method === "POST" && action === "runtime") return await configureRuntime(req, res);
     if (method === "GET" && action === "byok") return await runtimeStatus(req, res);
     if (method === "POST" && action === "byok") return await configureByok(req, res);
@@ -6128,7 +6248,8 @@ async function handleRequest(req, res, suppliedJournal) {
       res.setHeader("retry-after", String(Math.ceil(error.retryDelayMs / 1000)));
     }
     if (error instanceof GuardPublicationError && status === 423) res.setHeader("retry-after", "1");
-    sendJson(res, status, { error: message, requestId, ...(error instanceof GuardPublicationError ? { code: error.code } : {}) });
+    sendJson(res, status, { error: message, requestId,
+      ...(error instanceof GuardPublicationError || error instanceof PilotAdmissionBlock ? { code: error.code } : {}) });
     logApiRequest(status >= 500 ? "error" : "warn", {
       event: "request_failed",
       requestId,
@@ -6137,7 +6258,7 @@ async function handleRequest(req, res, suppliedJournal) {
       status,
       durationMs: Date.now() - startedAt,
       errorType: error?.constructor?.name || "UnknownError",
-      ...(error instanceof GuardPublicationError ? { errorCode: error.code } : {}),
+      ...(error instanceof GuardPublicationError || error instanceof PilotAdmissionBlock ? { errorCode: error.code } : {}),
       ...(error instanceof GitHubError ? {
         githubStatus: error.status,
         githubRequestId: error.requestId,
@@ -6158,11 +6279,14 @@ async function handleRequest(req, res, suppliedJournal) {
   }
 }
 
-export function createGitHubHandler({ guardJournal = null } = {}) {
+export function createGitHubHandler({ guardJournal = null, pilotAdmission = null } = {}) {
   if (guardJournal !== null && typeof guardJournal?.withPublication !== "function") {
     throw new TypeError("A Guard publication journal must implement withPublication.");
   }
-  return (req, res) => handleRequest(req, res, guardJournal);
+  if (pilotAdmission !== null && typeof pilotAdmission?.admitEvaluation !== "function") {
+    throw new TypeError("Pilot admission must implement admitEvaluation.");
+  }
+  return (req, res) => handleRequest(req, res, guardJournal, pilotAdmission);
 }
 
 export default createGitHubHandler();

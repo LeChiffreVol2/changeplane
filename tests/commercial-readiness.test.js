@@ -94,7 +94,7 @@ test("approved separated alpha remains blocked until Guard publication is serial
   await withProduction(async () => {
     Object.assign(process.env, {
       CHANGEPLANE_COMMERCIAL_STORE_ENABLED: "true",
-      CHANGEPLANE_DATABASE_URL: "postgresql://test:password@db.example/changeplane?sslmode=require",
+      CHANGEPLANE_DATABASE_URL: "postgresql://test:password@db.example/changeplane?sslmode=verify-full",
       CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE: SOURCE_SHA,
       CHANGEPLANE_GUARD_PUBLICATION_SERIALIZED: "true",
     });
@@ -120,7 +120,7 @@ test("public self-service remains unavailable even with exact release configurat
     Object.assign(process.env, {
       CHANGEPLANE_SELF_SERVE_ENABLED: "true",
       CHANGEPLANE_COMMERCIAL_STORE_ENABLED: "true",
-      CHANGEPLANE_DATABASE_URL: "postgresql://test:password@db.example/changeplane?sslmode=require",
+      CHANGEPLANE_DATABASE_URL: "postgresql://test:password@db.example/changeplane?sslmode=verify-full",
       CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE: SOURCE_SHA,
     });
     const session = await request("session");
@@ -172,5 +172,19 @@ test("journal configuration is reported separately from live publication and com
     assert.equal(readiness.payload.checks.guardPublicationSerialized, false);
     assert.equal(readiness.payload.commercialReady, false);
     assert.equal(readiness.body.includes("fixture-only"), false);
+    process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED = "true";
+    const unconfiguredPilot = await request("readiness");
+    assert.equal(unconfiguredPilot.statusCode, 503);
+    assert.equal(unconfiguredPilot.payload.checks.pilotAdmissionConfiguration, false);
+    process.env.CHANGEPLANE_DATABASE_URL = "postgresql://pilot:fixture-only@commercial.example/pilot?sslmode=verify-full";
+    process.env.CHANGEPLANE_COMMERCIAL_STORE_VERIFIED_RELEASE = SOURCE_SHA;
+    const configuredPilot = await request("readiness");
+    assert.equal(configuredPilot.statusCode, 200);
+    assert.equal(configuredPilot.payload.checks.pilotAdmissionConfiguration, true);
+    assert.equal(configuredPilot.payload.commercialReady, false);
+    process.env.CHANGEPLANE_DATABASE_URL = process.env.CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL;
+    const sharedLogin = await request("readiness");
+    assert.equal(sharedLogin.statusCode, 503);
+    assert.equal(sharedLogin.payload.checks.pilotAdmissionConfiguration, false);
   });
 });
