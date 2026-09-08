@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import { createPostgresGuardJournal, GuardPublicationError } from "./guard-publication-journal.js";
 
 const scope = Object.freeze({ tenantId: 10, repositoryId: 20, installationId: 30, guardAppId: 40,
@@ -16,7 +17,7 @@ function fixture({ admission = "claimed", hook = async () => {} } = {}) {
   const events = [];
   const pool = { async connect() {
     let lastAction;
-    return { async query(sql, values) {
+    return Object.assign(new EventEmitter(), { async query(sql, values) {
       events.push(values?.[9] ?? sql);
       if (!values) { await hook(sql, lastAction); return { rows: [] }; }
       const [tenant, repo, installation, app, epoch, release, revision, operation, owner, action] = values;
@@ -35,7 +36,7 @@ function fixture({ admission = "claimed", hook = async () => {} } = {}) {
       else result = "not_owner";
       await hook(sql, action);
       return { rows: [{ result }] };
-    }, release() { events.push("connection_released"); } };
+    }, release() { events.push("connection_released"); } });
   } };
   return { journal: createPostgresGuardJournal({ pool }), lanes, events };
 }

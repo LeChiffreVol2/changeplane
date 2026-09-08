@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import { createPostgresPilotAdmission, PilotAdmissionError } from "./pilot-admission.js";
 
 const scope = { tenantId: 10, repositoryId: 20, installationId: 30, guardAppId: 40,
@@ -14,12 +15,12 @@ function fixture({ result = receipt, failCommit = false, readResult = duplicate 
   const calls = [];
   let commits = 0;
   const store = createPostgresPilotAdmission({ pool: { async connect() {
-    return { async query(query, values) {
+    return Object.assign(new EventEmitter(), { async query(query, values) {
       calls.push({ query, values });
       if (query === "commit" && failCommit && commits++ === 0) throw new Error("postgres://secret@internal");
       if (!values) return { rows: [] };
       return { rows: [{ result: values[9] === "read" ? readResult : result }] };
-    }, release() {} };
+    }, release() {} });
   } } });
   return { store, calls };
 }

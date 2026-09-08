@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { Client, Pool } from "pg";
 import { createPostgresPilotAdmission } from "../server/pilot-admission.js";
 import { assertManagedMigration } from "./assert-managed-migration.mjs";
+import { assertPostgresDisconnect } from "./assert-postgres-disconnect.mjs";
 
 // Keep the socket path below macOS's 103-byte Unix socket limit.
 const root = await mkdtemp(join(tmpdir(), "cp-pilot-"));
@@ -103,6 +104,11 @@ try {
   await admin.query("reset role");
   pass("runtime has RPC-only privileges and no enrollment/refund/prune authority; FORCE RLS also binds table owner");
 
+  assertPostgresDisconnect({ configuration: config("pilot_test_runtime"),
+    adminConfiguration: config("pilot_admin"), adapter: "pilot", scope: scope(16, 160, "16090.1") });
+  assert.equal((await store.readUsage({ tenantId: 16, period: currentPeriod })).evaluations, 0);
+  pass("checked-out client disconnect between queries fails closed without process crash or usage charge");
+
   const contenders = [scope(10, 20, "8001.1"), scope(10, 21, "8002.1")];
   const decisions = await Promise.all([evaluate(a, contenders[0]), evaluate(b, contenders[1])]);
   assert.equal(decisions.filter((result) => result.admitted).length, 1);
@@ -166,7 +172,8 @@ try {
       const result = await client.query(query, values);
       if (query === "commit" && !lost) { lost = true; throw new Error("local simulated COMMIT reply loss"); }
       return result;
-    }, release() { client.release(); } };
+    }, on: client.on.bind(client), removeListener: client.removeListener.bind(client),
+    release(error) { client.release(error); } };
   } } });
   const recovered = await uncertainStore.admitEvaluation(scope(99, 99, "9003.1"));
   assert.equal(recovered.admitted, true); assert.equal(recovered.duplicate, true);

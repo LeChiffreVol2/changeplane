@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { Client, Pool } from "pg";
 import { createPostgresGuardJournal } from "../server/guard-publication-journal.js";
 import { assertManagedMigration } from "./assert-managed-migration.mjs";
+import { assertPostgresDisconnect } from "./assert-postgres-disconnect.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "changeplane-guard-journal-"));
 const data = join(root, "data");
@@ -139,6 +140,11 @@ try {
     assert.deepEqual((await a.query(preparedVisibility)).rows[0], expected);
   }
   pass("prepared RLS queries refresh statement context across tenant switches and deny missing context on the same connection");
+
+  assertPostgresDisconnect({ configuration: config("journal_test_runtime"),
+    adminConfiguration: config("journal_admin"), adapter: "guard", scope: scope(20) });
+  assert.equal((await admin.query("select count(*)::int as n from changeplane_guard.lanes where repository_id=20")).rows[0].n, 0);
+  pass("checked-out client disconnect between queries fails closed without process crash or committed reservation");
 
   const owners = [randomUUID(), randomUUID()];
   const claims = await Promise.all([transition(a, scope(20), owners[0], "claim"), transition(b, scope(20), owners[1], "claim")]);

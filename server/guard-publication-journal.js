@@ -54,8 +54,13 @@ export function createPostgresGuardJournal({ connectionString, caCertificate, po
 
   async function transition(scope, owner, action) {
     let client;
+    let disconnected = false;
+    const onDisconnect = () => { disconnected = true; };
     try {
       client = await database.connect();
+      // Pool error handlers cover idle clients only. A checked-out client can
+      // disconnect between queries; pg rejects further queries on that client.
+      client.on("error", onDisconnect);
       await client.query("begin");
       // Never inherit asynchronous commits from a connection/pool. Accepted
       // failover histories must additionally preserve these commits (ops gate).
@@ -72,7 +77,10 @@ export function createPostgresGuardJournal({ connectionString, caCertificate, po
       await client?.query("rollback").catch(() => {});
       throw new GuardPublicationError("GUARD_PUBLICATION_UNAVAILABLE");
     } finally {
-      client?.release();
+      if (client) {
+        client.release(disconnected);
+        client.removeListener("error", onDisconnect);
+      }
     }
   }
 

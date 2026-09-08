@@ -80,8 +80,13 @@ export function createPostgresPilotAdmission({ connectionString, caCertificate, 
   async function transaction(query, parameters, validate) {
     let client;
     let commitUnknown = false;
+    let disconnected = false;
+    const onDisconnect = () => { disconnected = true; };
     try {
       client = await database.connect();
+      // Pool error handlers cover idle clients only. Keep checked-out connection
+      // failures inside the redacted transaction/unknown-commit recovery path.
+      client.on("error", onDisconnect);
       await client.query("begin");
       await client.query(SETTINGS);
       const reply = await client.query(query, parameters);
@@ -94,7 +99,12 @@ export function createPostgresPilotAdmission({ connectionString, caCertificate, 
       await client?.query("rollback").catch(() => {});
       if (error instanceof PilotAdmissionError) throw error;
       throw new DatabaseFailure(commitUnknown);
-    } finally { client?.release(); }
+    } finally {
+      if (client) {
+        client.release(disconnected);
+        client.removeListener("error", onDisconnect);
+      }
+    }
   }
   const parameters = (scope, action) => [scope.tenantId, scope.repositoryId, scope.installationId, scope.guardAppId,
     scope.revisionFingerprint, scope.evaluationGeneration, scope.workflowStartedAt, scope.capability, scope.targetType, action];
