@@ -1,4 +1,4 @@
-import { decodeGuardRunMarker, encodeGuardRunMarker } from "./github-guard-controller.js";
+import { decodeGuardRunMarker, encodeGuardRunMarker, guardEvaluationPending } from "./github-guard-controller.js";
 
 const CAMPAIGN_WINDOW_MS = 15 * 60 * 1_000;
 const RECONCILIATION_WINDOW_MS = 10 * 60 * 1_000;
@@ -15,7 +15,7 @@ export function reconcileGuardState({ checkRun, trustedHarnessMode = "autonomous
     || checkRun.name !== "ChangePlane / guard") {
     throw new TypeError("Guard Check Run is invalid.");
   }
-  if (checkRun.status === "completed") {
+  if (checkRun.status === "completed" && !guardEvaluationPending(checkRun)) {
     return {
       state: "terminal",
       checkRunId: checkRun.id,
@@ -23,7 +23,7 @@ export function reconcileGuardState({ checkRun, trustedHarnessMode = "autonomous
       patch: null,
     };
   }
-  if (checkRun.status !== "in_progress" || checkRun.conclusion != null) {
+  if (!guardEvaluationPending(checkRun)) {
     throw new TypeError("Guard Check Run state is invalid.");
   }
   const marker = decodeGuardRunMarker(checkRun.output?.text);

@@ -592,6 +592,15 @@ export function decodeGuardRunMarker(value) {
   });
 }
 
+/** GitHub may keep a completed Check blocked while a new evaluation owns it. */
+export function guardEvaluationPending(check) {
+  const blocked = (check?.status === "in_progress" && check.conclusion == null)
+    || (check?.status === "completed" && check.conclusion === "action_required");
+  if (!blocked) return false;
+  try { return decodeGuardRunMarker(check.output?.text).phase === "begin"; }
+  catch { return false; }
+}
+
 /** Recover a frozen contract only from the configured App's exact-target Check. */
 export function guardBoundContractDigest(check, { repository, repositoryId, target, appId, appSlug } = {}) {
   if (check == null) return null;
@@ -618,7 +627,7 @@ export function guardBoundContractDigest(check, { repository, repositoryId, targ
   }
   // Begin replaces the old passport; reconciliation also replaces its summary.
   // Carry the previously authenticated digest through those App-owned states.
-  if ((marker.phase === "begin" && check.status === "in_progress" && check.conclusion == null)
+  if (guardEvaluationPending(check)
     || (marker.phase === "complete" && check.status === "completed" && check.conclusion === "action_required")) {
     if (target.type === "pull_request") {
       if (marker.boundContractDigest && marker.pullRequestNumber == null) {
