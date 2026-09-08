@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T17:39:29.120914Z",
+  "scope": "disposable_organization_app_installations",
+  "organization": {
+    "login": "ChangePlane-Labs",
+    "id": 326590049,
+    "plan": "free",
+    "deleteAfterTesting": true
+  },
+  "repository": {
+    "fullName": "ChangePlane-Labs/strict-head-canary",
+    "id": 1361655827,
+    "syntheticDataOnly": true,
+    "deleteAfterTesting": true
+  },
+  "guardPublisher": {
+    "appId": 4872053,
+    "slug": "changeplane-guard-publisher",
+    "installationId": 160110086,
+    "repositorySelection": "selected",
+    "selectedRepositoryIds": [
+      1361655827
+    ],
+    "permissions": {
+      "actions": "read",
+      "checks": "write",
+      "contents": "read",
+      "metadata": "read",
+      "pull_requests": "read"
+    }
+  },
+  "installer": {
+    "appId": 4334716,
+    "slug": "changeplane-guard",
+    "installationId": 160112795,
+    "repositorySelection": "selected",
+    "selectedRepositoryIds": [
+      1361655827
+    ],
+    "permissions": {
+      "actions": "read",
+      "actions_variables": "write",
+      "administration": "read",
+      "checks": "write",
+      "contents": "write",
+      "metadata": "read",
+      "pull_requests": "write",
+      "secrets": "write",
+      "workflows": "write"
+    },
+    "explicitScopeApproved": true
+  },
+  "installerRegistration": {
+    "publicInstallationEnabled": true,
+    "callbackUrl": "https://changeplane.vercel.app/api/github?action=callback",
+    "callbackWildcardMatching": false,
+    "callbackRoundTripVerified": false,
+    "permissionExpansionPerformed": false,
+    "marketplaceListingCreated": false,
+    "callbackRouteReturnVerified": true,
+    "callbackProductSessionVerified": false,
+    "callbackProductResult": "permissions_required",
+    "callbackBlocker": "Current Production requires administration write during OAuth; actual approved Installer permission is administration read. Candidate separates Verify onboarding from optional Ruleset write."
+  },
+  "verification": {
+    "githubOrganizationApiVerifiedBothInstallations": true,
+    "savedUiVerifiedExactSelectedRepositoryForBoth": true,
+    "existingPersonalInstallationsModified": false
+  },
+  "claims": {
+    "strictHeadQualified": false,
+    "managedSetupInstalled": false,
+    "githubInstallerRegistrationChanged": true,
+    "productionDeploymentChanged": false,
+    "customerActivation": false,
+    "cleanupCompleted": false,
+    "quotedMonthlyUsd": 0
+  },
+  "candidatePermissionFix": {
+    "sourceCommit": "de2adabcb72c37ae98c46a9859cbee4f78a82649",
+    "administrationReadAcceptedForVerify": true,
+    "rulesetWriteRevalidatedAtApply": true,
+    "otherInstallationCannotSupplyWritePermission": true,
+    "revokedOrSuspendedInstallationCannotWriteRuleset": true,
+    "sourceUnitIntegrationTestsPassed": 478,
+    "chromiumJourneysPassed": 13,
+    "productionDeployed": false
+  },
+  "updatedAt": "2026-09-08T17:54:34.952391Z"
+}
