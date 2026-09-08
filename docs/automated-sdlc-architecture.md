@@ -64,7 +64,13 @@ The `guardJournalConfiguration` and `guardJournalConfigured` readiness fields de
 
 Before removing the capability gate, adversarial integration and protected organization-owned canaries must interleave begin/complete/reconcile, same-SHA reruns, new commits, provider delays, cancellation and worker interruption. Prove that an older generation cannot leave a usable success after a newer generation starts, and that uncertain writes survive process loss, capacity limits, and the selected restore/failover topology without takeover. Include role/tenant isolation, credential rotation, journal-aware rollback, notification delivery, scheduler delays and restoration of a stalled Guard in the release evidence. Local protocol tests do not establish these live operating guarantees.
 
-## Path to a paid pilot
+## Current milestone: free engineering preparation
+
+The founder requires **USD 0 now** and reserves **USD 100 per month for scale**. Use the existing source/hosting setup and disposable synthetic qualification resources; do not purchase or provision a persistent database as part of this phase. Verify Lite needs no model key, and billing automation is deferred. Personal and organization GitHub support remain product requirements; GitHub plan eligibility still determines whether a repository can enforce Strict Head. See the [phase budget and hosting eligibility](operating-budget.md).
+
+Qualify runtime authentication, TLS, authority isolation and failure behavior without publishing a live Guard or enrolling a customer. Delete temporary resources after recording bounded evidence. Free engineering completion does not imply commercial hosting eligibility, durable production authority, organization enforcement, effective legal terms or customer outcomes. Preserve the capability gates until their own evidence exists.
+
+## Later path to a paid pilot
 
 | Gate | Completion evidence | Owner |
 | --- | --- | --- |
@@ -78,7 +84,7 @@ Before removing the capability gate, adversarial integration and protected organ
 
 A commercial or billing database is not necessary to learn whether a manually invoiced pilot is valuable. The authority journal is independently mandatory for this candidate's hosted Guard publication. Automated plans, usage restrictions, Fleet history and commercial readiness require the separate candidate commercial store to be connected to authenticated event ingestion, tenancy, entitlements, retention/deletion and tested recovery. Do not sell those capabilities until their live evidence exists.
 
-A disposable Supabase Free project passed [bounded Guard SQL qualification](../evidence/changeplane-supabase-guard-qualification.json) and was deleted after testing, without changing existing projects or the organization plan. This established managed migration/catalog behavior and synthetic role-switched transactions, not a production runtime, TLS connection or durability guarantee. No external customer, payment, effective legal agreement, persistent journal service, production failover drill or Origin subscription result has been created by this implementation work.
+The initial disposable Supabase Free project passed [bounded Guard SQL qualification](../evidence/changeplane-supabase-guard-qualification.json). A subsequent disposable project passed [actual runtime login, certificate/hostname validation, pooler isolation and fresh-login credential rotation](../evidence/changeplane-free-runtime-qualification.json) from the operator machine using the existing journal adapter. Both projects were deleted after testing without changing existing projects or the organization plan. These observations do not establish deployed Vercel connectivity or a durability guarantee. No external customer, payment, effective legal agreement, persistent journal service, production failover drill or Origin subscription result has been created by this implementation work.
 
 ## Why this improves automated SDLC
 

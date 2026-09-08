@@ -2,7 +2,7 @@
 
 ChangePlane sells independent behavioral merge assurance to individual developers and businesses using GitHub.com. A Customer Account is the personal account or organization that owns the protected repository. Business teams with 20–200 engineers, multiple coding agents and meaningful behavioral CI remain the initial assisted-sales segment; they are not an account-type eligibility requirement.
 
-Both account types use the same Verify-first installation, exact-head evidence and protected setup pull request. Enterprise Cloud organizations are included. GitHub Enterprise Server, forks and cross-repository repair remain outside this release. Private repositories need a GitHub plan that supports the required Rulesets; unavailable protection must be explained before claiming Strict Head. See the [account support matrix and $100 operating budget](operating-budget.md).
+Both account types use the same Verify-first installation, exact-head evidence and protected setup pull request. Enterprise Cloud organizations are included. GitHub Enterprise Server, forks and cross-repository repair remain outside this release. Private repositories need a GitHub plan that supports the required Rulesets; unavailable protection must be explained before claiming Strict Head. Current engineering preparation costs USD 0; the USD 100 monthly ceiling is reserved for scale. See the [account support matrix and phase budget](operating-budget.md).
 
 Verify is the core paid product. The Autonomous Assurance Agent runs the verification and handback loop without routine human interaction. Autonomous Repair is a separately priced controlled expansion and is not required for the core outcome.
 

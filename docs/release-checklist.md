@@ -4,6 +4,9 @@
 
 The items below apply to the current candidate. Historical checked items remain evidence only for their recorded revisions.
 
+- [x] Record the founder's revised budget: USD 0 for current engineering preparation; USD 100 per month only at scale. Keep upgrades, paid add-ons and persistent database provisioning deferred. Preserve personal and organization support and all technical/legal customer-access gates. See [operating budget](operating-budget.md).
+- [x] Qualify the actual journal adapter through a disposable Supabase Free runtime login with verified TLS, transaction-pool tenant isolation, concurrent exclusion, committed poison and fresh-login credential rotation. Delete the project and temporary credentials, and confirm existing projects and the Free plan are unchanged. This is local-operator evidence; Vercel connectivity, CA packaging, durability and live publication remain open. See [redacted runtime evidence](../evidence/changeplane-free-runtime-qualification.json).
+
 - [x] Preserve v13 Full and Verify Lite manifest hashes and upgrade each profile without widening authority.
 - [x] Vendor scheduled/manual least-privilege recovery into both profiles, with failed-workflow notification signals and no ability to create PASS.
 - [x] Test recovery budgets derived from trusted current default-branch policy: Verify/Observe permit five-minute recovery only with independently verified terminal owning-run evidence; healthy or unverifiable owners, Autonomous mode and absent helper context retain the 25-minute fallback. Cover exact boundaries, scheduled and administrator recovery, rejected caller shortening, owning-run and policy drift before mutation, and preserved contract/generation/PR markers. These deterministic tests do not close the publication race or establish live recovery latency.

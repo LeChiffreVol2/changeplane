@@ -1,6 +1,22 @@
-# Account support and the USD 100 operating ceiling
+# Free preparation now; USD 100 ceiling when scaling
 
-The founder set a maximum of **USD 100 per month** for ChangePlane on 2026-09-08 (Asia/Bangkok). This plan treats it as the product's infrastructure ceiling, including tax and a contingency reserve. Customer-owned GitHub usage and optional BYOK model usage remain the customer's costs. Founder compensation, legal/entity formation and customer acquisition are outside this infrastructure estimate. No paid subscription upgrade or spend-control setting has been applied. One expressly authorized Free database was created for synthetic qualification and deleted after testing; no persistent ChangePlane database remains.
+The founder clarified on **2026-09-08 (Asia/Bangkok)** that the current phase must cost **USD 0**. The **USD 100 per month** infrastructure ceiling applies only when scaling; it is not authorization to spend now. It includes tax and contingency when activated. Customer-owned GitHub usage and optional BYOK remain customer costs. Founder compensation, legal/entity formation and customer acquisition are outside that later infrastructure estimate. No paid subscription upgrade or spend-control setting has been applied.
+
+## Current phase: USD 0
+
+| Surface | Current use and boundary |
+| --- | --- |
+| Local development and PostgreSQL | Reproducible tests, clean builds, synthetic fixtures and failure drills; no hosted customer dependency |
+| GitHub | Protected source pull request and existing synthetic canary; use included capacity and stop new test work at a limit |
+| Vercel Hobby | Existing controlled engineering deployment and preview validation; no plan upgrade or customer rollout implied |
+| Supabase Free | Only an explicitly disposable, isolated qualification project; delete after testing; do not change other projects or organization settings |
+| Models, billing and add-ons | No managed model spend, billing service, paid database add-on or new subscription |
+
+The Free project quote is USD 0 per month and the selected Supabase organization remains Free. Both disposable qualification projects have been deleted; [the latest runtime exercise](../evidence/changeplane-free-runtime-qualification.json) also removed its test credentials and confirmed the existing inventory was unchanged. This is not authorization to leave a persistent database behind. Keep synthetic data and test credentials separate from the existing project. At a free quota limit, stop new work; do not upgrade, resume or resize other projects, or remove occupied authority records to continue.
+
+Vercel explicitly restricts Hobby to **personal, non-commercial use**. A free price for customers does not itself establish that a commercial product pilot fits those terms. Accordingly, the current milestone is engineering qualification, not customer activation or a public SaaS launch. Confirm an eligible hosting arrangement before external product use; do not migrate the hosted control plane away from Vercel or weaken deployment provenance to avoid that decision. See [Vercel Hobby eligibility](https://vercel.com/docs/plans/hobby).
+
+Free preparation is complete when the candidate has reviewed code and reproducible safety evidence, remaining live/provider boundaries are recorded, temporary resources and credentials are removed, and existing projects and plans are unchanged. It does not require effective legal documents, payments, customer installations or a paid production topology. Those remain separate launch gates in the [architecture](automated-sdlc-architecture.md).
 
 ## Individual and business support
 
@@ -16,11 +32,11 @@ GitHub supports repository Rulesets for public repositories on Free, including F
 
 Internal release proof needs both personal and organization canaries. Use a public repository containing only synthetic fixtures for the organization canary where feasible; it does not require every customer to own an organization or publish private code. An account's eligibility does not bypass the current private-alpha, legal or serialization gates.
 
-## Conditional monthly allocation
+## Later scale phase: conditional allocation, not a purchase plan
 
 Public prices checked on 2026-09-08. The founder selected the existing Supabase billing organization, with a billing-impact review before any change. The earlier inventory contained one active and one inactive project. A fresh inventory before the authorized qualification contained only one active existing project; the inactive project's absence preceded this work. The same existing project remained healthy afterward and the organization stayed Free. The qualification project was quoted at USD 0 per month and was deleted after testing; see the [redacted record](../evidence/changeplane-supabase-guard-qualification.json). This is not a quote for a production Pro topology. Authenticated dashboard access is available, but no upgrade or invoice-impact approval has been obtained.
 
-The conservative estimate below retains room for three to four charged Micro projects, including the existing project, two separate ChangePlane databases and possible temporary operating capacity, plus one Vercel deploying developer. It assumes usage inside included allowances; the actual upgrade breakdown, credits and tax remain to be verified. It does not authorize changes to the existing project's compute or availability. Account and unrelated-project names are kept out of this public plan.
+Retain the earlier estimate only for a future scale decision. It reserves room for three to four charged Micro projects, including the existing project, separate authority and accounting databases and possible temporary operating capacity, plus one Vercel deploying developer. This is not a minimum required to prepare the product or a verified launch topology. It assumes usage inside included allowances; upgrade breakdown, credits and tax remain to be verified. It does not authorize changes to the existing project's compute or availability. Account and unrelated-project names are kept out of this public plan.
 
 | Item | Monthly allocation (USD) | Assumption |
 | --- | ---: | --- |
@@ -36,7 +52,7 @@ Supabase Pro starts at USD 25 with USD 10 compute credit; an additional Micro pr
 
 Supabase documents that paused projects do not incur compute charges and illustrates three Micro projects on Pro at USD 45 monthly. The fourth-project allocation is conservative temporary-capacity headroom, not a claim that an inactive project is currently present or billed. Separate current invoice/proration from the recurring total. See [billing FAQ](https://supabase.com/docs/guides/platform/billing-faq).
 
-## Conditions before this can become a deployment plan
+## Conditions before any scale spending or activation
 
 The database price does **not** qualify a provider for Guard authority. Daily backup retention does not establish zero loss of acknowledged journal decisions. Before choosing this topology, prove durable acknowledgments and old-writer fencing across its actual failure modes, or prove a publication halt and new-Guard-principal recovery. A restore must never silently reopen a lane. If the provider cannot satisfy that boundary within the ceiling, do not provision it for publication or weaken assurance to fit the price; revise the provider choice first. The [journal operating design](guard-publication-journal.md) remains binding.
 
@@ -50,4 +66,4 @@ Proposed operator thresholds are: review committed costs at USD 60; stop expansi
 
 Use existing GitHub Actions and Vercel operational surfaces for the first pilot. Verify needs no model key. Optional review or repair remains BYOK, with managed model spend disabled. Do not add a hosted queue, new agent runtime, paid preview service or automatic billing system to this budget.
 
-The database billing account is selected. The remaining external requirements include its authenticated upgrade and invoice breakdown, reviewed impact on existing projects and an internal organization-canary administrator. The separate Guard App is installed only on the synthetic personal canary and its credential is now staged and verified in Vercel; [live Production binding and journal qualification remain outstanding](guard-app-registration.md). The founder has reported no legal entity; legal documents remain draft. Complete exact-release review, operating drills and customer activation evidence before accepting a payment.
+The database billing account is selected for evaluation, but an upgrade is deferred until scale and requires a fresh spending decision. Before that change, obtain the authenticated invoice breakdown and review effects on existing projects. An internal organization-canary administrator is also needed for organization enforcement proof. The separate Guard App is installed only on the synthetic personal canary and its credential is staged and verified in Vercel; [live Production binding and journal qualification remain outstanding](guard-app-registration.md). The founder has reported no legal entity; legal documents remain draft. Complete exact-release review, operating drills and customer activation evidence before accepting a payment.
