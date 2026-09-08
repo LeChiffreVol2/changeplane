@@ -5076,7 +5076,11 @@ async function guardPublish(req, res, suppliedJournal, suppliedPilotAdmission) {
       }
       published = await write(() => github(`/repos/${encodedRepository}/check-runs/${existing[0].id}`, writeCredential.token, {
         method: "PATCH",
-        body: Object.fromEntries(Object.entries(request.check).filter(([key]) => key !== "head_sha")),
+        body: {
+          ...Object.fromEntries(Object.entries(request.check).filter(([key]) => key !== "head_sha")),
+          // GitHub retains the blocked begin timestamp unless completion replaces it.
+          completed_at: new Date().toISOString(),
+        },
       }));
     }
     if (!Number.isSafeInteger(published?.id) || published.id <= 0
