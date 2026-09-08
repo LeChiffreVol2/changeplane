@@ -410,7 +410,7 @@ test("all prior successes are invalidated before waiting for commercial admissio
       const competing = await invoke("begin", 8003);
       assert.equal(competing.statusCode, 423, competing.body);
       assert.equal(pilotAdmission.calls.length, 2);
-      assert.equal(writes.length, writesBeforeAdmission + 2);
+      assert.equal(writes.length, writesBeforeAdmission + 3);
       assert.equal(admitting.res.ended, false);
     } finally { pilotAdmission.admissionBarrier = null; gate.release(); }
     assert.equal((await admitting.done).statusCode, 200);

@@ -5257,6 +5257,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
     let associatedPullRequests = [fixture.pullRequest];
     let liveGuardCheck = null;
     let supersedeOnNextWriteToken = false;
+    let rejectRestart = false;
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input, options = {}) => {
       const url = new URL(String(input));
@@ -5356,11 +5357,18 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       }
       if (url.pathname === `/repos/${fixture.repository}/check-runs/919` && method === "PATCH") {
         const payload = JSON.parse(options.body);
+        if (rejectRestart && payload.status === "in_progress") {
+          return githubJsonResponse(liveGuardCheck);
+        }
         liveGuardCheck = {
           ...liveGuardCheck,
           ...payload,
-          conclusion: payload.status === "in_progress" ? null : payload.conclusion,
-          output: payload.output,
+          // GitHub retains omitted terminal fields when a completed Check is patched.
+          // A status-only restart did not clear success in the live same-SHA canary.
+          status: (payload.conclusion ?? (Object.hasOwn(payload, "conclusion") ? null : liveGuardCheck.conclusion)) != null
+            ? "completed" : payload.status,
+          conclusion: Object.hasOwn(payload, "conclusion") ? payload.conclusion : liveGuardCheck.conclusion,
+          output: payload.output ?? liveGuardCheck.output,
         };
         return githubJsonResponse(liveGuardCheck);
       }
@@ -5640,9 +5648,11 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       assert.equal(JSON.parse(nextBegin.body).previousContractDigest, passport.binding.contractDigest);
       assert.equal(calls.filter(({ method, path }) => (
         ["POST", "PATCH"].includes(method) && path.includes("/check-runs")
-      )).length, writesBeforeNextGeneration + 1);
+      )).length, writesBeforeNextGeneration + 2);
       assert.equal(liveGuardCheck.status, "in_progress");
       assert.equal(liveGuardCheck.conclusion, null);
+      assert.equal(liveGuardCheck.completed_at, null);
+      assert.ok(Number.isFinite(Date.parse(liveGuardCheck.started_at)));
       assert.equal(
         liveGuardCheck.output.text,
         `changeplane.guard-run/v1;run_id=8002;run_attempt=1;phase=begin;contract_digest=${passport.binding.contractDigest};pull_request_number=42`,
@@ -5859,6 +5869,7 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       });
       replacementRequest.headers.authorization = `Bearer ${replacementInput}.${replacementSignature}`;
       const replacementBegin = responseRecorder();
+      const beforeReplacement = structuredClone(liveGuardCheck);
       assert.equal(liveGuardCheck.conclusion, "success");
       await handler(replacementRequest, replacementBegin);
       assert.equal(replacementBegin.statusCode, 200, replacementBegin.body);
@@ -5868,6 +5879,15 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
       assert.equal(liveGuardCheck.conclusion, null);
       assert.equal(liveGuardCheck.output.text, "changeplane.guard-run/v1;run_id=8003;run_attempt=1;phase=begin;pull_request_number=43");
       assert.notEqual(liveGuardCheck.output.summary, fixture.guardCheck.output.summary);
+
+      // Even if GitHub refuses to reopen the Check, the prior PASS must be gone.
+      liveGuardCheck = beforeReplacement;
+      rejectRestart = true;
+      const refusedRestart = responseRecorder();
+      await handler(replacementRequest, refusedRestart);
+      assert.equal(refusedRestart.statusCode, 502, refusedRestart.body);
+      assert.equal(liveGuardCheck.status, "completed");
+      assert.equal(liveGuardCheck.conclusion, "action_required");
     } finally {
       globalThis.fetch = originalFetch;
     }
