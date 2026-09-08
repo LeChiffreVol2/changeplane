@@ -15,7 +15,8 @@ The items below apply to managed v15. The [current controlled-release observatio
 - [x] Deploy the protected v14 source with a separate Guard and the approved isolated Free journal; exercise OAuth, nine-file setup, organization Strict Head, failed evidence, corrected-head PASS and GitHub web failure notifications. Preserve their exact initial-release scope.
 - [x] Reproduce the live same-SHA status-retention defect and deploy PR51 with explicit retirement, terminal-field clearing and refused-restart regression coverage.
 - [x] Requalify managed v15 on a live same-SHA rerun and new head with separate Guard identity and strict no-bypass publisher binding.
-- [ ] Finish the stalled Guard timing exercise and delete the final temporary repository and organization. Historical failed-canary authority remains retained.
+- [x] Complete the stalled Guard timing exercise, manual recovery, failed-workflow inbox notification and fresh same-head recovery rerun. Delete all temporary repositories and the organization; disable every enrollment and retain historical occupied authority.
+- [ ] Meet the automatic ten-minute recovery target before promising it to customers. No scheduled run arrived within the measured ten-minute canary window; manual dispatch closed the Guard in 17 seconds.
 
 - [x] Preserve v13 Full and Verify Lite manifest hashes and upgrade each profile without widening authority.
 - [x] Vendor scheduled/manual least-privilege recovery into both profiles, with failed-workflow notification signals and no ability to create PASS.

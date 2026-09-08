@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "type": "changeplane.controlled-canary-observation",
-  "recordedAt": "2026-09-08T20:36:08.397180+00:00",
+  "recordedAt": "2026-09-08T20:48:18.353500+00:00",
   "fixtureKind": "SYNTHETIC",
-  "qualificationStatus": "INCOMPLETE",
+  "qualificationStatus": "BOUNDED_OWNER_EXERCISE_COMPLETE",
   "customerLaunchAuthorized": false,
   "initialRelease": {
     "sourceSha": "1f7ad14ea842e186df6679a7eddb783afd89dd90",
@@ -80,7 +80,12 @@
     "originalOrganizationInstallationsRemovedByGitHub": true,
     "replacementSetupCiPassed": true,
     "replacementGuardInstallation": "COMPLETED",
-    "finalRepositoryAndOrganizationCleanup": "pending"
+    "finalRepositoryAndOrganizationCleanup": "COMPLETED",
+    "allCanaryEnrollmentsDisabled": true,
+    "retainedHistoricalAuthorityRows": 4,
+    "finalCanaryOccupiedLanes": 0,
+    "temporaryOrganizationDeleted": true,
+    "temporaryRepositoriesRemaining": 0
   },
   "hotfixVerification": {
     "retireOldSuccessBeforeRestart": "REGRESSION_PASSED",
@@ -103,9 +108,9 @@
     }
   },
   "remainingEvidence": [
-    "Stalled Guard recovery and actual schedule timing",
-    "Final disposable repository and organization deletion",
-    "Provider authority durability or fenced principal recovery before customer activation"
+    "Automatic recovery within ten minutes: not met in the observed GitHub schedule window",
+    "Provider authority durability or fenced principal recovery before customer activation",
+    "Eligible commercial hosting, effective legal terms and real customer/payment/reliability cohort"
   ],
   "boundaries": {
     "rolloutMode": "controlled_canary",
@@ -117,9 +122,10 @@
     "otherDatabaseProjectsChanged": false,
     "guardFreeDatabaseRetainedByOwnerApproval": true,
     "legalDocuments": "DRAFT",
-    "customerMeasurements": "NOT_STARTED"
+    "customerMeasurements": "NOT_STARTED",
+    "automaticRecoveryWithinTenMinutes": false
   },
-  "evidenceScope": "A release-owner snapshot of public synthetic checks and private UI observations. The deleted repository is no longer a live verification endpoint. Local tests and a healthy readiness response do not prove the pending live or provider gates.",
+  "evidenceScope": "Bounded release-owner observations using synthetic repositories. The repositories and organization were deleted after testing. Same-SHA reevaluation and manually dispatched recovery passed; no scheduled run arrived within the measured ten-minute window. Provider durability and customer readiness remain unproven.",
   "blockedRerunRelease": {
     "sourceSha": "db4410979ec8c97ec87d92fb7e43f1a43fe56703",
     "pullRequest": 53,
@@ -188,5 +194,143 @@
       }
     ],
     "completionTimestampFollowup": "GitHub retained the blocked begin completion timestamp; explicit completion timestamp added to the follow-up candidate."
+  },
+  "recoveryVerification": {
+    "runId": 34276380864,
+    "event": "workflow_dispatch",
+    "createdAt": "2026-09-08T20:42:31Z",
+    "check": {
+      "id": 102227031816,
+      "status": "completed",
+      "conclusion": "action_required",
+      "started_at": "2026-09-08T20:32:28Z",
+      "completed_at": "2026-09-08T20:42:48Z"
+    },
+    "reconciliationStep": "success",
+    "notificationStep": "failure",
+    "workflowConclusion": "failure",
+    "inboxNotification": {
+      "reason": "ci_activity",
+      "updatedAt": "2026-09-08T20:43:14Z",
+      "title": "ChangePlane workflow run failed for main branch"
+    },
+    "automaticRunWithinTenMinutes": false,
+    "startToRecoverySeconds": 620,
+    "dispatchToRecoverySeconds": 17,
+    "emailDeliveryProven": false,
+    "recordedAt": "2026-09-08T20:44:19.044212+00:00",
+    "checkObservation": "Bounded Check response captured before the post-recovery rerun.",
+    "postRecoveryRerun": {
+      "runId": 34275364904,
+      "attempt": 2,
+      "conclusion": "success",
+      "headSha": "ae3b255f4ffcf70f8f30038509cc68823fd95189",
+      "checkRunId": 102227031816,
+      "guardConclusion": "success"
+    },
+    "timingObservations": [
+      {
+        "observedAt": "2026-09-08T20:39:20.841418+00:00",
+        "elapsedSeconds": 412,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": []
+      },
+      {
+        "observedAt": "2026-09-08T20:39:52.132586+00:00",
+        "elapsedSeconds": 444,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": []
+      },
+      {
+        "observedAt": "2026-09-08T20:40:23.349911+00:00",
+        "elapsedSeconds": 475,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": []
+      },
+      {
+        "observedAt": "2026-09-08T20:40:54.530022+00:00",
+        "elapsedSeconds": 506,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": []
+      },
+      {
+        "observedAt": "2026-09-08T20:41:25.639421+00:00",
+        "elapsedSeconds": 537,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": []
+      },
+      {
+        "observedAt": "2026-09-08T20:41:57.047932+00:00",
+        "elapsedSeconds": 569,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": []
+      },
+      {
+        "observedAt": "2026-09-08T20:42:28.204267+00:00",
+        "elapsedSeconds": 600,
+        "check": {
+          "id": 102227031816,
+          "status": "in_progress",
+          "conclusion": null,
+          "started_at": "2026-09-08T20:32:28Z",
+          "completed_at": null
+        },
+        "scheduledRuns": [],
+        "manualDispatchAt": "2026-09-08T20:42:31.653913+00:00"
+      }
+    ]
+  },
+  "cleanupVerification": {
+    "observedAt": "2026-09-08T20:47:17.310572+00:00",
+    "resources": {
+      "repos/ChangePlane-Labs/strict-head-canary": {
+        "deleted": true,
+        "httpStatus": "404"
+      },
+      "repos/ChangePlane-Labs/strict-head-canary-incident": {
+        "deleted": true,
+        "httpStatus": "404"
+      },
+      "orgs/ChangePlane-Labs": {
+        "deleted": true,
+        "httpStatus": "404"
+      }
+    }
   }
 }
