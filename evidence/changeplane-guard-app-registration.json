@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T11:46:20Z",
+  "scope": "github_guard_app_registration_only",
+  "sourceCommit": "812b97e0bbc43c3844cb41cd2725c084f41db84d",
+  "registration": {
+    "id": 4872053,
+    "slug": "changeplane-guard-publisher",
+    "name": "ChangePlane Guard Publisher",
+    "ownerType": "User",
+    "publicUrl": "https://github.com/apps/changeplane-guard-publisher",
+    "createdAt": "2026-09-08T11:45:55Z",
+    "installationAvailability": "any_account",
+    "permissions": {
+      "actions": "read",
+      "checks": "write",
+      "contents": "read",
+      "metadata": "read",
+      "pull_requests": "read"
+    },
+    "events": [],
+    "webhookActive": false,
+    "oauthDuringInstall": false,
+    "deviceFlow": false,
+    "callbackUrlConfigured": false,
+    "setupUrlConfigured": false,
+    "privateKeyGenerated": false,
+    "clientSecretGenerated": false,
+    "installedByThisOperation": false
+  },
+  "verification": {
+    "registrationSuccessShown": true,
+    "savedPublicApiIdentityAndPermissionsVerified": true,
+    "apiEndpoint": "https://api.github.com/apps/changeplane-guard-publisher",
+    "anyAccountExplicitlySelected": true,
+    "prefillCaveat": "The public=true query parameter did not select Any account in the rendered form; the radio was explicitly selected and verified before submission.",
+    "distinctFromExistingAppId": 4334716,
+    "existingAppModified": false,
+    "supabaseMutationsPerformed": false,
+    "productionEnvironmentChanged": false
+  },
+  "production": {
+    "observedRelease": "ddccd7ab7721",
+    "rolloutMode": "controlled_canary",
+    "principalSeparation": "shared_installer_guard",
+    "commercialReady": false,
+    "guardPrincipalSeparated": false,
+    "repairEnabled": false
+  },
+  "boundaries": [
+    "Registration is complete; no private key, installation or runtime binding was created.",
+    "Public registration availability does not establish personal or organization onboarding canary results.",
+    "Production still uses the existing shared principal; this record does not close the live separation gate.",
+    "Journal runtime, TLS, durability/fencing, protected canary and legal/customer readiness remain separate requirements."
+  ]
+}
