@@ -425,6 +425,8 @@ test("write collaborators cannot reach autonomous expansion before owner activat
 
 test("Ruleset apply stays visibly unverified when GitHub post-read requires reconciliation", async ({ page }) => {
   let connected = false;
+  let canApply = false;
+  let rulesetWrites = 0;
   const externalRequests = await mockLocalApi(page, async (route, url) => {
     const action = url.searchParams.get("action");
     if (action === "session") {
@@ -514,6 +516,8 @@ test("Ruleset apply stays visibly unverified when GitHub post-read requires reco
       return json(route, {
         plan: {
           action: "create",
+          canApply,
+          nextAction: "This App installation lacks Administration write. Nothing was changed; Verify remains available. Configure the policy in GitHub, then recheck it here.",
           assuranceLevel: "strict_head",
           planDigest: "a".repeat(64),
           summary: "Create one exact Strict Head Ruleset.",
@@ -537,6 +541,7 @@ test("Ruleset apply stays visibly unverified when GitHub post-read requires reco
       });
     }
     if (action === "ruleset-apply") {
+      rulesetWrites += 1;
       expect(route.request().method()).toBe("POST");
       expect(route.request().postDataJSON().planDigest).toBe("a".repeat(64));
       return json(route, {
@@ -565,7 +570,14 @@ test("Ruleset apply stays visibly unverified when GitHub post-read requires reco
 
   await expect(page.locator(".ruleset-approval")).toContainText("ChangePlane / guard");
   await expect(page.locator(".ruleset-approval")).toContainText("integration 431");
+  await expect(page.getByRole("button", { name: "Approve and create Ruleset" })).toHaveCount(0);
+  await expect(page.locator(".ruleset-approval")).toContainText("Verify remains available");
+  await expect(page.getByRole("link", { name: "Open repository rulesets" })).toHaveAttribute("href", "https://github.com/acme/guarded-api/settings/rules");
+  expect(rulesetWrites).toBe(0);
+  canApply = true;
+  await page.getByRole("button", { name: "Recheck GitHub policy" }).click();
   await page.getByRole("button", { name: "Approve and create Ruleset" }).click();
+  expect(rulesetWrites).toBe(1);
 
   await expect(page.locator(".runtime-enforcement")).toContainText("Ruleset created, but GitHub has not verified active enforcement");
   await expect(page.locator(".runtime-enforcement")).toContainText("Wait for GitHub policy propagation");

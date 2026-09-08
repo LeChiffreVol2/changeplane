@@ -3900,12 +3900,16 @@ test("runtime status rejects a forged Full profile over a Lite managed tree befo
   });
 });
 
-test("runtime status refuses to call classic branch protection a high-assurance merge gate", async () => {
+for (const authMode of ["oauth", "github_app"]) {
+test(`Ruleset plan separates classic protection and revalidates optional write authority (${authMode})`, async () => {
   await withOAuthEnvironment(async () => {
     process.env.CHANGEPLANE_GUARD_APP_ID = "424242";
     process.env.CHANGEPLANE_GUARD_APP_SLUG = "changeplane-test";
+    if (authMode === "github_app") process.env.GITHUB_APP_SLUG = "changeplane-test";
     const session = seal({
       kind: "session",
+      authMode,
+      installationId: "12345",
       token: "alice-token",
       login: "alice",
       csrf: "alice-csrf",
@@ -3931,10 +3935,25 @@ test("runtime status refuses to call classic branch protection a high-assurance 
     const runtimeTree = managedRuntimeTreeFixture("verify-lite", policyContent);
     const calls = [];
     let createdRuleset = null;
+    let administration = "read";
+    let installationId = 12345;
+    let appSlug = "changeplane-test";
+    let suspendedAt = null;
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
       const requestUrl = new URL(String(url));
       calls.push(`${requestUrl.pathname}${requestUrl.search}`);
+      if (requestUrl.pathname === "/user/installations") {
+        return { ok: true, status: 200, async json() { return { installations: [
+          { id: installationId, app_slug: appSlug, suspended_at: suspendedAt, permissions: { administration } },
+          { id: 99999, app_slug: "changeplane-test", permissions: { administration: "write" } },
+        ] }; } };
+      }
+      if (requestUrl.pathname === "/user/installations/12345/repositories") {
+        return { ok: true, status: 200, async json() { return { repositories: [{
+          id: 77, full_name: "alice/private-service", default_branch: "main", permissions: { push: true, admin: true },
+        }] }; } };
+      }
       if (requestUrl.pathname === "/repos/alice/private-service") {
         return {
           ok: true,
@@ -4081,8 +4100,37 @@ test("runtime status refuses to call classic branch protection a high-assurance 
       assert.equal(planResponse.statusCode, 200, planResponse.body);
       const plan = JSON.parse(planResponse.body).plan;
       assert.equal(plan.action, "create");
+      assert.equal(plan.canApply, authMode === "oauth");
+      if (authMode === "github_app") assert.match(plan.nextAction, /Administration write.*Nothing was changed/u);
       assert.equal(plan.mutation.body.bypass_actors.length, 0);
       assert.deepEqual(plan.mutation.body.conditions.ref_name.include, ["refs/heads/main"]);
+
+      if (authMode === "github_app") {
+        administration = "write";
+        const allowed = responseRecorder();
+        await handler({ method: "GET", url: "/api/github?action=ruleset-plan&repository=alice%2Fprivate-service", headers: { cookie: `__Host-changeplane_session=${session}` } }, allowed);
+        assert.equal(allowed.statusCode, 200, allowed.body);
+        assert.equal(JSON.parse(allowed.body).plan.canApply, true);
+        assert.equal(JSON.parse(allowed.body).plan.planDigest, plan.planDigest);
+        for (const scenario of ["revoked", "wrong_installation", "wrong_app", "suspended"]) {
+          administration = scenario === "revoked" ? "read" : "write";
+          installationId = scenario === "wrong_installation" ? 54321 : 12345;
+          appSlug = scenario === "wrong_app" ? "other-app" : "changeplane-test";
+          suspendedAt = scenario === "suspended" ? "2026-09-08T00:00:00Z" : null;
+          const denied = responseRecorder();
+          await handler({ method: "POST", url: "/api/github?action=ruleset-apply", headers: {
+            origin: "https://changeplane.example", cookie: `__Host-changeplane_session=${session}`,
+            "content-type": "application/json", "x-changeplane-csrf": "alice-csrf",
+          }, body: { repository: "alice/private-service", assuranceLevel: "strict_head", planDigest: plan.planDigest } }, denied);
+          assert.equal(denied.statusCode, 403, `${scenario}: ${denied.body}`);
+          assert.match(JSON.parse(denied.body).error, /Administration write.*Nothing was changed/u);
+          assert.equal(createdRuleset, null, `${scenario}: no Ruleset may be written`);
+        }
+        administration = "write";
+        installationId = 12345;
+        appSlug = "changeplane-test";
+        suspendedAt = null;
+      }
 
       const applyResponse = responseRecorder();
       await handler({
@@ -4110,6 +4158,8 @@ test("runtime status refuses to call classic branch protection a high-assurance 
     }
   });
 });
+
+}
 
 test("runtime status proves active merge blocking from one strict default-branch ruleset", async () => {
   await withOAuthEnvironment(async () => {

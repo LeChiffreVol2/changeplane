@@ -151,7 +151,13 @@ test("controlled canary remains bound to the verified GitHub App installation", 
   });
 });
 
-test("onboarding requires Ruleset administration and dedicated-App Checks write but keeps Actions Secrets optional", async () => {
+for (const permissions of [
+  { administration: "read", checks: "write", connected: true },
+  { administration: "write", checks: "write", connected: true },
+  { administration: undefined, checks: "write", connected: false },
+  { administration: "read", checks: "read", connected: false },
+]) {
+test(`Verify onboarding accepts administration read while requiring Checks write: ${JSON.stringify(permissions)}`, async () => {
   await withEnvironment({ GITHUB_APP_SLUG: "changeplane-test" }, async () => {
     const state = "s".repeat(32);
     const oauthCookie = seal({
@@ -179,7 +185,7 @@ test("onboarding requires Ruleset administration and dedicated-App Checks write 
             return {
               installations: [{
                 id: 12345,
-                permissions: { actions: "read", administration: "write", contents: "write", pull_requests: "write", workflows: "write", checks: "write" },
+                permissions: { actions: "read", administration: permissions.administration, contents: "write", pull_requests: "write", workflows: "write", checks: permissions.checks },
               }],
             };
           },
@@ -195,12 +201,14 @@ test("onboarding requires Ruleset administration and dedicated-App Checks write 
         headers: { cookie: `__Host-changeplane_oauth=${oauthCookie}` },
       }, response);
       assert.equal(response.statusCode, 302);
-      assert.equal(response.getHeader("location"), "https://changeplane.example/?github=connected");
+      assert.equal(response.getHeader("location"), `https://changeplane.example/?github=${permissions.connected ? "connected" : "permissions_required"}`);
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 });
+
+}
 
 test("GitHub App BYOK fails before provider access when Actions Secrets write is absent", async () => {
   await withEnvironment({ GITHUB_APP_SLUG: "changeplane-test" }, async () => {

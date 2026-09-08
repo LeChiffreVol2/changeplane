@@ -393,7 +393,7 @@ const GITHUB_MAX_GET_ATTEMPTS = 3;
 const SERVERLESS_MAX_RETRY_DELAY_MS = 2_000;
 const REQUIRED_GITHUB_APP_PERMISSIONS = Object.freeze({
   actions: "read",
-  administration: "write",
+  administration: "read",
   contents: "write",
   pull_requests: "write",
   workflows: "write",
@@ -1317,7 +1317,7 @@ async function requireRepositoryAdmin(repository, session) {
     throw new HttpError(404, "Repository not found.");
   }
   if (live.permissions?.admin !== true) {
-    throw new HttpError(403, "Repository admin access is required before ChangePlane can manage Actions Secrets.");
+    throw new HttpError(403, "Repository admin access is required for this protected operation. Nothing was changed; ask a repository administrator to continue.");
   }
   return { ...target, repo: { ...target.repo, ...live } };
 }
@@ -3277,6 +3277,19 @@ async function installationCanWriteSecrets(session, installationId) {
   const installations = await userInstallations(session.token);
   const installation = installations.find(({ id }) => String(id) === String(installationId));
   return installation?.permissions?.secrets === "write";
+}
+
+const RULESET_PERMISSION_REQUIRED = "This App installation lacks Administration write permission to create the Ruleset. Nothing was changed; Verify remains available. Open repository rulesets in GitHub to configure the reviewed policy, then recheck it here.";
+
+async function installationCanWriteRulesets(session, installationId) {
+  if (session.authMode !== "github_app") return true;
+  if (!/^[1-9][0-9]{0,19}$/u.test(String(installationId ?? ""))) return false;
+  // Do not reuse a session or plan-time capability: installation grants can change after approval.
+  const installations = await userInstallations(session.token);
+  const installation = installations.find(({ id, app_slug: appSlug }) => (
+    String(id) === String(installationId) && appSlug === githubAppSlug()
+  ));
+  return installation?.permissions?.administration === "write" && installation.suspended_at == null;
 }
 
 async function repositoryByokToken(session, repo, installationId) {
@@ -5661,8 +5674,13 @@ async function rulesetPlanStatus(req, res) {
   const session = requireSession(req);
   const repository = validateRepository(queryValue(req, "repository"));
   const assuranceLevel = validateAssuranceLevel(queryValue(req, "assuranceLevel") ?? "strict_head");
-  const { plan } = await liveRulesetPlan(repository, assuranceLevel, session);
-  sendJson(res, 200, { plan });
+  const { plan, target } = await liveRulesetPlan(repository, assuranceLevel, session);
+  const canApply = plan.action === "create" && await installationCanWriteRulesets(session, target.installationId);
+  sendJson(res, 200, { plan: {
+    ...plan,
+    canApply,
+    ...(plan.action === "create" && !canApply ? { nextAction: RULESET_PERMISSION_REQUIRED } : {}),
+  } });
 }
 
 async function applyRulesetPlan(req, res) {
@@ -5698,6 +5716,9 @@ async function applyRulesetPlan(req, res) {
   const fresh = await liveRulesetPlan(repository, assuranceLevel, session);
   if (fresh.plan.action !== "create" || fresh.plan.planDigest !== body.planDigest) {
     throw new HttpError(409, "The approved Ruleset plan became stale before apply. Review the fresh plan; nothing was changed.");
+  }
+  if (!await installationCanWriteRulesets(session, fresh.target.installationId)) {
+    throw new HttpError(403, RULESET_PERMISSION_REQUIRED);
   }
   const created = await github(fresh.plan.mutation.path, session.token, {
     method: fresh.plan.mutation.method,
