@@ -131,6 +131,15 @@ try {
   await admin.query("reset role");
   pass("runtime is nonowner/nonsuperuser/NOBYPASSRLS; FORCE RLS hides another tenant; enrollment/reset/delete denied");
 
+  const preparedVisibility = { name: "guard_tenant_visibility",
+    text: "select count(*)::int as n, min(tenant_id)::text as tenant from changeplane_guard.enrollments" };
+  for (const [tenant, expected] of [["10", { n: 8, tenant: "10" }], ["99", { n: 1, tenant: "99" }],
+    ["", { n: 0, tenant: null }], ["10", { n: 8, tenant: "10" }]]) {
+    await a.query("select set_config('changeplane.guard_tenant_id',$1,false)", [tenant]);
+    assert.deepEqual((await a.query(preparedVisibility)).rows[0], expected);
+  }
+  pass("prepared RLS queries refresh statement context across tenant switches and deny missing context on the same connection");
+
   const owners = [randomUUID(), randomUUID()];
   const claims = await Promise.all([transition(a, scope(20), owners[0], "claim"), transition(b, scope(20), owners[1], "claim")]);
   assert.deepEqual([...claims].sort(), ["busy", "claimed"]);

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T11:07:19Z",
+  "scope": "disposable_managed_postgres_guard_qualification",
+  "source": {
+    "baseCommit": "87fdd6b347cc11c0b953793d3c0ef3952ac4322d",
+    "migrationPath": "database/002_guard_publication_journal.sql",
+    "initialMigrationSha256": "bfcd5cf6675c158ce76165413cd2edac0c000f799a710cd9dc851d4dffb9fad9",
+    "finalCandidateMigrationSha256": "9ae84b26eaa9871e01f00d91ac653877bab97e6a611478ce63ca1825781efed5",
+    "providerApplication": "Initial migration applied once, followed by two RLS policy deltas; final full migration applied from scratch only in local PostgreSQL tests.",
+    "providerPolicyDeltas": [
+      "guard_journal_statement_context",
+      "guard_journal_context_subquery"
+    ],
+    "catalogProbePath": "database/probes/guard_journal_catalog.sql",
+    "catalogProbeSha256": "74077e28d7615d326cb91fe78282b7a348a1ac2c65b62914da24a572df4825f8"
+  },
+  "environment": {
+    "provider": "Supabase",
+    "plan": "free",
+    "postgresVersion": "17.6",
+    "syntheticDataOnly": true,
+    "productionConnected": false,
+    "administrativeSqlWithAssumedRuntimeRole": true,
+    "dedicatedRuntimeLoginProvisioned": false,
+    "externalGitHubRequests": 0,
+    "projectIdentifiersRedacted": true
+  },
+  "cost": {
+    "quotedIncrementalMonthlyUsd": 0,
+    "planUpgradePerformed": false,
+    "existingProjectMutationsPerformed": false,
+    "organizationSettingsChanged": false,
+    "productionBillVerified": false
+  },
+  "catalog": {
+    "scope": "guard_catalog_only",
+    "checks": {
+      "schema_owner": true,
+      "isolated_roles": true,
+      "function_authority": true,
+      "supported_postgres": true,
+      "public_grants_absent": true,
+      "api_role_grants_absent": true,
+      "table_ownership_and_rls": true,
+      "runtime_table_privileges": true,
+      "runtime_schema_usage_only": true,
+      "runtime_function_execution": true
+    },
+    "postgresVersion": "17.6",
+    "apiRolesInspected": 3,
+    "catalogChecksPassed": true,
+    "runtimeLoginVerified": false,
+    "providerDurabilityVerified": false
+  },
+  "behavior": {
+    "initialSyntheticTransactionsPassed": true,
+    "checks": [
+      "committed claim excludes duplicate",
+      "finite lane capacity rejects another revision",
+      "wrong tenant cannot claim unenrolled repository",
+      "wrong owner cannot write",
+      "runtime direct table deletion denied",
+      "forced RLS separates two synthetic tenants",
+      "missing tenant context returns no rows",
+      "owner can mark writing and poison",
+      "poison cannot be released as a successful write",
+      "committed poison excludes a later SQL call"
+    ],
+    "finalPolicy": {
+      "runtimeRoleAssumedByAdmin": true,
+      "dedicatedRuntimeLoginVerified": false,
+      "secondTenantTransitionsPassed": true,
+      "finalPolicyTenantSwitchAndMissingContextPassed": true
+    },
+    "committedPoisonStillExcludes": true
+  },
+  "advisors": {
+    "securityFindings": 0,
+    "rlsInitPlanWarningsBefore": 2,
+    "rlsInitPlanWarningsAfter": 0,
+    "remaining": [
+      {
+        "name": "unindexed_foreign_keys",
+        "level": "INFO",
+        "findings": 1,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys",
+        "disposition": "Retained for capacity review. A foreign-key-equivalent lookup on the small synthetic fixture uses the repository-leading lanes primary-key index; no throughput or capacity conclusion follows."
+      }
+    ]
+  },
+  "localRegression": {
+    "guardChecksPassed": 13,
+    "preparedTenantContextSequence": [
+      "tenant A",
+      "tenant B",
+      "missing",
+      "tenant A"
+    ],
+    "finalMigrationAppliedFromScratch": true
+  },
+  "cleanup": {
+    "temporaryProjectDeleted": true,
+    "verifiedAt": "2026-09-08T11:07:19Z",
+    "verification": [
+      "Dashboard returned to organization project list after confirmed project deletion",
+      "Provider project inventory excludes the temporary project",
+      "Existing project identities, names, region, database version and status match the pre-creation inventory",
+      "Organization plan remains free"
+    ],
+    "existingProjectCountBefore": 1,
+    "existingProjectCountAfter": 1,
+    "existingInventoryMatch": true,
+    "existingProjectsHealthy": true,
+    "databaseContentsCompared": false,
+    "note": "No mutation targeted any pre-existing project. Inventory equality does not attest its database contents or concurrent work by other users."
+  },
+  "boundaries": {
+    "runtimeLoginVerified": false,
+    "applicationTlsVerified": false,
+    "applicationPoolVerified": false,
+    "concurrentManagedConnectionsVerified": false,
+    "providerDurabilityVerified": false,
+    "providerRestoreVerified": false,
+    "credentialRotationVerified": false,
+    "commercialDatabaseQualified": false,
+    "productionGuardCanaryVerified": false,
+    "guardPublicationSerialized": false,
+    "commercialReady": false,
+    "note": "Administrative SQL role-switch tests and advisory scans do not establish authenticated hosted runtime isolation, production writer fencing, failover safety or customer readiness. Deleting this synthetic-only project is not a production tenant-deletion drill."
+  }
+}

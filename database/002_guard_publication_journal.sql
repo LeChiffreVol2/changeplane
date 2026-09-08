@@ -71,11 +71,11 @@ alter table changeplane_guard.enrollments force row level security;
 alter table changeplane_guard.lanes enable row level security;
 alter table changeplane_guard.lanes force row level security;
 create policy enrollment_tenant on changeplane_guard.enrollments
-  using (tenant_id = nullif(current_setting('changeplane.guard_tenant_id', true), '')::bigint)
-  with check (tenant_id = nullif(current_setting('changeplane.guard_tenant_id', true), '')::bigint);
+  using (tenant_id = nullif((select current_setting('changeplane.guard_tenant_id', true)), '')::bigint)
+  with check (tenant_id = nullif((select current_setting('changeplane.guard_tenant_id', true)), '')::bigint);
 create policy lane_tenant on changeplane_guard.lanes
-  using (tenant_id = nullif(current_setting('changeplane.guard_tenant_id', true), '')::bigint)
-  with check (tenant_id = nullif(current_setting('changeplane.guard_tenant_id', true), '')::bigint);
+  using (tenant_id = nullif((select current_setting('changeplane.guard_tenant_id', true)), '')::bigint)
+  with check (tenant_id = nullif((select current_setting('changeplane.guard_tenant_id', true)), '')::bigint);
 
 -- The backend authenticates scope before calling this RPC. Tenant settings are
 -- defense in depth, not authentication supplied by a browser or Actions input.

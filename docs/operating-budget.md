@@ -1,6 +1,6 @@
 # Account support and the USD 100 operating ceiling
 
-The founder set a maximum of **USD 100 per month** for ChangePlane on 2026-09-08 (Asia/Bangkok). This plan treats it as the product's infrastructure ceiling, including tax and a contingency reserve. Customer-owned GitHub usage and optional BYOK model usage remain the customer's costs. Founder compensation, legal/entity formation and customer acquisition are outside this infrastructure estimate. No subscription upgrade, new database or spend-control setting has been purchased or applied.
+The founder set a maximum of **USD 100 per month** for ChangePlane on 2026-09-08 (Asia/Bangkok). This plan treats it as the product's infrastructure ceiling, including tax and a contingency reserve. Customer-owned GitHub usage and optional BYOK model usage remain the customer's costs. Founder compensation, legal/entity formation and customer acquisition are outside this infrastructure estimate. No paid subscription upgrade or spend-control setting has been applied. One expressly authorized Free database was created for synthetic qualification and deleted after testing; no persistent ChangePlane database remains.
 
 ## Individual and business support
 
@@ -18,9 +18,9 @@ Internal release proof needs both personal and organization canaries. Use a publ
 
 ## Conditional monthly allocation
 
-Public prices checked on 2026-09-08. The founder selected the existing Supabase billing organization, with a billing-impact review before any change. Read-only inspection found a Free plan, one active project and one inactive project. The create-project quote returned USD 0 on that current Free plan; it is not a quote for a production Pro topology. Browser access to the invoice and upgrade breakdown requires sign-in.
+Public prices checked on 2026-09-08. The founder selected the existing Supabase billing organization, with a billing-impact review before any change. The earlier inventory contained one active and one inactive project. A fresh inventory before the authorized qualification contained only one active existing project; the inactive project's absence preceded this work. The same existing project remained healthy afterward and the organization stayed Free. The qualification project was quoted at USD 0 per month and was deleted after testing; see the [redacted record](../evidence/changeplane-supabase-guard-qualification.json). This is not a quote for a production Pro topology. Authenticated dashboard access is available, but no upgrade or invoice-impact approval has been obtained.
 
-This revised estimate includes the existing projects, two additional separate Micro databases and one Vercel deploying developer, with usage inside included allowances. It assumes all charged projects use Micro; the actual upgrade breakdown, inactive-project behavior, credits and tax remain to be verified. Account and unrelated-project names are kept out of this public plan.
+The conservative estimate below retains room for three to four charged Micro projects, including the existing project, two separate ChangePlane databases and possible temporary operating capacity, plus one Vercel deploying developer. It assumes usage inside included allowances; the actual upgrade breakdown, credits and tax remain to be verified. It does not authorize changes to the existing project's compute or availability. Account and unrelated-project names are kept out of this public plan.
 
 | Item | Monthly allocation (USD) | Assumption |
 | --- | ---: | --- |
@@ -34,7 +34,7 @@ Vercel Pro includes one deploying seat and USD 20 usage credit at a USD 20 month
 
 Supabase Pro starts at USD 25 with USD 10 compute credit; an additional Micro project is approximately USD 10 monthly. The proposal uses separate projects and credentials for publication authority and pilot accounting. The earlier USD 55 combined-hosting estimate assumed a dedicated organization with only those two projects; it does not cover the selected shared account. Upgrading affects the entire organization. Do not change, resume, transfer or resize its existing projects as a side effect. See [Supabase pricing](https://supabase.com/pricing) and [organization-based billing](https://supabase.com/docs/guides/platform/billing-on-supabase).
 
-Supabase documents that paused projects do not incur compute charges and illustrates three Micro projects on Pro at USD 45 monthly. An API `INACTIVE` status alone does not establish its post-upgrade billing behavior. Reserve for four charged projects until the upgrade screen establishes otherwise. Separate current invoice/proration from the recurring total. See [billing FAQ](https://supabase.com/docs/guides/platform/billing-faq).
+Supabase documents that paused projects do not incur compute charges and illustrates three Micro projects on Pro at USD 45 monthly. The fourth-project allocation is conservative temporary-capacity headroom, not a claim that an inactive project is currently present or billed. Separate current invoice/proration from the recurring total. See [billing FAQ](https://supabase.com/docs/guides/platform/billing-faq).
 
 ## Conditions before this can become a deployment plan
 

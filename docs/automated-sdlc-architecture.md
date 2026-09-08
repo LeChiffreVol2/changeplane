@@ -76,7 +76,9 @@ Before removing the capability gate, adversarial integration and protected organ
 | Willingness to pay | Reviewed manual invoice or payment link, actual net revenue and variable costs | Founder |
 | Thirty-day outcomes | Private ledger, coverage references and reproducible scorecard | Founder + release owner |
 
-A commercial or billing database is not necessary to learn whether a manually invoiced pilot is valuable. The authority journal is independently mandatory for this candidate's hosted Guard publication. Automated plans, usage restrictions, Fleet history and commercial readiness require the separate candidate commercial store to be connected to authenticated event ingestion, tenancy, entitlements, retention/deletion and tested recovery. Do not sell those capabilities until their live evidence exists. No external customer, payment, effective legal agreement, live journal provisioning, production failover drill or Origin subscription result has been created by this implementation work.
+A commercial or billing database is not necessary to learn whether a manually invoiced pilot is valuable. The authority journal is independently mandatory for this candidate's hosted Guard publication. Automated plans, usage restrictions, Fleet history and commercial readiness require the separate candidate commercial store to be connected to authenticated event ingestion, tenancy, entitlements, retention/deletion and tested recovery. Do not sell those capabilities until their live evidence exists.
+
+A disposable Supabase Free project passed [bounded Guard SQL qualification](../evidence/changeplane-supabase-guard-qualification.json) and was deleted after testing, without changing existing projects or the organization plan. This established managed migration/catalog behavior and synthetic role-switched transactions, not a production runtime, TLS connection or durability guarantee. No external customer, payment, effective legal agreement, persistent journal service, production failover drill or Origin subscription result has been created by this implementation work.
 
 ## Why this improves automated SDLC
 
