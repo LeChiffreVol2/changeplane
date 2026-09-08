@@ -104,3 +104,19 @@ test("completed Verify and Observe runs permit five-minute recovery while live r
   }
   assert.throws(() => reconcileGuardState({ checkRun, trustedHarnessMode: "fast", now: NOW }), /recovery mode is invalid/u);
 });
+
+
+test("a blocked same-head evaluation remains recoverable until its generation completes", () => {
+  const checkRun = {
+    id: 919, name: "ChangePlane / guard", status: "completed", conclusion: "action_required",
+    started_at: "2026-09-08T20:00:00.000Z", completed_at: "2026-09-08T20:00:00.000Z",
+    output: { text: "changeplane.guard-run/v1;run_id=8001;run_attempt=2;phase=begin" },
+  };
+  assert.equal(reconcileGuardState({ checkRun, trustedHarnessMode: "verify", sourceRunCompleted: true,
+    now: "2026-09-08T20:04:59.000Z" }).state, "within_window");
+  const recovery = reconcileGuardState({ checkRun, trustedHarnessMode: "verify", sourceRunCompleted: true,
+    now: "2026-09-08T20:05:00.000Z" });
+  assert.equal(recovery.patch.conclusion, "action_required");
+  assert.match(recovery.patch.output.text, /run_attempt=2;phase=complete/u);
+  assert.equal(reconcileGuardState({ checkRun: { ...checkRun, ...recovery.patch } }).state, "terminal");
+});

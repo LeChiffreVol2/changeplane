@@ -300,6 +300,7 @@ test("dedicated guard begin invalidates the stable exact-head gate before evalua
     headRef: "agent/change",
   };
   const calls = [];
+  let presentation = { status: "in_progress", conclusion: null };
   const fetchImpl = async (input, options = {}) => {
     const url = new URL(String(input));
     calls.push({ url, options });
@@ -330,7 +331,7 @@ test("dedicated guard begin invalidates the stable exact-head gate before evalua
             id: 1001,
             name: "ChangePlane / guard",
             headSha: target.headSha,
-            status: "in_progress",
+            ...presentation,
             publisherAppId: 424242,
             publisherAppSlug: "changeplane",
           },
@@ -351,6 +352,15 @@ test("dedicated guard begin invalidates the stable exact-head gate before evalua
     });
     assert.equal(result.check.status, "in_progress");
     assert.equal(calls.length, 2);
+    presentation = { status: "completed", conclusion: "action_required" };
+    const blocked = await beginDedicatedGuard({ repository: "acme/payments", repositoryId: 4242,
+      defaultBranch: "main", controllerSha: "a".repeat(40), target, fetchImpl });
+    assert.equal(blocked.check.conclusion, "action_required");
+    for (const conclusion of ["success", "neutral", "skipped", null]) {
+      presentation = { status: "completed", conclusion };
+      await assert.rejects(beginDedicatedGuard({ repository: "acme/payments", repositoryId: 4242,
+        defaultBranch: "main", controllerSha: "a".repeat(40), target, fetchImpl }), /invalid begin proof/u);
+    }
   } finally {
     for (const [name, value] of Object.entries({
       ACTIONS_ID_TOKEN_REQUEST_URL: original.requestUrl,
