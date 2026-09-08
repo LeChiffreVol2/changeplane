@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { postgresConnectionOptions } from "./postgres-connection.js";
 
 const FIELDS = new Set([
   "tenantId", "repositoryId", "installationId", "guardAppId", "epoch", "releaseSha",
@@ -40,11 +41,13 @@ function validateScope(scope) {
  * external mutation belongs inside an awaited write thunk. No transport retries
  * or side effects may escape that thunk; GitHub has no fencing-token/CAS support.
  */
-export function createPostgresGuardJournal({ connectionString, pool } = {}) {
-  if (!pool && (typeof connectionString !== "string" || !connectionString)) {
-    throw new GuardPublicationError("GUARD_PUBLICATION_UNAVAILABLE");
+export function createPostgresGuardJournal({ connectionString, caCertificate, pool } = {}) {
+  let connection;
+  if (!pool) {
+    try { connection = postgresConnectionOptions({ connectionString, caCertificate }); }
+    catch { throw new GuardPublicationError("GUARD_PUBLICATION_UNAVAILABLE"); }
   }
-  const database = pool ?? new Pool({ connectionString, max: 4, connectionTimeoutMillis: 5000,
+  const database = pool ?? new Pool({ ...connection, max: 4, connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 10000, application_name: "changeplane_guard_journal" });
   // Idle connection failures must not crash the host. They never release claims.
   if (!pool) database.on("error", () => {});

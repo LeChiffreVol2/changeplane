@@ -50,6 +50,8 @@ jobs:
         run: npm run test:guard-journal
       - name: Test pilot admission concurrency and retention boundaries in scratch PostgreSQL
         run: npm run test:pilot-admission
+      - name: Test database CA and hostname verification in scratch PostgreSQL
+        run: npm run test:postgres-tls
       - name: Prove the Cursor Origin boundary contract
         run: npm run prove:origin-boundary
       - name: Build

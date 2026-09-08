@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
+import { rootCertificates } from "node:tls";
 import handler from "../api/github.js";
 
 const SOURCE_SHA = "c".repeat(40);
@@ -182,6 +183,17 @@ test("journal configuration is reported separately from live publication and com
     assert.equal(configuredPilot.statusCode, 200);
     assert.equal(configuredPilot.payload.checks.pilotAdmissionConfiguration, true);
     assert.equal(configuredPilot.payload.commercialReady, false);
+    process.env.CHANGEPLANE_DATABASE_CA_CERT = "invalid-certificate";
+    const invalidCa = await request("readiness");
+    assert.equal(invalidCa.statusCode, 503);
+    assert.equal(invalidCa.payload.checks.pilotAdmissionConfiguration, false);
+    assert.equal(invalidCa.body.includes("invalid-certificate"), false);
+    process.env.CHANGEPLANE_DATABASE_CA_CERT = rootCertificates[0];
+    const trustedCa = await request("readiness");
+    assert.equal(trustedCa.statusCode, 200);
+    assert.equal(trustedCa.payload.checks.pilotAdmissionConfiguration, true);
+    assert.equal(trustedCa.payload.commercialReady, false);
+    assert.equal(trustedCa.body.includes("CERTIFICATE"), false);
     process.env.CHANGEPLANE_DATABASE_URL = process.env.CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL;
     const sharedLogin = await request("readiness");
     assert.equal(sharedLogin.statusCode, 503);

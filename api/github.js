@@ -73,6 +73,7 @@ import {
 import { reconcileGuardState } from "../server/guard-reconciliation.js";
 import { createPostgresGuardJournal, GuardPublicationError } from "../server/guard-publication-journal.js";
 import { createPostgresPilotAdmission } from "../server/pilot-admission.js";
+import { postgresConnectionOptions } from "../server/postgres-connection.js";
 
 const API_VERSION = "2022-11-28";
 const SESSION_COOKIE = "__Host-changeplane_session";
@@ -480,15 +481,10 @@ const GUARD_PUBLICATION_SERIALIZED = false;
 let guardJournalCache = null;
 let pilotAdmissionCache = null;
 
-function verifiedPostgresUrl(connectionString) {
+function validPostgresConfiguration(connectionString, caCertificate) {
   try {
-    const url = new URL(connectionString);
-    return ["postgres:", "postgresql:"].includes(url.protocol)
-      && Boolean(url.hostname && url.username && url.pathname.length > 1)
-      && !url.hostname.includes("%") && !url.hash
-      // pg accepts duplicate, endpoint and file overrides. Only one reviewed
-      // TLS option is supported in hosted database configuration.
-      && url.searchParams.size === 1 && url.searchParams.get("sslmode") === "verify-full";
+    postgresConnectionOptions({ connectionString, caCertificate });
+    return true;
   } catch { return false; }
 }
 
@@ -510,27 +506,30 @@ function guardJournalConfiguration({ required = process.env.VERCEL === "1" } = {
   const releaseSha = currentReleaseBinding();
   const epoch = process.env.CHANGEPLANE_GUARD_JOURNAL_EPOCH;
   const connectionString = process.env.CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL;
+  const caCertificate = process.env.CHANGEPLANE_GUARD_JOURNAL_CA_CERT;
   if (process.env.CHANGEPLANE_GUARD_JOURNAL_ENABLED !== "true"
-    || !verifiedPostgresUrl(connectionString) || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(epoch ?? "")
+    || !validPostgresConfiguration(connectionString, caCertificate) || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(epoch ?? "")
     || !/^[a-f0-9]{40}$/u.test(releaseSha ?? "")
     || process.env.CHANGEPLANE_GUARD_JOURNAL_VERIFIED_RELEASE !== releaseSha
     || guardPrincipalSeparation() !== "separate_guard_app") {
     throw new GuardPublicationError("GUARD_PUBLICATION_AUTHORITY");
   }
-  return { connectionString, epoch, releaseSha };
+  return { connectionString, caCertificate, epoch, releaseSha };
 }
 
 function guardJournalRuntime(suppliedJournal = null) {
   const configuration = guardJournalConfiguration({ required: process.env.VERCEL === "1" || suppliedJournal !== null });
   if (!configuration) return null;
   if (suppliedJournal) return { ...configuration, journal: suppliedJournal };
-  if (guardJournalCache?.connectionString !== configuration.connectionString) {
+  if (guardJournalCache?.connectionString !== configuration.connectionString
+    || guardJournalCache?.caCertificate !== configuration.caCertificate) {
     // Credentials never leave this closure. Rotation must first drain or fence
     // writers: closing an old pool cannot release its durable reservations.
     const previous = guardJournalCache;
     guardJournalCache = {
       connectionString: configuration.connectionString,
-      journal: createPostgresGuardJournal({ connectionString: configuration.connectionString }),
+      caCertificate: configuration.caCertificate,
+      journal: createPostgresGuardJournal({ connectionString: configuration.connectionString, caCertificate: configuration.caCertificate }),
     };
     previous?.journal.close().catch(() => {});
   }
@@ -1149,7 +1148,7 @@ function commercialStoreIsConfigured() {
       && decodeURIComponent(commercial.username) === decodeURIComponent(journal.username);
   } catch { /* Missing or invalid URLs are handled by their own configuration gate. */ }
   return process.env.CHANGEPLANE_COMMERCIAL_STORE_ENABLED === "true"
-    && verifiedPostgresUrl(process.env.CHANGEPLANE_DATABASE_URL) && !reusesJournalLogin;
+    && validPostgresConfiguration(process.env.CHANGEPLANE_DATABASE_URL, process.env.CHANGEPLANE_DATABASE_CA_CERT) && !reusesJournalLogin;
 }
 
 export function assertOrigin(req) {
@@ -4383,9 +4382,10 @@ async function admitPilotEvaluation({ suppliedPilotAdmission, repo, installation
     let admission = suppliedPilotAdmission;
     if (!admission) {
       const connectionString = process.env.CHANGEPLANE_DATABASE_URL;
-      if (pilotAdmissionCache?.connectionString !== connectionString) {
+      const caCertificate = process.env.CHANGEPLANE_DATABASE_CA_CERT;
+      if (pilotAdmissionCache?.connectionString !== connectionString || pilotAdmissionCache?.caCertificate !== caCertificate) {
         const previous = pilotAdmissionCache;
-        pilotAdmissionCache = { connectionString, admission: createPostgresPilotAdmission({ connectionString }) };
+        pilotAdmissionCache = { connectionString, caCertificate, admission: createPostgresPilotAdmission({ connectionString, caCertificate }) };
         previous?.admission.close().catch(() => {});
       }
       admission = pilotAdmissionCache.admission;

@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { postgresConnectionOptions } from "./postgres-connection.js";
 
 const SCOPE_FIELDS = new Set(["tenantId", "repositoryId", "installationId", "guardAppId",
   "revisionFingerprint", "evaluationGeneration", "workflowStartedAt", "capability", "targetType"]);
@@ -66,9 +67,13 @@ function admissionResult(result, allowNull = false) {
  * fingerprint and the live workflow-attempt start time. No customer clocks.
  * This adapter never provisions contracts, refunds, prunes, or changes limits.
  */
-export function createPostgresPilotAdmission({ connectionString, pool } = {}) {
-  if (!pool && (typeof connectionString !== "string" || !connectionString)) throw unavailable();
-  const database = pool ?? new Pool({ connectionString, max: 4, connectionTimeoutMillis: 5000,
+export function createPostgresPilotAdmission({ connectionString, caCertificate, pool } = {}) {
+  let connection;
+  if (!pool) {
+    try { connection = postgresConnectionOptions({ connectionString, caCertificate }); }
+    catch { throw unavailable(); }
+  }
+  const database = pool ?? new Pool({ ...connection, max: 4, connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 10000, application_name: "changeplane_pilot_admission" });
   if (!pool) database.on("error", () => {});
 

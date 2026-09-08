@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { constants, createHash, generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
+import { rootCertificates } from "node:tls";
 import { buildAssurancePassport, buildReceipt, digest, headCheckPayload, renderReceiptComment } from "../action/index.js";
 import { buildSetupFiles, createGitHubHandler, seal } from "../api/github.js";
 import { GuardPublicationError } from "../server/guard-publication-journal.js";
@@ -478,4 +479,24 @@ test("journal configuration rejects ambiguous TLS modes and PostgreSQL endpoint 
       assert.equal(denied.body.includes("journal.invalid"), false);
     });
   }
+});
+
+test("journal CA is validated before external access and never appears in a response", async () => {
+  for (const caCertificate of ["", "not-a-certificate", "-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----"]) {
+    await withFixture(async ({ calls, journal, invoke }) => {
+      process.env.CHANGEPLANE_GUARD_JOURNAL_CA_CERT = caCertificate;
+      const denied = await invoke("begin");
+      assert.equal(denied.statusCode, 503);
+      assert.equal(journal.calls.length, 0);
+      assert.equal(calls.length, 0);
+      assert.equal(denied.body.includes("CERTIFICATE"), false);
+    });
+  }
+  await withFixture(async ({ journal, invoke }) => {
+    process.env.CHANGEPLANE_GUARD_JOURNAL_CA_CERT = rootCertificates[0];
+    const accepted = await invoke("begin");
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.ok(journal.calls.length > 0);
+    assert.equal(accepted.body.includes("CERTIFICATE"), false);
+  });
 });

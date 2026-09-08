@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { postgresConnectionOptions } from "./postgres-connection.js";
 
 const EVENT_FIELDS = new Set([
   "organizationId",
@@ -194,11 +195,11 @@ async function withTenant(pool, organizationId, operation) {
   }
 }
 
-export function createPostgresCommercialStore({ connectionString, pool: suppliedPool } = {}) {
+export function createPostgresCommercialStore({ connectionString, caCertificate, pool: suppliedPool } = {}) {
   if (!suppliedPool && (typeof connectionString !== "string" || connectionString.length === 0)) {
     throw new TypeError("A PostgreSQL connection string or pool is required.");
   }
-  const pool = suppliedPool ?? new Pool({ connectionString, max: 4 });
+  const pool = suppliedPool ?? new Pool({ ...postgresConnectionOptions({ connectionString, caCertificate }), max: 4 });
   return Object.freeze({
     async recordEvaluationEvent(event) {
       const normalized = normalizeEvent(event);
