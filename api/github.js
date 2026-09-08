@@ -4585,10 +4585,29 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
         || mutationChecks[0]?.output?.summary !== stable[0]?.output?.summary) {
         throw new HttpError(409, "The dedicated guard generation changed before invalidation.");
       }
+      // A completed GitHub Check retains omitted conclusion/timestamp fields.
+      // Retire usable assurance first so a failed restart cannot leave an old PASS.
+      if (published?.status === "completed" && ["success", "neutral", "skipped"].includes(published.conclusion)) {
+        const retired = await write(() => github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
+          method: "PATCH",
+          body: { status: "completed", conclusion: "action_required" },
+        }));
+        if (retired?.id !== published.id || retired?.name !== GUARD_CHECK_NAME
+          || retired?.head_sha !== request.target.headSha || retired?.status !== "completed"
+          || retired?.conclusion !== "action_required" || retired?.external_id !== request.check.external_id
+          || retired?.app?.id !== configuration.appId || retired?.app?.slug !== configuration.appSlug) {
+          throw new HttpError(502, "GitHub did not confirm that the previous Guard was invalidated.");
+        }
+      }
       published = published
         ? await write(() => github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
           method: "PATCH",
-          body: Object.fromEntries(Object.entries(beginCheck).filter(([key]) => key !== "head_sha")),
+          body: {
+            ...Object.fromEntries(Object.entries(beginCheck).filter(([key]) => key !== "head_sha")),
+            conclusion: null,
+            completed_at: null,
+            started_at: new Date().toISOString(),
+          },
         }))
         : await write(() => github(`/repos/${encodedRepository}/check-runs`, writeCredential.token, {
           method: "POST",
@@ -4597,7 +4616,8 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
     }
     if (!Number.isSafeInteger(published?.id) || published.id <= 0
       || published.name !== GUARD_CHECK_NAME || published.head_sha !== request.target.headSha
-      || published.status !== "in_progress" || published.external_id !== request.check.external_id
+      || published.status !== "in_progress" || published.conclusion != null || published.completed_at != null
+      || published.external_id !== request.check.external_id
       || published.output?.text !== beginCheck.output.text
       || published.app?.id !== configuration.appId || published.app?.slug !== configuration.appSlug) {
       throw new HttpError(502, "GitHub did not return the expected in-progress dedicated-App guard.");
