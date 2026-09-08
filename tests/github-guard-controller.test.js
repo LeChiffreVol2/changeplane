@@ -561,6 +561,7 @@ test("keeps the authenticated contract frozen across same-head edits and interru
     },
   };
   assert.equal(guardBoundContractDigest(begin, authority), bound);
+  assert.equal(guardBoundContractDigest({ ...begin, status: "completed", conclusion: "action_required" }, authority), bound);
   const superseded = {
     ...begin,
     output: {

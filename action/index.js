@@ -949,7 +949,8 @@ export async function beginDedicatedGuard({
     || !validPositiveId(result?.check?.id)
     || result.check.name !== CHECK_NAME
     || result.check.headSha !== exactTarget.headSha
-    || result.check.status !== "in_progress"
+    || !((result.check.status === "in_progress" && result.check.conclusion == null)
+      || (result.check.status === "completed" && result.check.conclusion === "action_required"))
     || !validPositiveId(result.check.publisherAppId)
     || typeof result.check.publisherAppSlug !== "string"
     || !GITHUB_APP_SLUG.test(result.check.publisherAppSlug)

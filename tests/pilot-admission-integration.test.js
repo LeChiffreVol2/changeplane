@@ -402,8 +402,8 @@ test("all prior successes are invalidated before waiting for commercial admissio
         && ["success", "neutral", "skipped"].includes(check.conclusion)), false,
       "a worker lost during the commercial wait must leave no usable old success");
       const canonical = primary.checks.find((check) => check.id === canonicalId);
-      assert.equal(canonical.status, "in_progress");
-      assert.equal(canonical.conclusion, null);
+      assert.equal(canonical.status, "completed");
+      assert.equal(canonical.conclusion, "action_required");
       assert.match(canonical.output.text, /run_id=8002;run_attempt=1;phase=begin/u);
       assert.equal(primary.checks.find((check) => check.id === 899).conclusion, "action_required");
       assert.equal(journal.lanes.size, 1);
@@ -540,7 +540,8 @@ test("an unavailable or ambiguous admission store stops work but does not poison
     pilotAdmission.failure = null;
     const recovered = await invoke("begin", 8003);
     assert.equal(recovered.statusCode, 200, recovered.body);
-    assert.equal(primary.checks[0].status, "in_progress");
+    assert.equal(primary.checks[0].status, "completed");
+    assert.equal(primary.checks[0].conclusion, "action_required");
   });
 });
 

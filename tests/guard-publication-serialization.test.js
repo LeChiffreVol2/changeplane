@@ -328,8 +328,8 @@ test("a delayed old completion cannot cross a newer begin or either recovery rou
     assert.equal((await invoke("begin", 8002)).statusCode, 200);
     const replay = await invoke("complete", 8001);
     assert.equal(replay.statusCode, 409, replay.body);
-    assert.equal(primary.checks[0].status, "in_progress");
-    assert.equal(primary.checks[0].conclusion, null);
+    assert.equal(primary.checks[0].status, "completed");
+    assert.equal(primary.checks[0].conclusion, "action_required");
   });
 });
 
@@ -499,4 +499,22 @@ test("journal CA is validated before external access and never appears in a resp
     assert.ok(journal.calls.length > 0);
     assert.equal(accepted.body.includes("CERTIFICATE"), false);
   });
+});
+
+
+test("both recovery routes close a blocked same-head generation without issuing PASS", async () => {
+  for (const recovery of ["sweep", "manual"]) {
+    await withFixture(async ({ primary, invoke }) => {
+      assert.equal((await invoke("begin")).statusCode, 200);
+      assert.equal((await invoke("complete")).statusCode, 200);
+      assert.equal((await invoke("begin", 8002)).statusCode, 200);
+      assert.equal(primary.checks[0].conclusion, "action_required");
+      primary.checks[0].started_at = new Date(Date.now() - 26 * 60 * 1000).toISOString();
+      const recovered = await invoke(recovery, 9100);
+      assert.equal(recovered.statusCode, 200, recovered.body);
+      assert.equal(primary.checks[0].conclusion, "action_required");
+      assert.match(primary.checks[0].output.text, /run_id=8002;run_attempt=1;phase=complete/u);
+      assert.equal((await invoke("complete", 8002)).statusCode, 409);
+    });
+  }
 });

@@ -32,6 +32,7 @@ import {
   decodeGuardRunMarker,
   encodeGuardRunMarker,
   guardBoundContractDigest,
+  guardEvaluationPending,
   stableGuardCheckExternalId,
   validateGuardBeginBody,
   validateGuardReconciliationBody,
@@ -108,7 +109,7 @@ const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 14;
+const MANAGED_VERSION = 15;
 // The repair credential protocol remains v12. Managed payload releases can
 // advance independently without silently widening an existing credential.
 const MANAGED_REPAIR_ACTIVATION = "managed-v12";
@@ -158,6 +159,37 @@ const LEGACY_MANAGED_HASHES = Object.freeze({
 // When MANAGED_VERSION advances, retain each prior manifest-backed version here.
 // The installer may upgrade only bytes that match one of these immutable catalogs.
 const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
+  14: Object.freeze({
+    "full": Object.freeze({
+      "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+      "changeplane/action/index.js": "40306f7218fee182cdc9b14ea49780718af692220933f0e211fcda8ba5e8b937",
+      "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+      "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+      "changeplane/src/lib/review.js": "77b6e85321827a18a305bf4a952d6493d831374e8208eeca0e0987d1fd95023d",
+      "changeplane/src/lib/runtime.js": "e4fcb217c60f23217023c52b56c5c195c4a4442d86ae78301f81d7c537c80e7c",
+      "changeplane/server/github-repair-controller.js": "b67e56892908874717771a114adb378b7c2243ac6e2c364951d1034fd9fc1ddd",
+      "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+      "changeplane/examples/changeplane-claim.js": "b391de111c6c5e4bb33991e6624db4f4347862ecee3c3478ecc8dbfc85997f83",
+      "changeplane/examples/changeplane-grant.js": "648037cd2f18d4161f75c7dc7fedbc1317a5b78f6b53ac3df121f9b3eb76b9a1",
+      "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+      "changeplane/examples/changeplane-proposal.js": "e43d6f6809db1bc2d73516184be611565c77ce47f7b8c064188ea8fa83d6d8e5",
+      "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
+      "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
+      "changeplane/examples/changeplane-review-run.js": "5dcdb7204c3a090d3aec88af6e82153f7f447389136c0c84d41f08895ea08d2e",
+      "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      ".github/workflows/changeplane.yml": "246da05f00127fd8ca64cfec549921f9b06b2f332ce53d148fb4446daf8d1d39",
+      ".github/workflows/changeplane-repair.yml": "7d18ee493de579c22d2b7093f834d0bdb20d4d60fe7219dfad2eb85e60f2d45f"
+    }),
+    "verify-lite": Object.freeze({
+      "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+      "changeplane/action/index.js": "40306f7218fee182cdc9b14ea49780718af692220933f0e211fcda8ba5e8b937",
+      "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+      "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+      "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+      "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      ".github/workflows/changeplane.yml": "a631d3ea6f375513db25c6635c7bab429c2623c1d2fbee0a2c55528645e0d2bc"
+    })
+  }),
   1: LEGACY_MANAGED_HASHES,
   2: Object.freeze({
     "changeplane/action.yml": "5efe0e2140283081e3e0390506c681fc881dbe47334a16038c0da9198dcba868",
@@ -4262,7 +4294,7 @@ function assertGuardRunCanBegin(existing, incoming) {
   if (!existing) return "create";
   const current = guardRunMarker(existing);
   const order = compareGuardRunOrder(incoming, current);
-  if (existing.status === "in_progress"
+  if (guardEvaluationPending(existing)
     && current.phase === "begin"
     && order === 0) {
     return "idempotent";
@@ -4537,7 +4569,7 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
     let published = stable[0];
     const stableMarker = published ? guardRunMarker(published) : null;
     const idempotent = beginState === "idempotent"
-      && published?.status === "in_progress"
+      && guardEvaluationPending(published)
       && stableMarker?.phase === "begin"
       && compareGuardRunOrder(incomingMarker, stableMarker) === 0
       && published.output?.text === beginCheck.output.text;
@@ -4586,7 +4618,7 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
         throw new HttpError(409, "The dedicated guard generation changed before invalidation.");
       }
       // A completed GitHub Check retains omitted conclusion/timestamp fields.
-      // Retire usable assurance first so a failed restart cannot leave an old PASS.
+      // Retire usable assurance first so a failed begin cannot leave an old PASS.
       if (published?.status === "completed" && ["success", "neutral", "skipped"].includes(published.conclusion)) {
         const retired = await write(() => github(`/repos/${encodedRepository}/check-runs/${published.id}`, writeCredential.token, {
           method: "PATCH",
@@ -4604,8 +4636,12 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
           method: "PATCH",
           body: {
             ...Object.fromEntries(Object.entries(beginCheck).filter(([key]) => key !== "head_sha")),
-            conclusion: null,
-            completed_at: null,
+            // Completed Checks cannot reliably be reopened through REST. Keep the
+            // stable Check blocked until this marker's fresh evidence completes.
+            ...(published.status === "completed" ? {
+              status: "completed", conclusion: "action_required",
+              completed_at: new Date().toISOString(),
+            } : {}),
             started_at: new Date().toISOString(),
           },
         }))
@@ -4616,14 +4652,15 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
     }
     if (!Number.isSafeInteger(published?.id) || published.id <= 0
       || published.name !== GUARD_CHECK_NAME || published.head_sha !== request.target.headSha
-      || published.status !== "in_progress" || published.conclusion != null || published.completed_at != null
+      || !guardEvaluationPending(published)
+      || (published.status === "in_progress" && published.completed_at != null)
       || published.external_id !== request.check.external_id
       || published.output?.text !== beginCheck.output.text
       || published.app?.id !== configuration.appId || published.app?.slug !== configuration.appSlug) {
-      throw new HttpError(502, "GitHub did not return the expected in-progress dedicated-App guard.");
+      throw new HttpError(502, "GitHub did not return the expected blocked dedicated-App evaluation.");
     }
     // The previous usable success is gone before any commercial network/DB wait.
-    // A process loss here leaves an occupied lane AND an in-progress Guard.
+    // A process loss here leaves an occupied lane AND a blocked Guard.
     const admissionBlock = await admitPilotEvaluation({ suppliedPilotAdmission, repo, installation,
       configuration, request, claims, managedProfile, trustedHarnessMode, encodedRepository, token: readCredential.token });
     if (admissionBlock) {
@@ -4654,6 +4691,7 @@ async function guardBegin({ body, oidcToken, configuration, repository, journalR
         name: published.name,
         headSha: published.head_sha,
         status: published.status,
+        conclusion: published.conclusion ?? null,
         publisherAppId: published.app.id,
         publisherAppSlug: published.app.slug,
       },
@@ -4769,7 +4807,7 @@ async function guardReconciliationSweep({ body, oidcToken, configuration, reposi
         .filter((check) => check?.external_id === expectedExternalId);
       if (stable.length > 1) throw new HttpError(409, "The dedicated Guard recovery target is ambiguous.");
       const check = stable[0];
-      if (check?.status !== "in_progress") return { inProgress: 0, reconciled: 0 };
+      if (check?.status !== "in_progress" && !guardEvaluationPending(check)) return { inProgress: 0, reconciled: 0 };
       const context = { encodedRepository, repo, configuration, trustedHarnessMode: trusted.trustedHarnessMode, token: readCredential.token };
       const recovery = await trustedGuardRecoveryState({ ...context, checkRun: check });
       if (recovery.patch === null) return { inProgress: 1, reconciled: 0 };
