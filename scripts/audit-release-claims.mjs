@@ -14,6 +14,7 @@ const paths = [
   "docs/agentic-sdlc.md",
   "docs/automated-sdlc-architecture.md",
   "docs/guard-publication-journal.md",
+  "docs/guard-app-registration.md",
   "database/README.md",
   "docs/launch-measurement.md",
   "docs/commercial-plan.md",
