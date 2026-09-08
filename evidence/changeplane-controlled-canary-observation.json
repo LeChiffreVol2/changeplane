@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "type": "changeplane.controlled-canary-observation",
+  "recordedAt": "2026-09-08T19:59:08.040195+00:00",
+  "fixtureKind": "SYNTHETIC",
+  "qualificationStatus": "INCOMPLETE",
+  "customerLaunchAuthorized": false,
+  "initialRelease": {
+    "sourceSha": "1f7ad14ea842e186df6679a7eddb783afd89dd90",
+    "pullRequest": 50
+  },
+  "hotfixRelease": {
+    "sourceSha": "42de0baf45474582c9e0e1e61bc53ff1221fb8f1",
+    "pullRequest": 51,
+    "ciRunId": 34269759177,
+    "mainCiRunId": 34270122196,
+    "requiredCiPassed": true,
+    "unitIntegrationTests": 478,
+    "guardPostgresChecks": 14,
+    "pilotPostgresChecks": 14,
+    "tlsChecks": 6,
+    "chromiumJourneys": 13,
+    "managedVersion": 14,
+    "deploymentMethod": "CLI-triggered rebuild of the protected Git deployment; no local source upload"
+  },
+  "initialLiveObservations": {
+    "ownership": "Organization",
+    "oauthAndHostedSetup": "PASSED",
+    "managedSetupFiles": 9,
+    "strictHead": {
+      "active": true,
+      "strict": true,
+      "bypassActors": [],
+      "requiredChecks": [
+        {
+          "context": "CI / test",
+          "integration_id": 15368
+        },
+        {
+          "context": "ChangePlane / guard",
+          "integration_id": 4872053
+        }
+      ]
+    },
+    "failedHead": {
+      "sha": "3e81195c00f8d7418b8597c15fbbe372bbba8473",
+      "mergeStateStatus": "BLOCKED",
+      "guardConclusion": "action_required",
+      "checkRunId": 102203134455
+    },
+    "freshHead": {
+      "sha": "4ff730cfce7bf6bf91395a39c7a14b35360c4a66",
+      "immediateChecks": [],
+      "guardConclusion": "success",
+      "checkRunId": 102205665649
+    },
+    "sameShaRerun": {
+      "result": "FAILED",
+      "runId": 34269019185,
+      "attempt": 2,
+      "observedStatus": "completed",
+      "observedConclusion": "success",
+      "observedMarkerPhase": "begin",
+      "finding": "Status-only restart retained the prior success and timestamps."
+    },
+    "notifications": {
+      "channel": "GitHub web inbox",
+      "behavioralFailureObserved": true,
+      "guardFailureObserved": true,
+      "rerunFailureObserved": true,
+      "deniedManualReconciliationObserved": true,
+      "emailDeliveryProven": false
+    }
+  },
+  "containment": {
+    "oldPullRequestConvertedToDraft": true,
+    "oldEnrollmentDisabled": true,
+    "occupiedAuthorityRetained": true,
+    "originalDisposableRepositoryDeleted": true,
+    "originalOrganizationInstallationsRemovedByGitHub": true,
+    "replacementSetupCiPassed": true,
+    "replacementGuardInstallation": "pending_approval",
+    "finalRepositoryAndOrganizationCleanup": "pending"
+  },
+  "hotfixVerification": {
+    "retireOldSuccessBeforeRestart": "REGRESSION_PASSED",
+    "clearTerminalFieldsAndRefreshStart": "REGRESSION_PASSED",
+    "refusedRestartLeavesActionRequired": "REGRESSION_PASSED",
+    "liveSameShaRerun": "PENDING",
+    "signedOutSmoke": "PASSED",
+    "browserConsoleErrors": 0,
+    "originSyntheticCasesPassed": 12,
+    "originAssertionsPassed": 6,
+    "originExternalRequests": 0
+  },
+  "remainingEvidence": [
+    "Live hotfix same-SHA and new-head qualification",
+    "Stalled Guard recovery and actual schedule timing",
+    "Final disposable repository and organization deletion",
+    "Provider authority durability or fenced principal recovery before customer activation"
+  ],
+  "boundaries": {
+    "rolloutMode": "controlled_canary",
+    "guardPublicationSerialized": false,
+    "commercialReady": false,
+    "repairEnabled": false,
+    "modelApiUsed": false,
+    "paidPlanChanges": false,
+    "otherDatabaseProjectsChanged": false,
+    "guardFreeDatabaseRetainedByOwnerApproval": true,
+    "legalDocuments": "DRAFT",
+    "customerMeasurements": "NOT_STARTED"
+  },
+  "evidenceScope": "A release-owner snapshot of public synthetic checks and private UI observations. The deleted repository is no longer a live verification endpoint. Local tests and a healthy readiness response do not prove the pending live or provider gates."
+}
