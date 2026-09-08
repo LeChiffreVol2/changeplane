@@ -5765,6 +5765,10 @@ test("OIDC-authenticated guard publication re-fetches authority and writes only 
         },
       }, nextCompletion);
       assert.equal(nextCompletion.statusCode, 200, nextCompletion.body);
+      const completionPayload = JSON.parse(calls.filter(({ method, path }) => method === "PATCH"
+        && path.endsWith("/check-runs/919")).at(-1).options.body);
+      assert.ok(Number.isFinite(Date.parse(completionPayload.completed_at)));
+      assert.equal(liveGuardCheck.completed_at, completionPayload.completed_at);
       assert.equal(liveGuardCheck.status, "completed");
       assert.equal(liveGuardCheck.conclusion, "success");
 

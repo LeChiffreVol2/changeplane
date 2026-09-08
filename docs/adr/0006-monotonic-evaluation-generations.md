@@ -14,4 +14,4 @@ Managed v15 keeps the same Check ID and exact-revision external ID. A first eval
 
 The Action validates both blocked presentations. Begin replay, frozen-contract verification and reconciliation recognize the same pending generation. Only its fresh deterministic completion may publish success; an older completion remains rejected. Recovery can close a timed-out blocked generation and surface a failed workflow notification without granting PASS. Managed v14 bytes remain pinned for protected upgrade classification; prior runtimes fail closed until upgraded.
 
-Live requalification is required before claiming the revised behavior works on GitHub.
+Live same-SHA requalification passed on the protected v15 release; see [the current observation](../current-release.md). Completion explicitly replaces GitHub's retained blocked-begin timestamp.

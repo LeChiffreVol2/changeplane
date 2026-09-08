@@ -2,7 +2,7 @@
 
 ## Managed-v14 customer-readiness candidate — 2026-09-07
 
-The items below apply to managed v14. The [current controlled-release observation](current-release.md) records protected deployment and partial live qualification, including the same-SHA failure and pending hotfix retest. Historical checked items remain evidence only for their recorded revisions.
+The items below apply to managed v15. The [current controlled-release observation](current-release.md) records protected deployment and partial live qualification, including the same-SHA failures and successful v15 retest. Historical checked items remain evidence only for their recorded revisions.
 
 - [x] Record the founder's revised budget: USD 0 for current engineering preparation; USD 100 per month only at scale. Keep upgrades, paid add-ons and commercial database provisioning deferred; the separately approved Free Guard service is retained for engineering qualification. Preserve personal and organization support and all technical/legal customer-access gates. See [operating budget](operating-budget.md).
 - [x] Qualify the actual journal adapter through a disposable Supabase Free runtime login with verified TLS, transaction-pool tenant isolation, concurrent exclusion, committed poison and fresh-login credential rotation. Delete the project and temporary credentials, and confirm existing projects and the Free plan are unchanged. This is local-operator evidence; subsequent Vercel connectivity and publication observations are recorded separately, while durability remains open. See [redacted runtime evidence](../evidence/changeplane-free-runtime-qualification.json).
@@ -14,7 +14,8 @@ The items below apply to managed v14. The [current controlled-release observatio
 - [x] Reproduce the current OAuth permission failure and separate Verify onboarding (Administration read) from Ruleset creation (live Administration write on the matching installation). Verify revoked, wrong-App, wrong-installation and suspended grants cannot write; the browser offers GitHub configuration and recheck without claiming active protection. PR50 deployed this fix and the original organization canary qualified its authenticated flow.
 - [x] Deploy the protected v14 source with a separate Guard and the approved isolated Free journal; exercise OAuth, nine-file setup, organization Strict Head, failed evidence, corrected-head PASS and GitHub web failure notifications. Preserve their exact initial-release scope.
 - [x] Reproduce the live same-SHA status-retention defect and deploy PR51 with explicit retirement, terminal-field clearing and refused-restart regression coverage.
-- [ ] Requalify the hotfix on live same-SHA/new-head/recovery interleavings and delete the replacement temporary repository and organization. The first repository was deleted, while occupied journal authority remains retained. The hotfix and green local/CI checks do not themselves satisfy this gate.
+- [x] Requalify managed v15 on a live same-SHA rerun and new head with separate Guard identity and strict no-bypass publisher binding.
+- [ ] Finish the stalled Guard timing exercise and delete the final temporary repository and organization. Historical failed-canary authority remains retained.
 
 - [x] Preserve v13 Full and Verify Lite manifest hashes and upgrade each profile without widening authority.
 - [x] Vendor scheduled/manual least-privilege recovery into both profiles, with failed-workflow notification signals and no ability to create PASS.

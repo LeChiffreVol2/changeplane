@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "type": "changeplane.controlled-canary-observation",
-  "recordedAt": "2026-09-08T19:59:08.040195+00:00",
+  "recordedAt": "2026-09-08T20:36:08.397180+00:00",
   "fixtureKind": "SYNTHETIC",
   "qualificationStatus": "INCOMPLETE",
   "customerLaunchAuthorized": false,
@@ -79,22 +79,30 @@
     "originalDisposableRepositoryDeleted": true,
     "originalOrganizationInstallationsRemovedByGitHub": true,
     "replacementSetupCiPassed": true,
-    "replacementGuardInstallation": "pending_approval",
+    "replacementGuardInstallation": "COMPLETED",
     "finalRepositoryAndOrganizationCleanup": "pending"
   },
   "hotfixVerification": {
     "retireOldSuccessBeforeRestart": "REGRESSION_PASSED",
     "clearTerminalFieldsAndRefreshStart": "REGRESSION_PASSED",
     "refusedRestartLeavesActionRequired": "REGRESSION_PASSED",
-    "liveSameShaRerun": "PENDING",
+    "liveSameShaRerun": "PR51_FAILED_CLOSED",
     "signedOutSmoke": "PASSED",
     "browserConsoleErrors": 0,
     "originSyntheticCasesPassed": 12,
     "originAssertionsPassed": 6,
-    "originExternalRequests": 0
+    "originExternalRequests": 0,
+    "liveRefusedRestart": {
+      "runId": 34273318069,
+      "attempt": 2,
+      "checkRunId": 102220221752,
+      "conclusion": "action_required",
+      "httpStatus": 503,
+      "enrollmentHalted": true,
+      "occupiedAuthorityRetained": true
+    }
   },
   "remainingEvidence": [
-    "Live hotfix same-SHA and new-head qualification",
     "Stalled Guard recovery and actual schedule timing",
     "Final disposable repository and organization deletion",
     "Provider authority durability or fenced principal recovery before customer activation"
@@ -111,5 +119,74 @@
     "legalDocuments": "DRAFT",
     "customerMeasurements": "NOT_STARTED"
   },
-  "evidenceScope": "A release-owner snapshot of public synthetic checks and private UI observations. The deleted repository is no longer a live verification endpoint. Local tests and a healthy readiness response do not prove the pending live or provider gates."
+  "evidenceScope": "A release-owner snapshot of public synthetic checks and private UI observations. The deleted repository is no longer a live verification endpoint. Local tests and a healthy readiness response do not prove the pending live or provider gates.",
+  "blockedRerunRelease": {
+    "sourceSha": "db4410979ec8c97ec87d92fb7e43f1a43fe56703",
+    "pullRequest": 53,
+    "ciRunId": 34274301886,
+    "mainCiRunId": 34274671469,
+    "unitIntegrationTests": 481,
+    "managedVersion": 15,
+    "requiredCiPassed": true
+  },
+  "blockedRerunVerification": {
+    "result": "PASSED",
+    "runId": 34275114616,
+    "attempt": 2,
+    "strictMergeStateAfterCompletion": "CLEAN",
+    "observations": [
+      {
+        "observedAt": "2026-09-08T20:30:41.601773+00:00",
+        "id": 102226179816,
+        "head_sha": "a6a305ea882809fec8865a09688e620194ee9767",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-09-08T20:29:54Z",
+        "completed_at": "2026-09-08T20:30:03Z",
+        "title": "PASS \u00b7 enforce"
+      },
+      {
+        "observedAt": "2026-09-08T20:31:00.234854+00:00",
+        "id": 102226179816,
+        "head_sha": "a6a305ea882809fec8865a09688e620194ee9767",
+        "status": "completed",
+        "conclusion": "action_required",
+        "started_at": "2026-09-08T20:30:58Z",
+        "completed_at": "2026-09-08T20:30:58Z",
+        "title": "Evaluation in progress"
+      },
+      {
+        "observedAt": "2026-09-08T20:31:12.298416+00:00",
+        "id": 102226179816,
+        "head_sha": "a6a305ea882809fec8865a09688e620194ee9767",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-09-08T20:30:58Z",
+        "completed_at": "2026-09-08T20:30:58Z",
+        "title": "PASS \u00b7 enforce"
+      }
+    ],
+    "newHead": [
+      {
+        "observedAt": "2026-09-08T20:32:08.230239+00:00",
+        "headSha": "ae3b255f4ffcf70f8f30038509cc68823fd95189",
+        "guards": []
+      },
+      {
+        "observedAt": "2026-09-08T20:32:31.175420+00:00",
+        "headSha": "ae3b255f4ffcf70f8f30038509cc68823fd95189",
+        "guards": [
+          {
+            "id": 102227031816,
+            "status": "in_progress",
+            "conclusion": null,
+            "started_at": "2026-09-08T20:32:28Z",
+            "completed_at": null
+          }
+        ],
+        "cancelledRunId": 34275364904
+      }
+    ],
+    "completionTimestampFollowup": "GitHub retained the blocked begin completion timestamp; explicit completion timestamp added to the follow-up candidate."
+  }
 }
