@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { postgresConnectionOptions } from "./postgres-connection.js";
 
 const EVENT_FIELDS = new Set([
   "organizationId",
@@ -154,11 +155,17 @@ export function createMemoryCommercialStore({ now = () => new Date() } = {}) {
       if (typeof period !== "string" || !/^[0-9]{4}-(?:0[1-9]|1[0-2])$/u.test(period)) {
         throw new TypeError("period must use YYYY-MM.");
       }
+      const firstOccurrences = new Map();
+      for (const event of events) {
+        if (event.organizationId !== organizationId) continue;
+        const key = evaluationKey(event);
+        const first = firstOccurrences.get(key);
+        if (!first || event.occurredAt < first) firstOccurrences.set(key, event.occurredAt);
+      }
       return {
         organizationId,
         period,
-        evaluations: new Set(events.filter((event) => event.organizationId === organizationId
-          && event.occurredAt.startsWith(`${period}-`)).map(evaluationKey)).size,
+        evaluations: [...firstOccurrences.values()].filter((occurredAt) => occurredAt.startsWith(`${period}-`)).length,
       };
     },
 
@@ -188,11 +195,11 @@ async function withTenant(pool, organizationId, operation) {
   }
 }
 
-export function createPostgresCommercialStore({ connectionString, pool: suppliedPool } = {}) {
+export function createPostgresCommercialStore({ connectionString, caCertificate, pool: suppliedPool } = {}) {
   if (!suppliedPool && (typeof connectionString !== "string" || connectionString.length === 0)) {
     throw new TypeError("A PostgreSQL connection string or pool is required.");
   }
-  const pool = suppliedPool ?? new Pool({ connectionString, max: 4 });
+  const pool = suppliedPool ?? new Pool({ ...postgresConnectionOptions({ connectionString, caCertificate }), max: 4 });
   return Object.freeze({
     async recordEvaluationEvent(event) {
       const normalized = normalizeEvent(event);
@@ -278,11 +285,16 @@ export function createPostgresCommercialStore({ connectionString, pool: supplied
       }
       return withTenant(pool, organizationId, async (client) => {
         const result = await client.query(
-          `select count(distinct (github_repository_id, revision_fingerprint, evaluation_generation)) as evaluations
-           from evaluation_events
-           where github_organization_id = $1
-             and occurred_at >= $2::date
-             and occurred_at < ($2::date + interval '1 month')`,
+          `with first_occurrences as (
+             select min(occurred_at) as occurred_at
+             from evaluation_events
+             where github_organization_id = $1
+             group by github_repository_id, revision_fingerprint, evaluation_generation
+           )
+           select count(*) as evaluations
+           from first_occurrences
+           where occurred_at >= ($2::date::timestamp at time zone 'UTC')
+             and occurred_at < (($2::date + interval '1 month') at time zone 'UTC')`,
           [organizationId, `${period}-01`],
         );
         return { organizationId, period, evaluations: Number(result.rows[0]?.evaluations ?? 0) };

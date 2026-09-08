@@ -69,7 +69,7 @@ function strictEnforcementActive(enforcement) {
     && !Array.isArray(enforcement)
     && enforcement.active === true
     && enforcement.strict === true
-    && enforcement.mergeQueueRequired === true
+    && typeof enforcement.mergeQueueRequired === "boolean"
     && enforcement.guardRequired === true
     && enforcement.publisherBound === true
     && enforcement.evidenceRequired === true
@@ -102,6 +102,7 @@ export function buildSdlcAssurance({
   const behavioralControl = activeInstallation && harnessMode !== "observe" && checks > 0;
   const mergeGateActive = behavioralControl && strictEnforcementActive(enforcement);
   const autonomyPrerequisites = mergeGateActive
+    && enforcement.mergeQueueRequired === true
     && managedProfile === "full"
     && harnessMode === "autonomous"
     && autonomousReady === true;
@@ -198,11 +199,11 @@ export function buildSdlcAssurance({
         releaseState,
         "GitHub",
         releaseState === SDLC_STAGE_STATE.CONTROLLED
-          ? "One no-bypass strict default-branch Ruleset requires merge queue, the dedicated-App assurance guard, and every configured behavioral evidence Check from its expected publisher."
-          : "A ChangePlane result is not a merge gate until one GitHub Ruleset binds the App guard and every configured evidence Check under strict merge-queue policy.",
+          ? `One no-bypass strict default-branch Ruleset requires the dedicated-App assurance guard and every configured behavioral evidence Check from its expected publisher.${enforcement.mergeQueueRequired ? " Merge Queue adds fresh queue-revision evaluation." : " Strict Head is active; Merge Queue coverage is not claimed."}`
+          : "A ChangePlane result is not a merge gate until one no-bypass strict GitHub Ruleset binds the App guard and every configured evidence Check to its expected publisher.",
         releaseState === SDLC_STAGE_STATE.CONTROLLED
           ? "Let GitHub evaluate the exact merge or merge-queue revision."
-          : "Create one no-bypass default-branch Ruleset with strict checks, merge queue, ChangePlane / guard, and all configured evidence publishers.",
+          : "Review a Strict Head Ruleset plan with strict checks, no bypasses, ChangePlane / guard, and all configured evidence publishers.",
       ),
       stage(
         "deploy",

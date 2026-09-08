@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 
 import {
+  parseAssurancePassportIntegrity,
   verifyAssurancePassportAgainstCheck,
   verifyAssurancePassportIntegrity,
 } from "../action/index.js";
@@ -23,7 +24,7 @@ const MAX_JWT_PAYLOAD_BYTES = 16_384;
 const MAX_JWKS_KEYS = 20;
 const MAX_GUARD_REQUEST_BYTES = 96 * 1_024;
 const MAX_GUARD_SUMMARY_BYTES = 65_535;
-const MAX_GUARD_RUN_MARKER_BYTES = 160;
+const MAX_GUARD_RUN_MARKER_BYTES = 256;
 const MAX_TOKEN_LIFETIME_SECONDS = 10 * 60;
 const MAX_REPOSITORY_PROPERTY_CLAIMS = 100;
 const CLOCK_SKEW_SECONDS = 60;
@@ -33,7 +34,7 @@ const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u;
 const WORKFLOW_PATH = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml$/u;
 const REF = /^refs\/(?:heads|tags|pull)\/[A-Za-z0-9._/-]{1,240}$/u;
 const REPOSITORY_PROPERTY_CLAIM = /^repo_property_[A-Za-z0-9][A-Za-z0-9_. -]{0,74}$/u;
-const GUARD_RUN_MARKER = /^changeplane\.guard-run\/v1;run_id=([1-9][0-9]{0,15});run_attempt=([1-9][0-9]{0,15});phase=(begin|complete)$/u;
+const GUARD_RUN_MARKER = /^changeplane\.guard-run\/v1;run_id=([1-9][0-9]{0,15});run_attempt=([1-9][0-9]{0,15});phase=(begin|complete)(?:;contract_digest=([a-f0-9]{64}))?(?:;pull_request_number=([1-9][0-9]{0,15}))?$/u;
 const JWT_HEADER_KEYS = new Set(["alg", "kid", "typ", "x5t"]);
 const JWT_REQUIRED_CLAIMS = [
   "aud",
@@ -558,11 +559,16 @@ export function stableGuardCheckExternalId({ repositoryId, targetType, headSha }
 }
 
 /** Encode the authenticated workflow run stored in the App-owned Check output. */
-export function encodeGuardRunMarker({ runId, runAttempt, phase } = {}) {
+export function encodeGuardRunMarker({ runId, runAttempt, phase, boundContractDigest = null, pullRequestNumber = null } = {}) {
   const validatedRunId = positiveInteger(runId, "Guard workflow run ID");
   const validatedRunAttempt = positiveInteger(runAttempt, "Guard workflow run attempt");
   if (phase !== "begin" && phase !== "complete") throw new Error("Guard workflow run phase is invalid.");
-  const marker = `changeplane.guard-run/v1;run_id=${validatedRunId};run_attempt=${validatedRunAttempt};phase=${phase}`;
+  if (boundContractDigest !== null && (typeof boundContractDigest !== "string" || !/^[a-f0-9]{64}$/u.test(boundContractDigest))) {
+    throw new Error("Guard bound contract digest is invalid.");
+  }
+  const marker = `changeplane.guard-run/v1;run_id=${validatedRunId};run_attempt=${validatedRunAttempt};phase=${phase}`
+    + (boundContractDigest === null ? "" : `;contract_digest=${boundContractDigest}`)
+    + (pullRequestNumber === null ? "" : `;pull_request_number=${positiveInteger(pullRequestNumber, "Guard pull request number")}`);
   if (Buffer.byteLength(marker) > MAX_GUARD_RUN_MARKER_BYTES) {
     throw new Error("Guard workflow run marker exceeds its size limit.");
   }
@@ -581,7 +587,50 @@ export function decodeGuardRunMarker(value) {
     runId: positiveInteger(match[1], "Guard workflow run ID"),
     runAttempt: positiveInteger(match[2], "Guard workflow run attempt"),
     phase: match[3],
+    ...(match[4] ? { boundContractDigest: match[4] } : {}),
+    ...(match[5] ? { pullRequestNumber: positiveInteger(match[5], "Guard pull request number") } : {}),
   });
+}
+
+/** Recover a frozen contract only from the configured App's exact-target Check. */
+export function guardBoundContractDigest(check, { repository, repositoryId, target, appId, appSlug } = {}) {
+  if (check == null) return null;
+  if (!Number.isSafeInteger(appId) || appId <= 0 || typeof appSlug !== "string" || !/^[a-z0-9-]{1,100}$/u.test(appSlug)
+    || !Number.isSafeInteger(check.id) || check.id <= 0 || check.name !== GUARD_CHECK_NAME
+    || check.head_sha !== target?.headSha || check.app?.id !== appId || check.app?.slug !== appSlug
+    || check.external_id !== stableGuardCheckExternalId({ repositoryId, targetType: target?.type, headSha: target?.headSha })) {
+    throw new Error("The frozen contract does not belong to the configured App and exact target.");
+  }
+  const marker = decodeGuardRunMarker(check.output?.text);
+  const passport = parseAssurancePassportIntegrity(check.output?.summary ?? "");
+  if (passport) {
+    verifyAssurancePassportAgainstCheck(passport, check, { appId, appSlug });
+    if (marker.phase !== "complete" || passport.target.repository !== repository
+      || passport.target.repositoryId !== repositoryId || passport.target.type !== target.type
+      || (marker.pullRequestNumber != null && marker.pullRequestNumber !== passport.target.pullRequestNumber)
+      || (marker.boundContractDigest && marker.boundContractDigest !== passport.binding.contractDigest)) {
+      throw new Error("The frozen contract passport does not match the exact target.");
+    }
+    // The same commit can later open a different PR. Its old PASS must still be
+    // invalidated, but the previous PR's contract is not this PR's binding.
+    if (passport.target.pullRequestNumber !== target.pullRequestNumber) return null;
+    return passport.binding.contractDigest;
+  }
+  // Begin replaces the old passport; reconciliation also replaces its summary.
+  // Carry the previously authenticated digest through those App-owned states.
+  if ((marker.phase === "begin" && check.status === "in_progress" && check.conclusion == null)
+    || (marker.phase === "complete" && check.status === "completed" && check.conclusion === "action_required")) {
+    if (target.type === "pull_request") {
+      if (marker.boundContractDigest && marker.pullRequestNumber == null) {
+        throw new Error("The frozen contract marker is missing its pull-request identity.");
+      }
+      if (marker.pullRequestNumber != null && marker.pullRequestNumber !== target.pullRequestNumber) return null;
+    } else if (marker.pullRequestNumber != null) {
+      throw new Error("The frozen contract marker belongs to a different target type.");
+    }
+    return marker.boundContractDigest ?? null;
+  }
+  throw new Error("The completed Guard is missing its authenticated contract passport.");
 }
 
 /** Compare GitHub's monotonic run identity. Returns -1, 0, or 1. */

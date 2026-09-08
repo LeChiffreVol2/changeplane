@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T13:47:56Z",
+  "scope": "disposable_free_managed_guard_runtime_qualification",
+  "source": {
+    "commit": "de32bc5eafa3b701e4ccfd7e7fb950aeb13e0a5c",
+    "migrationPath": "database/002_guard_publication_journal.sql",
+    "migrationSha256": "9ae84b26eaa9871e01f00d91ac653877bab97e6a611478ce63ca1825781efed5",
+    "adapterPath": "server/guard-publication-journal.js",
+    "adapterSha256": "decad6684831e22a5a11fdd4a1345e33dffe6f232079660bee4366d37ca3b3e1",
+    "catalogProbeSha256": "74077e28d7615d326cb91fe78282b7a348a1ac2c65b62914da24a572df4825f8",
+    "providerApplication": "Final reviewed migration applied from scratch as one transaction; separate disposable runtime login and synthetic fixtures.",
+    "disposableProbeSha256": "3f9b4e0214c47b44efed01daed8860a6301fbee8b06da8bf4db9c74ab89d9b7b"
+  },
+  "environment": {
+    "provider": "Supabase",
+    "plan": "free",
+    "postgresVersion": "17.6",
+    "region": "us-east-1",
+    "clientRuntime": "Node.js 22.18.0 on the local operator machine",
+    "connectionMode": "shared Supavisor transaction pooler, port 6543",
+    "syntheticDataOnly": true,
+    "dedicatedRuntimeLoginProvisioned": true,
+    "productionConnected": false,
+    "externalGithubRequests": 0,
+    "projectIdentifiersRedacted": true
+  },
+  "cost": {
+    "quotedIncrementalMonthlyUsd": 0,
+    "currentPhaseBudgetUsd": 0,
+    "laterScaleCeilingMonthlyUsd": 100,
+    "planUpgradePerformed": false,
+    "existingProjectMutationsPerformed": false,
+    "organizationSettingsChanged": false,
+    "persistentDatabaseProvisioned": false
+  },
+  "transport": {
+    "runtimeLoginVerified": true,
+    "sslMode": "verify-full",
+    "certificateChainVerified": true,
+    "hostnameVerified": true,
+    "defaultNodeTrustRejected": "SELF_SIGNED_CERT_IN_CHAIN",
+    "caSource": "https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt",
+    "caSourceObservedIn": "The disposable project's Database Settings > SSL configuration download link",
+    "caSha256Fingerprint": "807025AD50D4ED219D2C9C7D299C004F824EB00CF7F65AFEF607D07B72E6CAFA",
+    "caInjection": "NODE_EXTRA_CA_CERTS for the qualification Node process only; no global trust-store or production change",
+    "vercelRegionConnectivityVerified": false,
+    "productionCaPackagingVerified": false
+  },
+  "behavior": {
+    "checksPassed": 5,
+    "checks": [
+      "Actual runtime login verifies the certificate chain and hostname.",
+      "Least-privilege login rejects direct lane deletion, enrollment update, SET ROLE to owner and the disposable credential operator.",
+      "Transaction-scoped context on the shared pooler switches two synthetic tenants and hides rows for missing context.",
+      "The actual journal adapter excludes a concurrent same-revision publication and releases only after validated synthetic completion.",
+      "Committed poison excludes a new authenticated pool; an unenrolled tenant cannot claim."
+    ],
+    "repositoryMutationsPerformed": false,
+    "liveGuardPublished": false
+  },
+  "credentialRotation": {
+    "freshOldCredentialRejected": true,
+    "oldCredentialErrorCode": "28P01",
+    "freshReplacementAuthenticated": true,
+    "sameRuntimeRole": true,
+    "preexistingSessionFencingTested": false,
+    "githubWriterFencingTested": false,
+    "delivery": "Database-generated credential returned only as public-key encrypted ciphertext and decrypted in local process memory.",
+    "runtimeLoginDisabledBeforeDeletion": true,
+    "temporaryCredentialOperatorDropped": true
+  },
+  "catalog": {
+    "checksPassed": 10,
+    "apiRolesInspected": 3,
+    "catalogChecksPassed": true,
+    "catalogProbeRuntimeLoginVerified": false,
+    "catalogProbeProviderDurabilityVerified": false,
+    "note": "The catalog remains explicitly catalog-only. Separate authenticated application observations above establish this bounded runtime result."
+  },
+  "advisors": {
+    "securityFindings": 0,
+    "performanceWarnings": 0,
+    "remaining": [
+      {
+        "name": "unindexed_foreign_keys",
+        "level": "INFO",
+        "findings": 1,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys",
+        "disposition": "Unchanged capacity-review item from the first SQL qualification; no capacity or throughput claim."
+      }
+    ]
+  },
+  "cleanup": {
+    "projectDeleted": true,
+    "projectAbsentFromProviderInventory": true,
+    "existingProjectInventoryMatched": true,
+    "existingProjectCountBefore": 1,
+    "existingProjectCountAfter": 1,
+    "organizationPlanAfter": "free",
+    "temporaryCredentialDirectoryRemoved": true,
+    "transportPrivateKeyRemoved": true,
+    "knownTemporaryFilesRemoved": true
+  },
+  "boundaries": {
+    "providerDurabilityVerified": false,
+    "restoreFailoverTested": false,
+    "productionTenantDeletionTested": false,
+    "organizationCanaryTested": false,
+    "liveSameShaPublicationTested": false,
+    "productionDeploymentPerformed": false,
+    "guardPublicationSerialized": false,
+    "commercialReady": false,
+    "customerAccessEnabled": false,
+    "note": "This closes local-operator runtime authentication, TLS and bounded pooler behavior only. It does not qualify persistent authority, hosting eligibility, old-writer containment, production capacity, legal approval or market outcomes."
+  }
+}

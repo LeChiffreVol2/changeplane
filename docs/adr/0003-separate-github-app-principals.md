@@ -5,3 +5,5 @@ ChangePlane will use separate GitHub App principals for installation, Guard publ
 ## Consequences
 
 Each principal has its own private key, installation identity, minimum permissions, rotation procedure, audit identity, readiness check, and containment path. The Guard principal may write Checks but cannot provision workflows, secrets, or repository contents. The repair principal may apply an accepted bounded patch but cannot publish the Guard or alter installation policy.
+
+The [Guard registration record](../guard-app-registration.md) documents the separate App and its verified permissions. Its installation availability supports both personal and organization customers while release access remains gated independently. Registration alone does not complete credential, installation or Production principal separation.

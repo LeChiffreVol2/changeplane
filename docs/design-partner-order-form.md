@@ -5,15 +5,16 @@
 | Field | Required value |
 | --- | --- |
 | Provider legal entity | [REQUIRED] |
-| Customer legal entity | [REQUIRED] |
+| Customer type | [INDIVIDUAL / BUSINESS] |
+| Customer contracting name | [INDIVIDUAL LEGAL NAME / BUSINESS LEGAL ENTITY; REQUIRED LEGAL REVIEW] |
 | Billing and notice contacts | [REQUIRED] |
 | Effective date and alpha term | [REQUIRED] |
-| Selected GitHub organization and maximum repositories | [REQUIRED] |
+| Selected GitHub personal account or organization and maximum repositories | [REQUIRED] |
 | Plan | Starter design-partner alpha |
 | Fee | USD 99 for the agreed alpha term, paid by [INVOICE/PAYMENT LINK] |
 | Included product | Verify Lite, Strict Head activation, founder-led onboarding, private support channel |
 | Excluded product | Queue Certified customer rollout, Autonomous Repair, managed model spend, Fleet history, contractual SLA, automatic merge, GHES |
-| Usage cap | 3 repositories and 2,500 Evaluation Events during the term; enforcement behavior must be confirmed before signature |
+| Usage cap | 3 repositories and 2,500 admitted Evaluation Generations during the term; one immutable admission per exact workflow attempt, with any grace explicitly agreed before signature |
 | Support hours and channel | [TIME ZONE, BUSINESS HOURS, PRIVATE CHANNEL] |
 | Security/privacy documents | Exact approved versions of Terms, Privacy, AUP, Subprocessors, Retention/Deletion, and Security |
 | Data-processing addendum | [NOT REQUIRED / ATTACHED REVIEWED DPA] |
@@ -25,5 +26,4 @@ The parties will attempt one customer-approved stale-head scenario, wrong-publis
 
 ## Signatures
 
-This order form becomes effective only when signed by authorized representatives and incorporated into legally approved Design Partner Terms. Electronic acceptance in the product is not implemented in this candidate.
-
+This order form becomes effective only when signed by the individual customer or authorized business representative and the provider's authorized representative, and incorporated into legally approved Design Partner Terms. Electronic acceptance in the product is not implemented in this candidate.

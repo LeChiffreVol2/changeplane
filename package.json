@@ -8,12 +8,16 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js server/*.test.js tests/*.test.js",
+    "test:guard-journal": "node scripts/test-guard-journal-postgres.mjs",
+    "test:pilot-admission": "node scripts/test-pilot-admission-postgres.mjs",
+    "test:postgres-tls": "node scripts/test-postgres-tls.mjs",
     "test:e2e": "npm run build && playwright test",
     "verify": "npm test && npm run prove:origin-boundary && npm run build && npm run audit:public && npm run audit:claims",
     "prove:origin-boundary": "node scripts/prove-origin-boundary.mjs",
     "audit:public": "node scripts/audit-public-data.mjs",
     "audit:claims": "node scripts/audit-release-claims.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "report:launch": "node scripts/report-launch.mjs",
     "preview": "vite preview"
   },
   "engines": {

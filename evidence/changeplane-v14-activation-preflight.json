@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "observedDateUtc": "2026-09-07",
+  "purpose": "Read-only activation preflight after candidate CI; not deployment or customer-launch approval.",
+  "candidate": {
+    "sourceSha": "2ec88b664f41fcce4184b1019291a200aa829b1e",
+    "pullRequest": "https://github.com/LeChiffreVol2/changeplane/pull/50",
+    "state": "OPEN",
+    "draft": true,
+    "reviewDecision": "not_recorded",
+    "ci": {
+      "url": "https://github.com/LeChiffreVol2/changeplane/actions/runs/34149640278/job/101828998968",
+      "conclusion": "SUCCESS",
+      "unitIntegrationPassed": 466,
+      "guardJournalPostgresPassed": 10,
+      "pilotAdmissionPostgresPassed": 12,
+      "chromiumJourneysPassed": 13,
+      "productionDependencyVulnerabilities": 0
+    },
+    "preview": {
+      "deploymentId": "dpl_ASXHFUQ4sxFpb1pZBMB3z3rPacfY",
+      "state": "READY",
+      "source": "git",
+      "sourceSha": "2ec88b664f41fcce4184b1019291a200aa829b1e",
+      "applicationReadiness": "not_observed",
+      "fetchObservation": "Vercel Authentication returned HTTP 302 before application readiness. No application denial or connector isolation proof is inferred."
+    }
+  },
+  "production": {
+    "url": "https://changeplane.vercel.app/",
+    "deploymentId": "dpl_CHg1Y1XvwUviPizZdnroqiC5WXRC",
+    "source": "git",
+    "target": "production",
+    "sourceBranch": "main",
+    "sourceSha": "ddccd7ab7721c28542a0e4a36956cbc307832672",
+    "deploymentState": "READY",
+    "readiness": {
+      "status": "ready",
+      "release": "ddccd7ab7721",
+      "rolloutMode": "controlled_canary",
+      "principalSeparation": "shared_installer_guard",
+      "commercialReady": false,
+      "commercialStore": false,
+      "commercialStoreVerified": false,
+      "legalRelease": false,
+      "repairEnabled": false,
+      "repairConfigured": false
+    },
+    "signedOutBrowserSmoke": {
+      "hero": "Keep GitHub. Let agents ship.",
+      "newInstallations": "closed",
+      "workspace": "synthetic contract reconstruction",
+      "reconstructionResult": "Synthetic contract matched",
+      "priorHeadReview": "omitted_after_revision_change",
+      "consoleErrorsObserved": 0,
+      "scope": "Rendered public synthetic journey only; no live customer verification, repair, merge or delivery proof."
+    },
+    "precedingDeployment": {
+      "deploymentId": "dpl_FyJDKgGxegsnMqnj7DTm1SRwY2d4",
+      "sourceSha": "f353dcbcdb38c09a81affac6c68aae37560a1ac0",
+      "state": "READY",
+      "scope": "Retained baseline deployment, not an exercised rollback. Candidate rollback must preserve journal authority; an earlier unjournaled publisher is not a valid candidate recovery path."
+    }
+  },
+  "protectedMain": {
+    "strictRequiredChecks": true,
+    "requiredCheck": "CI / verify",
+    "requiredCheckAppId": 15368,
+    "enforceAdmins": true,
+    "allowForcePushes": false,
+    "allowDeletions": false
+  },
+  "activationDependencies": {
+    "organizationCanary": {
+      "status": "needs_owner_selection_or_access",
+      "visibleGitHubOrganizations": 0,
+      "scope": "Authenticated GitHub CLI inventory; not proof that the user has no organization under other access."
+    },
+    "database": {
+      "status": "needs_provider_account_budget_and_operating_review",
+      "visibleSupabaseProjectsNamedChangePlane": 0,
+      "scope": "Connected Supabase inventory only; no assertion about other providers or differently named resources."
+    },
+    "guardPrincipal": "production_still_shared",
+    "legalEntity": "founder_reported_absent",
+    "legalPack": "draft",
+    "liveJournalDurabilityAndFencing": "not_proven",
+    "commercialRestoreRotationDeletion": "not_proven",
+    "thirtyDayCustomerPaymentEvidence": "not_established"
+  },
+  "changesToExternalRuntime": "none"
+}

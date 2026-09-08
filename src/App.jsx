@@ -713,7 +713,7 @@ function RuntimeFunding({
                 <button className="text-action" type="button" onClick={() => onPrepareRuleset("strict_head")}>Retry exact plan</button>
               </>}
               {rulesetPlanStatus === "ready" && rulesetPlan?.action === "create" && <div className="ruleset-approval">
-                <strong>Deliberate Approval 3 of 3</strong>
+                <strong>{rulesetPlan.canApply === true ? "Deliberate Approval 3 of 3" : "Review GitHub policy"}</strong>
                 <p>{rulesetPlan.summary}</p>
                 <dl>
                   <div><dt>Level</dt><dd>{rulesetPlan.assuranceLevel === "queue_certified" ? "Queue Certified" : "Strict Head"}</dd></div>
@@ -729,9 +729,13 @@ function RuntimeFunding({
                     </li>
                   ))}
                 </ul>
-                <button className="primary-action" type="button" onClick={onApplyRuleset}>
+                {rulesetPlan.canApply === true ? <button className="primary-action" type="button" onClick={onApplyRuleset}>
                   Approve and create Ruleset <ShieldCheck size={15} weight="fill" />
-                </button>
+                </button> : <>
+                  <p className="runtime-error"><Warning size={13} weight="fill" /> {rulesetPlan.nextAction || "Ruleset write permission has not been verified. Nothing was changed; open repository rulesets in GitHub to configure the reviewed policy, then recheck it here."}</p>
+                  {branchSettingsUrl && <a className="text-action" href={branchSettingsUrl} target="_blank" rel="noreferrer">Open repository rulesets <ArrowRight size={13} /></a>}
+                  <button className="text-action" type="button" onClick={() => onPrepareRuleset(rulesetPlan.assuranceLevel)}>Recheck GitHub policy</button>
+                </>}
               </div>}
               {rulesetPlanStatus === "ready" && rulesetPlan?.action === "manual_review" && <>
                 <p className="runtime-error"><Warning size={13} weight="fill" /> {rulesetPlan.summary}</p>
@@ -2696,6 +2700,10 @@ export function App() {
         const payload = await responseJson(await fetch("/api/github?action=session", { credentials: "same-origin" }));
         if (cancelled) return;
         setGithubConfigured(Boolean(payload.configured));
+        if (!payload.configured && typeof payload.accessBlock?.message === "string") {
+          setAuthError([payload.accessBlock.message, payload.accessBlock.nextAction]
+            .filter((value) => typeof value === "string").join(" "));
+        }
         setGithubAuthMode(payload.authMode === "github_app" ? "github_app" : "oauth");
         setGithubRolloutMode(["controlled_canary", "private_alpha"].includes(payload.rolloutMode)
           ? payload.rolloutMode
@@ -3044,7 +3052,7 @@ export function App() {
   }
 
   async function applyRulesetPlan() {
-    if (!selectedRepository || session?.isPreview || rulesetPlanStatus !== "ready" || rulesetPlan?.action !== "create") return;
+    if (!selectedRepository || session?.isPreview || rulesetPlanStatus !== "ready" || rulesetPlan?.action !== "create" || rulesetPlan.canApply !== true) return;
     const repository = selectedRepository;
     const approvedPlan = rulesetPlan;
     setRulesetPlanStatus("applying");

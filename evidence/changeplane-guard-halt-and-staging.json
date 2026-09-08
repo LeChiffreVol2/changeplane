@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T17:38:07.950Z",
+  "scope": "isolated_free_guard_halt_and_credential_staging",
+  "source": {
+    "commit": "c59c08b92ac1dafa501e57ac910c0ee231d97256",
+    "files": {
+      "server/guard-publication-journal.js": "5a51c6336e5c1b19dc2c42746a1e26f9de03e76baac6e55c839e910168caed60",
+      "server/pilot-admission.js": "986f042266c3df3a95182404ac630b3ca9dd94ce6a5f6858b528d06e22ab038b",
+      "server/postgres-connection.js": "9554fcfbcb76ecba77007c4115213898135a9e72e0bff990fb927126e7e248ae",
+      "scripts/assert-postgres-disconnect.mjs": "6fd3df17987f75ccabdcfad2bc8dfe8e16358dc959493f2b6dd6794148588eed"
+    },
+    "operatorProbeSha256": "7ba7ec894e18720a3f41afb1870effce84d9837ac5c72fef54b4e555b409dedb"
+  },
+  "environment": {
+    "provider": "Supabase",
+    "plan": "free",
+    "region": "us-east-1",
+    "connectionMode": "shared transaction pooler",
+    "syntheticDataOnly": true
+  },
+  "haltDrill": {
+    "recordedAt": "2026-09-08T17:32:13.739Z",
+    "sourceCommit": "c59c08b92ac1dafa501e57ac910c0ee231d97256",
+    "checks": [
+      {
+        "name": "held_reservation_cannot_start_write_after_enrollment_halt",
+        "passed": true
+      },
+      {
+        "name": "already_authenticated_pooled_client_cannot_admit_new_work_after_halt",
+        "passed": true
+      },
+      {
+        "name": "database_connection_remains_usable_while_publication_authority_is_halted",
+        "passed": true
+      }
+    ],
+    "authenticatedClientConnections": 1,
+    "externalGithubRequests": 0,
+    "externalCallbacks": 0,
+    "syntheticDataOnly": true,
+    "existingGitHubWriterFencingProven": false,
+    "productionChanged": false,
+    "syntheticEnrollmentEnabledAfterDrill": false,
+    "retainedReservedLanes": 1,
+    "retainedPoisonedLanes": 1
+  },
+  "staging": {
+    "recordedAt": "2026-09-08T17:33:05.230Z",
+    "productionDeploymentChanged": false,
+    "variables": [
+      {
+        "name": "CHANGEPLANE_GUARD_JOURNAL_DATABASE_URL",
+        "productionOnly": true,
+        "sensitive": true,
+        "stored": true
+      },
+      {
+        "name": "CHANGEPLANE_GUARD_JOURNAL_CA_CERT",
+        "productionOnly": true,
+        "sensitive": false,
+        "stored": true
+      }
+    ],
+    "metadataVerified": true,
+    "secretValueReadBack": false,
+    "existingVariableOverwrites": 0,
+    "guardAppBindingChanged": false,
+    "journalEnabled": false
+  },
+  "cleanup": {
+    "temporaryDatabaseTransferSchemaRemoved": true,
+    "localCredentialTransportDirectoryRemoved": true,
+    "temporaryReproductionScriptRemoved": true,
+    "authorityLanesPreserved": true
+  },
+  "authorization": {
+    "ownerApprovedRetentionOnFree": true,
+    "ownerApprovedProductionCredentialStaging": true,
+    "scopeIncludesDeployment": false
+  },
+  "cost": {
+    "quotedIncrementalMonthlyUsd": 0,
+    "planUpgraded": false,
+    "existingProjectMutations": false
+  },
+  "boundary": "The halt drill prevents new admission and pre-write transition on one already authenticated pooled client. It does not fence an already issued GitHub request, prove provider restore/failover durability, qualify Vercel connectivity or authorize customer activation."
+}

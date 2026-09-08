@@ -4,7 +4,11 @@
 
 The independent assurance plane for code written and repaired by AI agents.
 
-Deployed technical baseline: **1.0.0** · managed repository payload: **v13**. The current source is a later protected-release candidate. New customer onboarding remains closed until that exact release passes its owner canary, and then opens only to an explicit Design Partner Alpha repository allowlist.
+Deployed technical baseline: **1.0.0** · managed repository payload: **v13**. The current source prepares managed **v14** with installed reconciliation, profile-preserving upgrades, and a candidate PostgreSQL journal that holds durable ownership across Guard writes. Customer onboarding remains closed: `guardPublicationSerialized` stays false pending live durability and serialized-canary evidence, followed by exact-release legal approval, separate Guard identity and a Design Partner Alpha repository allowlist. See [automated SDLC architecture and release blockers](docs/automated-sdlc-architecture.md).
+
+The candidate requires the [authority journal](docs/guard-publication-journal.md) for every hosted Guard write, including the owner canary. Missing or invalid configuration stops publication; disabling it never restores the unjournaled path. Do not promote this source before dedicated database enrollment and a separate new Guard App are ready. A valid configuration reports no database-health, zero-loss recovery, or customer-readiness proof. A disposable Supabase project passed [bounded SQL qualification](evidence/changeplane-supabase-guard-qualification.json) and was deleted; no persistent journal service is deployed, and the legal entity and agreements remain unresolved drafts.
+
+For finite, operator-enrolled Verify Lite pilots, the candidate also [records accepted evaluations atomically](database/README.md#commercial-plane) before the verification workload. Retry and telemetry retention cannot charge another quota unit for the same authenticated attempt. A denied or unavailable allowance closes the Guard as `action_required`; admitted work can still complete or recover. This is a quota boundary, not automated invoicing, complete commercial telemetry, or activation of the public pricing plans.
 
 The managed-v13 release places publisher-bound assurance between an agent-authored pull request and GitHub policy. The GitHub-owned Actions job reports operational liveness as `ChangePlane guard`; it is not merge authority. A separately credentialed GitHub App owns the assurance result `ChangePlane / guard`. A model may propose a bounded patch, the deterministic harness decides, and the controller applies only an accepted patch. Only the same authenticated workflow run and attempt may complete the App-owned guard from the latest workflow-bound evidence on the exact head.
 
@@ -51,6 +55,8 @@ The proposal job receives no GitHub token, App private key, controller secret, p
 
 ## Agentic SDLC assurance
 
+The immediate commercial outcome is founder-led Verify Lite plus Strict Head, measured with the [30-day launch scorecard](docs/launch-measurement.md). Run `npm run report:launch` for the empty evidence baseline; it reports `not_started` rather than inferring customer traction from engineering tests.
+
 ChangePlane now projects its existing exact-revision controls across the software-delivery lifecycle without becoming another planning board, IDE, CI service, deployment platform, or operations console. The repository runtime-readiness response describes which lifecycle checkpoints are controlled, supported, external, or still need setup. The signed-out RouteThai workspace teaches the same boundary through an interactive seven-step synthetic spine: **Intent → Change → Review → Verify → Delivery → Merge → Operate**. A live per-pull-request SDLC API or managed receipt field is not part of this candidate.
 
 The projection is deliberately read-only. It does not create a second evaluator, aggregate trust across commits, or contribute another signal to `PASS`. Intent is declared repository context; agent identity and model review are advisory; the deterministic harness alone evaluates behavioral evidence; exact-SHA deployment metadata is informational; GitHub owns merge; and production operation remains in the customer's existing systems. Every new commit restarts the revision-level assurance spine.
@@ -58,6 +64,8 @@ The projection is deliberately read-only. It does not create a second evaluator,
 This gives Codex, Cursor, Claude Code, Copilot, Trae, OpenSWE, and other coding agents a shared GitHub-native handoff contract without requiring them to join a proprietary agent runtime. See [Agentic SDLC assurance](docs/agentic-sdlc.md) for the stage model, authority matrix, API projection, and explicit non-goals.
 
 ## Install on GitHub
+
+ChangePlane supports individual developers with personal accounts and businesses with GitHub organizations, including Enterprise Cloud organizations. Neither group needs to create a different account type to use ChangePlane. Repository protection still depends on the customer's GitHub plan and verified Rulesets; see the [support matrix](docs/operating-budget.md#individual-and-business-support). Release-owner organization canaries are internal verification, not an organization-only customer restriction.
 
 For an accepted Design Partner Alpha repository, hosted onboarding needs no CLI, ChangePlane account provisioning, or customer Vercel configuration:
 
@@ -70,7 +78,7 @@ For an accepted Design Partner Alpha repository, hosted onboarding needs no CLI,
 7. After one normal pull request records the live publishers, review Deliberate Approval 3 of 3. ChangePlane binds the repository ID, exact default-branch SHA, current Ruleset inventory, Guard publisher, evidence publishers, zero bypasses, and requested assurance level into one digest. A repository administrator may apply that exact plan once; drift forces a fresh review. Strict Head is the default. Queue Certified is an explicit upgrade.
 8. Only after Queue Certified is active may an approved controlled-beta owner request the 21-file Full expansion through another protected pull request and complete the repository BYOK flow. ChangePlane verifies the selected allowlisted model, encrypts the key with GitHub's repository public key, stores only `OPENAI_API_KEY` as an Actions Secret, and clears the browser field after every attempt.
 
-Autonomous mode requires the repository-scoped Installer App with Administration write used only for explicit Ruleset plan apply, a repository admin, Queue Certified assurance, an exact behavioral Check and expected publisher, verified repository BYOK, and the reviewed Full-profile setup. GitHub Actions evidence in Verify or Autonomous must also declare its exact trusted `.github/workflows/*.yml` or `.yaml` path. Verify Lite receives no OpenAI key or repair credential. Merge Queue execution does not replace these activation prerequisites. Every missing gate fails closed. Scope-only Observe never dispatches repair and does not block merge or deploy.
+Autonomous mode requires the repository-scoped Installer App, a repository admin, Queue Certified assurance, an exact behavioral Check and expected publisher, verified repository BYOK, and the reviewed Full-profile setup. GitHub Actions evidence in Verify or Autonomous must also declare its exact trusted `.github/workflows/*.yml` or `.yaml` path. Verify Lite receives no OpenAI key or repair credential. Merge Queue execution does not replace these activation prerequisites. Verify onboarding requires Administration read; Administration write is optional and checked live only when an administrator applies an approved Ruleset plan. Without it, the reviewed policy can be configured in GitHub and rechecked here. Every missing gate fails closed. Scope-only Observe never dispatches repair and does not block merge or deploy.
 
 ### Recovering a v11 or v12 enforce policy
 

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T16:57:23.460535Z",
+  "scope": "disposable_organization_canary_preparation",
+  "organization": {
+    "login": "ChangePlane-Labs",
+    "id": 326590049,
+    "plan": "free",
+    "ownerRoleVerified": "admin",
+    "deleteAfterTesting": true
+  },
+  "repository": {
+    "fullName": "ChangePlane-Labs/strict-head-canary",
+    "id": 1361655827,
+    "public": true,
+    "syntheticDataOnly": true,
+    "deleteAfterTesting": true
+  },
+  "fixture": {
+    "pullRequest": 1,
+    "headSha": "e4d76bcaf88407ef90162829a541f0374fc21017",
+    "mergeSha": "4f8655e198c00a372231e15765923ec448940123",
+    "ciRunId": 34253265612,
+    "ciConclusion": "success",
+    "testsPassed": 2,
+    "checkName": "CI / test",
+    "checkPublisherId": 15368,
+    "checkPublisherSlug": "github-actions"
+  },
+  "bootstrapRuleset": {
+    "id": 22562467,
+    "active": true,
+    "bypassActors": 0,
+    "strictRequiredStatusChecks": true,
+    "forcePushBlocked": true,
+    "branchDeletionBlocked": true,
+    "guardRequired": false
+  },
+  "managedSetupPreparation": {
+    "sourceCommit": "3a2a5205a6ce1a99a5baaa7f8d00d8af12ce4762",
+    "profile": "verify-lite",
+    "files": {
+      "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+      "changeplane/action/index.js": "40306f7218fee182cdc9b14ea49780718af692220933f0e211fcda8ba5e8b937",
+      "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+      "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+      "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+      "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      "changeplane/manifest.json": "10223cad1180e18992765ecd1f09e889b9dacee2774cc86dac491b373aad99a8",
+      ".changeplane.json": "0564ff3881b61c3b2db519ea4fd9f03ddca34ee966a4cced5cda335593593094",
+      ".github/workflows/changeplane.yml": "a631d3ea6f375513db25c6635c7bab429c2623c1d2fbee0a2c55528645e0d2bc"
+    },
+    "installed": false
+  },
+  "guardApp": {
+    "id": 4872053,
+    "slug": "changeplane-guard-publisher",
+    "selectedRepositoryCount": 1,
+    "installationCompleted": false,
+    "boundary": "GitHub owner reauthentication is pending before installation can complete."
+  },
+  "claims": {
+    "strictHeadQualified": false,
+    "productionChanged": false,
+    "customerActivation": false,
+    "cleanupCompleted": false,
+    "quotedMonthlyUsd": 0
+  }
+}

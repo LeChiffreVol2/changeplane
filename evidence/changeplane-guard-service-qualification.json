@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T16:37:42.794Z",
+  "scope": "isolated_free_guard_service_pre_activation_qualification",
+  "source": {
+    "commit": "3a2a5205a6ce1a99a5baaa7f8d00d8af12ce4762",
+    "files": {
+      "database/002_guard_publication_journal.sql": "9ae84b26eaa9871e01f00d91ac653877bab97e6a611478ce63ca1825781efed5",
+      "server/guard-publication-journal.js": "c29cb63a53929ee54b963e235786ec053666204389c10db371a9a0bd25ec7c65",
+      "server/postgres-connection.js": "9554fcfbcb76ecba77007c4115213898135a9e72e0bff990fb927126e7e248ae",
+      "database/probes/guard_journal_catalog.sql": "74077e28d7615d326cb91fe78282b7a348a1ac2c65b62914da24a572df4825f8"
+    }
+  },
+  "environment": {
+    "provider": "Supabase",
+    "plan": "free",
+    "region": "us-east-1",
+    "postgresVersion": "17.6",
+    "clientRuntime": "local Node.js 22.18.0",
+    "connectionMode": "shared transaction pooler",
+    "syntheticDataOnly": true
+  },
+  "cost": {
+    "quotedIncrementalMonthlyUsd": 0,
+    "scaleCeilingMonthlyUsd": 100,
+    "planUpgradePerformed": false,
+    "existingProjectMutationsPerformed": false
+  },
+  "checks": [
+    {
+      "name": "dedicated_runtime_login_verified_certificate_and_hostname",
+      "passed": true
+    },
+    {
+      "name": "least_privilege_no_owner_table_or_enrollment_authority",
+      "passed": true
+    },
+    {
+      "name": "transaction_tenant_isolation_and_pool_reuse",
+      "passed": true
+    },
+    {
+      "name": "untrusted_provider_certificate_rejected",
+      "passed": true
+    },
+    {
+      "name": "wrong_tenant_installation_publisher_and_release_rejected",
+      "passed": true
+    },
+    {
+      "name": "concurrent_same_revision_exclusion_and_verified_release",
+      "passed": true
+    },
+    {
+      "name": "finite_lane_capacity_rejects_without_eviction",
+      "passed": true
+    },
+    {
+      "name": "poison_survives_new_pool_without_takeover",
+      "passed": true
+    }
+  ],
+  "catalog": {
+    "checksPassed": 10,
+    "securityAdvisorFindings": 0
+  },
+  "tls": {
+    "serverEnforcementEnabled": true,
+    "certificateAndHostnameVerified": true,
+    "caScope": "explicit per-pool configuration",
+    "caFingerprintSha256": "807025AD50D4ED219D2C9C7D299C004F824EB00CF7F65AFEF607D07B72E6CAFA"
+  },
+  "publication": {
+    "externalGithubRequests": 0,
+    "realRepositoryEnrollmentEnabled": false,
+    "syntheticEnrollmentDisabledAfterProbe": true,
+    "syntheticPoisonRetained": true,
+    "vercelVariablesWritten": false,
+    "productionDeploymentChanged": false
+  },
+  "unverified": [
+    "Vercel-region connectivity",
+    "provider restore/failover authority durability",
+    "existing-session and GitHub-writer fencing",
+    "live organization Strict Head and notification delivery",
+    "commercial readiness and customer outcomes"
+  ],
+  "approvalBoundary": "Project was created following the owner continuation approval; explicit retention and Vercel secret-staging clarification is pending after automatic review rejected the combined probe/staging command. The probe was rerun with all Vercel writes removed."
+}

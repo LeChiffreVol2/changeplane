@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T12:47:43Z",
+  "status": "canary_installed_credential_delivery_unconfirmed",
+  "app": {
+    "id": 4872053,
+    "slug": "changeplane-guard-publisher",
+    "owner": { "login": "LeChiffreVol2", "type": "User" },
+    "permissions": { "actions": "read", "checks": "write", "contents": "read", "metadata": "read", "pull_requests": "read" },
+    "events": [],
+    "metadataSource": "GitHub public App API"
+  },
+  "installation": {
+    "id": 160044778,
+    "account": { "login": "LeChiffreVol2", "id": 124206144, "type": "User" },
+    "repositorySelection": "selected",
+    "selectedRepositoryCount": 1,
+    "repositories": [ { "id": 1352819427, "fullName": "LeChiffreVol2/changeplane-v13-public-canary-20260901" } ],
+    "permissionsMatchRegisteredApp": true,
+    "verificationSource": "GitHub saved installation UI after successful installation",
+    "installationTokenTested": false
+  },
+  "credential": {
+    "privateKeyGenerated": true,
+    "keyRecordId": 4392242,
+    "createdAt": "2026-09-08T12:43:17Z",
+    "publicFingerprint": "SHA256:dsCrTjz4TKoKQc4aOFeMYmK0ymQzfQ6D6INfrgwdDZk=",
+    "downloadDelivery": "unconfirmed",
+    "matchingPemFoundInTargetedLocalSearch": false,
+    "ownerReportedNoVisibleDownload": true,
+    "keyMaterialReadOrEmittedByAgent": false,
+    "localCleanupVerified": false,
+    "clientSecretGenerated": false,
+    "appJwtTested": false,
+    "keyRevoked": false
+  },
+  "secretDestination": {
+    "provider": "Vercel",
+    "projectName": "changeplane",
+    "key": "CHANGEPLANE_GUARD_APP_PRIVATE_KEY",
+    "target": [ "production" ],
+    "intendedType": "secret",
+    "saved": false,
+    "emptyFormDiscarded": true,
+    "variableAbsentInProjectInventory": true
+  },
+  "production": {
+    "readinessSource": "https://changeplane.vercel.app/api/github?action=readiness",
+    "release": "ddccd7ab7721",
+    "status": "ready",
+    "rolloutMode": "controlled_canary",
+    "principalSeparation": "shared_installer_guard",
+    "commercialReady": false,
+    "repairEnabled": false,
+    "redeployed": false,
+    "existingAppOrSecretsChanged": false
+  },
+  "scope": {
+    "rulesetsChanged": false,
+    "repositoryContentsChanged": false,
+    "supabaseActions": false,
+    "paidUpgrade": false,
+    "customerActivation": false
+  },
+  "remaining": [
+    "Recover a verifiable PEM or have the owner explicitly create a replacement through a working download path.",
+    "Store and verify the new Guard key as the approved Vercel Production Secret; verify App identity without emitting credentials.",
+    "Delete only the known downloaded PEM after storage and explicitly authorize revocation of the inaccessible key if replaced.",
+    "Qualify durable journal, dedicated runtime credentials, live exact-release enrollment, previous-writer fencing and rollback before Production promotion.",
+    "Run separately approved organization-owned Strict Head canary and operational notification qualification."
+  ]
+}

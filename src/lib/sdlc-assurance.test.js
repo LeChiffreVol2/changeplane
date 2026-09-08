@@ -90,6 +90,26 @@ test("malformed enforcement fails closed and Full autonomy stays inactive", () =
   assert.equal(view.repairLoop.mode, "activation_required");
 });
 
+test("Strict Head activates the merge gate without granting queue or repair readiness", () => {
+  const inputs = {
+    installed: true,
+    managedProfile: "verify-lite",
+    harnessMode: "verify",
+    requiredCheckCount: 1,
+    enforcement: { ...activeEnforcement, mergeQueueRequired: false },
+  };
+  const strict = buildSdlcAssurance(inputs);
+  assert.equal(strict.posture, SDLC_POSTURE.MERGE_GATE_ACTIVE);
+  assert.equal(stage(strict, "release").state, SDLC_STAGE_STATE.CONTROLLED);
+  assert.match(stage(strict, "release").proof, /Strict Head is active/u);
+  const autonomous = buildSdlcAssurance({ ...inputs, managedProfile: "full", harnessMode: "autonomous", autonomousReady: true });
+  assert.equal(autonomous.posture, SDLC_POSTURE.AUTONOMY_ACTIVATION_REQUIRED);
+  assert.equal(autonomous.repairLoop.mode, "activation_required");
+  for (const mergeQueueRequired of [null, undefined, "false", 0]) {
+    assert.equal(buildSdlcAssurance({ ...inputs, enforcement: { ...inputs.enforcement, mergeQueueRequired } }).posture, SDLC_POSTURE.VERIFICATION_READY);
+  }
+});
+
 test("bounded autonomy activates only when every existing prerequisite is already true", () => {
   const view = buildSdlcAssurance({
     installed: true,
