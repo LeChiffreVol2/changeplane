@@ -47,8 +47,17 @@ function median(values) {
 
 /** Offline operator-attested experiment evidence. No network, billing or Guard authority. */
 export function buildLaunchScorecard(input, { now = new Date() } = {}) {
-  record(input, ["schemaVersion", "startedAt", "coverage", "installations", "evaluations", "payments", "costs"]);
-  if (input.schemaVersion !== 1) throw new TypeError("Unsupported launch evidence schema.");
+  const accountAware = input?.schemaVersion === 2;
+  record(input, ["schemaVersion", "startedAt", "coverage", "installations", "evaluations", "payments", "costs", ...(accountAware ? ["accounts"] : [])]);
+  if (![1, 2].includes(input.schemaVersion)) throw new TypeError("Unsupported launch evidence schema.");
+  const ownerField = accountAware ? "accountId" : "organizationId";
+  const accounts = accountAware ? collection(input.accounts) : [];
+  const accountTypes = new Map();
+  for (const account of accounts) {
+    record(account, ["id", "type", "evidenceId"]);
+    if (!["User", "Organization"].includes(account.type)) throw new TypeError("Customer account type must match GitHub ownership.");
+    accountTypes.set(account.id, account.type);
+  }
   const nowMs = instant(now.toISOString());
   record(input.coverage, ["through", "evaluationsComplete", "costsComplete", "evidenceId"]);
   const coverage = input.coverage;
@@ -68,8 +77,12 @@ export function buildLaunchScorecard(input, { now = new Date() } = {}) {
   const installations = collection(input.installations);
   const allRepositories = new Map();
   for (const entry of installations) {
-    record(entry, ["id", "organizationId", "installedAt", "firstProtectedPrAt", "evidenceId"]);
-    identifier(entry.organizationId);
+    record(entry, ["id", ownerField, "installedAt", "firstProtectedPrAt", "evidenceId"]);
+    identifier(entry[ownerField]);
+    if (accountAware && !accountTypes.has(entry.accountId)) throw new TypeError("Installation must belong to a recorded customer account.");
+    // Schema 1 is explicitly organization-only historical evidence. It cannot
+    // represent personal accounts or infer their type from a person's login.
+    if (!accountAware) accountTypes.set(entry.organizationId, "Organization");
     const installed = instant(entry.installedAt);
     const activated = entry.firstProtectedPrAt === null ? null : instant(entry.firstProtectedPrAt);
     if (installed > nowMs || (activated !== null && (activated < installed || activated > nowMs))) {
@@ -113,15 +126,16 @@ export function buildLaunchScorecard(input, { now = new Date() } = {}) {
     Math.min(entry.terminalAt === null ? cutoff : instant(entry.terminalAt), cutoff) - instant(entry.startedAt)
   ))) : null;
   const payments = collection(input.payments);
-  const knownOrganizations = new Set(installations.map((entry) => entry.organizationId));
+  const installedAccounts = new Set(installations.map((entry) => entry[ownerField]));
   for (const entry of payments) {
-    record(entry, ["id", "organizationId", "occurredAt", "netRevenueUsdCents", "evidenceId"]);
-    if (!knownOrganizations.has(entry.organizationId)) throw new TypeError("Payment must belong to a recorded customer organization.");
+    record(entry, ["id", ownerField, "occurredAt", "netRevenueUsdCents", "evidenceId"]);
+    if (!installedAccounts.has(entry[ownerField])) throw new TypeError("Payment must belong to an installed customer account.");
     if (instant(entry.occurredAt) > nowMs) throw new TypeError("Payment cannot be in the future.");
     amount(entry.netRevenueUsdCents);
   }
   const paid = payments.filter((entry) => inWindow(instant(entry.occurredAt)));
-  const payingOrganizations = new Set(paid.filter((entry) => entry.netRevenueUsdCents > 0).map((entry) => entry.organizationId)).size;
+  const payingAccounts = new Set(paid.filter((entry) => entry.netRevenueUsdCents > 0).map((entry) => entry[ownerField]));
+  const payingOrganizations = [...payingAccounts].filter((id) => accountTypes.get(id) === "Organization").length;
   const revenue = paid.reduce((sum, entry) => sum + entry.netRevenueUsdCents, 0);
   amount(revenue);
   const costs = collection(input.costs);
@@ -132,7 +146,7 @@ export function buildLaunchScorecard(input, { now = new Date() } = {}) {
   }
   const cost = costs.filter((entry) => inWindow(instant(entry.occurredAt))).reduce((sum, entry) => sum + entry.variableCostUsdCents, 0);
   amount(cost);
-  if (start === null && (installations.length || evaluations.length || payments.length || costs.length
+  if (start === null && (accounts.length || installations.length || evaluations.length || payments.length || costs.length
     || coverage.evaluationsComplete || coverage.costsComplete)) {
     throw new TypeError("Recorded customer evidence requires an explicit launch window.");
   }
@@ -152,14 +166,28 @@ export function buildLaunchScorecard(input, { now = new Date() } = {}) {
     gate("valuable_decisions", terminal.filter((entry) => entry.customerConfirmedValuable).length, ">= 3", terminal.filter((entry) => entry.customerConfirmedValuable).length >= 3),
     gate("gross_margin", margin, ">= 0.8", margin >= 0.8, fullCoverage && coverage.costsComplete),
   ];
+  // Only aggregate account cohorts leave the private ledger. Reliability and
+  // margin above include both types; a personal-account incident cannot vanish.
+  const cohorts = accountAware ? Object.fromEntries(["User", "Organization"].map((type) => {
+    const belongs = (entry) => accountTypes.get(entry[ownerField]) === type;
+    const installed = cohort.filter(belongs), active = activated.filter(belongs);
+    return [type, {
+      installations: installed.length,
+      activations: active.length,
+      medianActivationMs: median(active.map((entry) => instant(entry.firstProtectedPrAt) - instant(entry.installedAt))),
+      payingAccounts: [...payingAccounts].filter((id) => accountTypes.get(id) === type).length,
+      netRevenueUsdCents: paid.filter(belongs).reduce((sum, entry) => sum + entry.netRevenueUsdCents, 0),
+    }];
+  })) : null;
   return {
-    schemaVersion: 1,
+    schemaVersion: input.schemaVersion,
     type: "changeplane.launch-scorecard",
     evidenceClass: "operator_attested",
     state: start === null ? "not_started" : !windowComplete ? "collecting" : metrics.every((metric) => metric.state === "met") ? "met" : metrics.some((metric) => metric.state === "not_met") ? "not_met" : "evidence_required",
     window: { startedAt: input.startedAt, endsAt: end === null ? null : new Date(end).toISOString(), complete: windowComplete },
     coverage: { evaluations: evaluationCoverage, costs: fullCoverage && coverage.costsComplete },
     metrics,
+    ...(accountAware ? { cohorts } : {}),
     authority: { authorizesLaunch: false, contributesToPass: false, acceptsPayment: false },
   };
 }

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "startedAt": null,
   "coverage": {
     "through": null,
@@ -7,6 +7,7 @@
     "costsComplete": false,
     "evidenceId": null
   },
+  "accounts": [],
   "installations": [],
   "evaluations": [],
   "payments": [],
