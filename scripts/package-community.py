@@ -34,7 +34,7 @@ paths = [
 files = {name: source(name) for name in paths}
 files['package.json'] = (json.dumps({'name': 'changeplane-community', 'version': version,
     'type': 'module', 'private': True, 'license': 'Apache-2.0', 'engines': {'node': '>=22.18'}}, indent=2) + '\n').encode()
-files['README.md'] = f'''# ChangePlane Community {version}
+files['README.md'] = f'''# ChangePlane Open Source {version}
 
 Keep GitHub. Let agents ship.
 

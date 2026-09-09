@@ -1,4 +1,4 @@
-# Community roadmap
+# Open Source roadmap
 
 The first public release is a free Apache-2.0 assessment tool, not an activation of the controlled hosted service. We prioritize installation success and useful decisions over feature count. Dates and targets below are experiments, not promises.
 
@@ -19,4 +19,4 @@ The first public release is a free Apache-2.0 assessment tool, not an activation
 
 Potential paid value includes managed installation/updates, reliable publisher operations and multi-repository administration. Pricing, service commitments and enterprise features require customer evidence and operating capacity. The open-source evaluator remains useful for individual and business users without a paid account.
 
-Current infrastructure budget: USD 0. The separate USD 100 ceiling is a later scale decision. No managed model calls, new database projects, billing integrations or hosting upgrades are needed to publish Community. See [the operating budget](operating-budget.md).
+Current infrastructure budget: USD 0. The separate USD 100 ceiling is a later scale decision. No managed model calls, new database projects, billing integrations or hosting upgrades are needed to publish Open Source. See [the operating budget](operating-budget.md).

@@ -1,6 +1,6 @@
 # Design Partner Terms — approval draft
 
-This draft concerns the ChangePlane-operated hosted service. Use of the open-source software is governed by [Apache-2.0](LICENSE); Community CLI/Action do not call that service.
+This draft concerns the ChangePlane-operated hosted service. Use of the open-source software is governed by [Apache-2.0](LICENSE); the CLI and read-only GitHub Action do not call that service.
 
 **Status:** Not yet effective. ChangePlane must not set `CHANGEPLANE_LEGAL_RELEASE_APPROVED=true` until the operator has filled every bracketed field below, obtained qualified legal review, approved these terms for one exact protected Production release, and made the approved version available to each design partner before installation.
 

@@ -67,7 +67,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
-  await expect(page.getByText("Community is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.")).toBeVisible();
+  await expect(page.getByText("ChangePlane Open Source is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await exampleButton.focus();

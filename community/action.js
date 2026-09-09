@@ -13,10 +13,10 @@ try {
   const report = await inspectPullRequest({ repository: process.env.GITHUB_REPOSITORY, number, token: process.env.INPUT_TOKEN });
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `decision=${report.decision}\nassessment=${JSON.stringify(report)}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    `# ChangePlane Community\n\n**${report.decision}** · revision \`${report.headSha}\`\n\n${report.findings.length} finding(s). Read the assessment output for exact-revision handback.\n\nRead-only assessment; no App-owned Guard, repair, or merge authorization.\n`);
-  console.log(`ChangePlane Community: ${report.decision}; ${report.findings.length} finding(s).`);
+    `# ChangePlane Open Source\n\n**${report.decision}** · revision \`${report.headSha}\`\n\n${report.findings.length} finding(s). Read the assessment output for exact-revision handback.\n\nRead-only assessment; no App-owned Guard, repair, or merge authorization.\n`);
+  console.log(`ChangePlane Open Source: ${report.decision}; ${report.findings.length} finding(s).`);
   if (report.decision !== 'EVIDENCE_SATISFIED') process.exitCode = 1;
 } catch {
-  console.error('ChangePlane Community: assessment unavailable. Check the default-branch policy, supported event and read permissions. No Guard was published.');
+  console.error('ChangePlane Open Source: assessment unavailable. Check the default-branch policy, supported event and read permissions. No Guard was published.');
   process.exitCode = 2;
 }

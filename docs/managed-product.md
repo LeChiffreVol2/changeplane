@@ -1,6 +1,6 @@
 # Managed product reference
 
-This is the implementation reference for the controlled hosted service. Start with [Community quickstart](community.md) for the public open-source release.
+This is the implementation reference for the controlled hosted service. Start with [Open Source quickstart](community.md) for the public open-source release.
 
 # ChangePlane
 
@@ -107,7 +107,7 @@ Customers use the hosted product at [changeplane.vercel.app](https://changeplane
 
 If a connected repository already publishes previews through Vercel's GitHub integration, ChangePlane may include the existing preview in its receipt only when the corresponding GitHub Deployment SHA exactly matches the evaluated pull-request head. ChangePlane does not host the preview and does not require access to the customer's Vercel account.
 
-Every hosted API route that can reach GitHub or OpenAI requires an attributed Vercel Production deployment from this repository's protected `main` branch. Fork deployments, CLI uploads, previews, and deployments without verified Git provenance fail closed before external access. The source is Apache-2.0 licensed. Operating a modified hosted controller is not a supported Community installation; it must establish its own authority and recovery model.
+Every hosted API route that can reach GitHub or OpenAI requires an attributed Vercel Production deployment from this repository's protected `main` branch. Fork deployments, CLI uploads, previews, and deployments without verified Git provenance fail closed before external access. The source is Apache-2.0 licensed. Operating a modified hosted controller is not a supported installation; it must establish its own authority and recovery model.
 
 See [Hosted service boundary](hosted-service.md) for the operator and customer trust model.
 

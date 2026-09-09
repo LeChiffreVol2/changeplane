@@ -4,7 +4,7 @@ Start with a reproducible problem and a small pull request. English is the share
 
 ## Setup
 
-Community needs Node 22.18+ and no dependencies. Full product development uses Node `>=22.18 <23`:
+The CLI and read-only Action need Node 22.18+ and no dependencies. Full product development uses Node `>=22.18 <23`:
 
 ```sh
 npm ci
@@ -43,4 +43,4 @@ Be respectful, discuss ideas and code rather than people, and welcome newcomers.
 
 ## Reporting
 
-Use the issue templates for ordinary defects and proposals. Include a synthetic reproduction, Community version, Node version, OS, redacted error code and expected behavior. Do not upload real private assessment JSON, source, tokens or screenshots containing repository secrets. Report vulnerabilities using [SECURITY.md](SECURITY.md).
+Use the issue templates for ordinary defects and proposals. Include a synthetic reproduction, release version, Node version, OS, redacted error code and expected behavior. Do not upload real private assessment JSON, source, tokens or screenshots containing repository secrets. Report vulnerabilities using [SECURITY.md](SECURITY.md).

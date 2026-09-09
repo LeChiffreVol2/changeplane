@@ -1,10 +1,10 @@
-# Community quickstart
+# Open Source quickstart
 
-ChangePlane Community Alpha runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
+ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
 ## Run locally
 
-Install Node.js 22.18+ (22 and 24 are tested). Clone the repository or unpack the Community release archive. No npm dependencies are required:
+Install Node.js 22.18+ (22 and 24 are tested). Clone the repository or unpack the Open Source release archive. No npm dependencies are required:
 
 ```sh
 node community/cli.js evaluate examples/community/satisfied.json
@@ -33,7 +33,7 @@ The live report records the trusted default-branch SHA as `baseSha`, the exact P
 
 ## Run in GitHub Actions
 
-Download `changeplane-community.yml` from the [Community release](https://github.com/LeChiffreVol2/changeplane/releases). It pins the reviewed Community Action to a full commit SHA. The [source template](../examples/changeplane-community.yml) also pins reviewed implementation bytes. Open a configuration PR adding it under `.github/workflows/`, together with the reviewed policy above. Replace the watched workflow name `CI` if your behavioral workflow uses another display name.
+Download `changeplane-community.yml` from the [Open Source release](https://github.com/LeChiffreVol2/changeplane/releases). It pins the reviewed Action to a full commit SHA. The [source template](../examples/changeplane-community.yml) also pins reviewed implementation bytes. Open a configuration PR adding it under `.github/workflows/`, together with the reviewed policy above. Replace the watched workflow name `CI` if your behavioral workflow uses another display name.
 
 The template runs after the selected workflow completes and supports manual dispatch with a PR number. It uses a fresh GitHub-hosted runner, **no checkout**, no artifacts from the source workflow, no caches and read-only permissions. A workflow event without one associated PR needs manual dispatch; a fork PR remains unsupported. Do not expand this job with untrusted scripts or treat its workflow check as a required security publisher.
 
@@ -70,12 +70,12 @@ CLI exit codes are 0 for satisfied evidence, 1 for findings and 2 for invalid/un
 | Duplicate matching evidence/jobs | Assessment blocked or unavailable | Give the behavioral job one unambiguous identity |
 | Head, base or workflow changed during collection | No assessment | Rerun against the current revision |
 | API limit, permission or provider failure | No assessment | Restore access or wait for GitHub's rate-limit reset |
-| More than 100 runs/checks/jobs for a queried revision | No assessment | Narrow the workflow/evidence footprint; alpha does not silently truncate |
+| More than 100 runs/checks/jobs for a queried revision | No assessment | Narrow the workflow/evidence footprint; the reader does not silently truncate |
 
 Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. No provider retry loop consumes an unbounded budget. The CLI has no built-in scheduler or persistent state.
 
-GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Community. Fork PRs, GHES, Merge Queue assessments, hosted Guard publication, repair and supported full-controller self-hosting are outside this alpha.
+GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Fork PRs, GHES, Merge Queue assessments, hosted Guard publication, repair and supported full-controller self-hosting are outside the supported release.
 
 ## Uninstall and data
 
-Remove the Community workflow and its policy through your normal configuration review. Revoke any token created only for the CLI. Delete local reports if desired. There is no ChangePlane account, database enrollment, server-side Community history or telemetry to remove. GitHub retains workflow metadata and logs according to your repository settings. The interactive website has a separate [hosted privacy draft](../PRIVACY.md).
+Remove the assessment workflow and its policy through your normal configuration review. Revoke any token created only for the CLI. Delete local reports if desired. There is no ChangePlane account, database enrollment, server-side assessment history or telemetry to remove. GitHub retains workflow metadata and logs according to your repository settings. The interactive website has a separate [hosted privacy draft](../PRIVACY.md).

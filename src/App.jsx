@@ -376,7 +376,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{exampleOnly ? "Community Alpha · Apache-2.0" : "GitHub-native setup"}</p>
+            <p className="auth-eyebrow">{exampleOnly ? "Open Source · Apache-2.0" : "GitHub-native setup"}</p>
             <h2 id="sign-in-title">{exampleOnly ? "Evidence you can inspect. Code you can run." : "Give agent PRs independent lifecycle assurance."}</h2>
             <p>{exampleOnly
               ? "Start with the free CLI or GitHub Action. No model key or ChangePlane account. For individual developers and teams."
@@ -442,7 +442,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                 ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
-              <p className="auth-deployment-note">Community is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.</p>
+              <p className="auth-deployment-note">ChangePlane Open Source is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.</p>
             ) : privateAlpha ? (
               <p className="auth-deployment-note">Design Partner Alpha · only pre-approved repositories can complete setup.</p>
             ) : exampleOnly ? (
