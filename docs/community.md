@@ -33,7 +33,7 @@ The live report records the trusted default-branch SHA as `baseSha`, the exact P
 
 ## Run in GitHub Actions
 
-Download `changeplane-community.yml` from the [Community release](https://github.com/LeChiffreVol2/changeplane/releases). It pins the reviewed Community Action to a full commit SHA. Open a configuration PR adding it under `.github/workflows/`, together with the reviewed policy above. Replace the watched workflow name `CI` if your behavioral workflow uses another display name.
+Download `changeplane-community.yml` from the [Community release](https://github.com/LeChiffreVol2/changeplane/releases). It pins the reviewed Community Action to a full commit SHA. The [source template](../examples/changeplane-community.yml) also pins reviewed implementation bytes. Open a configuration PR adding it under `.github/workflows/`, together with the reviewed policy above. Replace the watched workflow name `CI` if your behavioral workflow uses another display name.
 
 The template runs after the selected workflow completes and supports manual dispatch with a PR number. It uses a fresh GitHub-hosted runner, **no checkout**, no artifacts from the source workflow, no caches and read-only permissions. A workflow event without one associated PR needs manual dispatch; a fork PR remains unsupported. Do not expand this job with untrusted scripts or treat its workflow check as a required security publisher.
 
