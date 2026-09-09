@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { canonical } from './core.js';
 import { evaluateChange, normalizeRepoPath } from '../src/lib/changeplane.js';
-import { diagnoseEvidence, recoveryAction } from '../src/lib/recovery.js';
+import { diagnoseEvidence, normalizeGitLabState, recoveryAction } from '../src/lib/recovery.js';
 import { effectiveProtectedPaths } from '../examples/changeplane-evidence-policy.js';
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -111,6 +111,10 @@ export function assessObservation(input) {
   if (collection.generation !== collection.currentGeneration) add('STALE_EVALUATION');
   // Mirror observations are not yet authenticated by a qualified live Origin adapter.
   if (input.mirror != null || forge === 'origin') add('ORIGIN_UNQUALIFIED');
+  for (const item of evidence) if (item.native) {
+    const normalized = normalizeGitLabState(item.native);
+    if (normalized.status !== item.status || normalized.conclusion !== item.conclusion) add('EVIDENCE_STATE_CONFLICT', item.name);
+  }
   for (const requirement of policy.evidence.required) {
     const named = evidence.filter(item => item.name === requirement.name && canonical(item.producer) === canonical(requirement.producer));
     const subjectCandidates = named.filter(item => item.subject.kind === requirement.subject || item.subject.kind === 'unknown');
@@ -130,7 +134,7 @@ export function assessObservation(input) {
   const observation = { schemaVersion: 2, identity, revisions, policy, files, plannedPaths, collection, evidence, mirror };
   const binding = { identity, revisions, mirror, policyDigest: digest(policy), observationDigest: digest(observation) };
   const authority = { advisory: true, authenticated: false, guardPublished: false, repairAuthorized: false, mergeAuthorized: false };
-  const decision = scope.decision === 'BLOCKED' || findings.some(item => ['STALE_HEAD', 'STALE_TARGET', 'STALE_EVALUATION', 'POLICY_CHANGED', 'AMBIGUOUS_EVIDENCE', 'EVIDENCE_CHANGED'].includes(item.code))
+  const decision = scope.decision === 'BLOCKED' || findings.some(item => ['STALE_HEAD', 'STALE_TARGET', 'STALE_EVALUATION', 'POLICY_CHANGED', 'AMBIGUOUS_EVIDENCE', 'EVIDENCE_CHANGED', 'EVIDENCE_STATE_CONFLICT'].includes(item.code))
     ? 'BLOCKED' : findings.length ? 'REVIEW_REQUIRED' : 'OBSERVED_SUCCESS';
   return { schemaVersion: 2, kind: 'changeplane.assessment', decision, binding, authority, evidence, findings,
     nextAction: recoveryAction(findings),

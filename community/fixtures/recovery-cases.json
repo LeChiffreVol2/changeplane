@@ -581,6 +581,23 @@
         "nextAction": "INSPECT_FAILURE_EVIDENCE"
       },
       "oracle": "Caller-supplied classifications and verified flags grant no authority and are discarded."
+    },
+    {
+      "id": "contradictory-native-state",
+      "patches": {
+        "evidence.0.native": {
+          "status": "failed",
+          "failureReason": "runner_system_failure",
+          "allowFailure": false
+        }
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "EVIDENCE_STATE_CONFLICT",
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
+      },
+      "oracle": "Native failed evidence cannot be consistent with a normalized success."
     }
   ]
 }

@@ -3525,13 +3525,13 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.payloadProfiles, {
         verifyLite: {
           managedProfile: "verify-lite",
-          files: 9,
+          files: 10,
           repairAuthority: false,
           providerKeyRequired: false,
         },
         autonomous: {
           managedProfile: "full",
-          files: 21,
+          files: 22,
           repairAuthority: true,
           providerKeyRequired: true,
         },

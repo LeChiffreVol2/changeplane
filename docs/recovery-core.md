@@ -4,7 +4,7 @@ Source version 0.2.0 adds structured failure diagnosis, portable observations an
 
 ## Behavior
 
-Pending, cancelled, timed-out, skipped, infrastructure, configuration and unclassified failed evidence cannot request a source-repair attempt. A generic `failure`, even with assertion-like prose, needs diagnosis first. Explicitly classified behavioral evidence retains the bounded proposal path in the trusted pure harness. Live GitHub collectors do not yet supply that classification, so ordinary failed Checks no longer trigger automatic code repair. This is an intentional safety restriction.
+Pending, cancelled, timed-out, skipped, infrastructure, configuration and unclassified failed evidence cannot request a source-repair attempt. Conflicting native and normalized outcomes block the assessment. A generic `failure`, even with assertion-like prose, needs diagnosis first. Explicitly classified behavioral evidence retains the bounded proposal path in the trusted pure harness. Live GitHub collectors do not yet supply that classification, so ordinary failed Checks no longer trigger automatic code repair. This is an intentional safety restriction.
 
 The GitHub reader accepts available fork identities without executing contributor code or reading contributor policy. It binds the target default-branch policy and immutable source/target repository IDs. The GitLab.com reader collects MR metadata, trusted target policy, diff paths, the latest associated pipeline and current job IDs. Neither reader executes code, downloads logs/artifacts, publishes statuses, reruns CI, applies patches or merges.
 
@@ -48,7 +48,7 @@ Exit 0 means advisory v1 satisfaction or v2 observed consistency; 1 means findin
 
 ## Validation and next gates
 
-The [versioned corpus](../community/fixtures/recovery-cases.json) contains 36 synthetic cases labeled against explicit architecture invariants, including positive cases so a blanket failure implementation cannot pass. Expected results are not generated from evaluator outputs. External incident owners have not validated these labels. Additional tests cover collectors, transport and controller regressions.
+The [versioned corpus](../community/fixtures/recovery-cases.json) contains 37 synthetic cases labeled against explicit architecture invariants, including positive cases so a blanket failure implementation cannot pass. Expected results are not generated from evaluator outputs. External incident owners have not validated these labels. Additional tests cover collectors, transport and controller regressions.
 
 Passing tests does not measure human time saved, real-incident diagnosis accuracy, model effectiveness or competitive superiority. Real personal/organization installations, fork event wiring and GitLab credentials/endpoints need separate qualification. Paid GitLab capabilities, self-managed instances and native Origin need their own evidence.
 

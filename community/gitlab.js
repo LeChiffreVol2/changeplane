@@ -1,6 +1,7 @@
 import { canonical } from './core.js';
 import { assessObservation, validateObservationPolicy } from './observation.js';
 import { boundedReader } from './transport.js';
+import { normalizeGitLabState } from '../src/lib/recovery.js';
 
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value);
 const id = value => Number.isSafeInteger(value) && value > 0;
@@ -18,16 +19,6 @@ async function list(read, path, limit) {
     if (batch.length < 100) return result;
   }
   throw new Error('GITLAB_OBSERVATION_INCOMPLETE');
-}
-function state(job) {
-  if (['created', 'pending', 'preparing', 'running', 'scheduled', 'waiting_for_resource', 'canceling'].includes(job.status)) return { status: 'in_progress', conclusion: null };
-  const conclusions = { success: 'success', canceled: 'cancelled', skipped: 'skipped', manual: 'action_required', failed: 'failure' };
-  assert(Object.hasOwn(conclusions, job.status));
-  const reason = job.failure_reason;
-  const conclusion = job.status === 'failed' && ['runner_system_failure', 'api_failure', 'scheduler_failure', 'runner_unsupported'].includes(reason)
-    ? 'startup_failure' : job.status === 'failed' && ['job_execution_timeout', 'stuck_or_timeout_failure'].includes(reason)
-      ? 'timed_out' : conclusions[job.status];
-  return { status: 'completed', conclusion };
 }
 function target(mr, project, number) {
   assert(id(mr?.id) && mr.iid === number && mr.state === 'opened' && mr.target_project_id === project.id
@@ -84,7 +75,8 @@ export async function inspectMergeRequest({ project: requestedProject, number, t
       name: job.name, producer: { kind: 'gitlab-ci', id: String(pipeline.project_id) },
       execution: { id: `${pipeline.project_id}/${pipeline.id}/${job.id}`, attempt: String(job.id) },
       // The API associates this job with a SHA; a script can still override its checkout.
-      subject: { kind: 'unknown', id: pipeline.sha, head: pipeline.sha }, ...state(job),
+      subject: { kind: 'unknown', id: pipeline.sha, head: pipeline.sha },
+      ...normalizeGitLabState({ status: job.status, failureReason: job.failure_reason }),
       native: { status: job.status, failureReason: job.failure_reason ?? null, allowFailure: job.allow_failure ?? null },
     }));
     return { evidence, execution: { projectId: pipeline.project_id, pipelineId: pipeline.id, sha: pipeline.sha,

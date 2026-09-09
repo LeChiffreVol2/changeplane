@@ -28,7 +28,7 @@ export function diagnoseEvidence({ status, conclusion, failureKind } = {}) {
 
 export function recoveryAction(findings = []) {
   const codes = new Set(findings.map(finding => finding.code));
-  if ([...codes].some(code => /STALE|CHANGED|AMBIGUOUS/u.test(code))) return 'REOBSERVE_REVISION';
+  if ([...codes].some(code => /STALE|CHANGED|AMBIGUOUS|STATE_CONFLICT/u.test(code))) return 'REOBSERVE_REVISION';
   if ([...codes].some(code => /PROTECTED|BLOCKED_PATH|CONTROL_PATH/u.test(code))) return 'REQUEST_HUMAN_REVIEW';
   if (codes.has('EVIDENCE_ACTION_REQUIRED')) return 'CHECK_PERMISSIONS_AND_CONFIGURATION';
   if (codes.has('EVIDENCE_INFRASTRUCTURE_FAILURE')) return 'INSPECT_RUNNER';
@@ -40,4 +40,14 @@ export function recoveryAction(findings = []) {
   if (codes.has('SUBJECT_UNVERIFIED')) return 'CAPTURE_TESTED_SUBJECT';
   if (codes.size) return 'REVIEW_FINDINGS';
   return 'REASSESS_ON_CHANGE';
+}
+
+export function normalizeGitLabState({ status, failureReason } = {}) {
+  if (['created', 'pending', 'preparing', 'running', 'scheduled', 'waiting_for_resource', 'canceling'].includes(status)) return { status: 'in_progress', conclusion: null };
+  const conclusions = { success: 'success', canceled: 'cancelled', skipped: 'skipped', manual: 'action_required', failed: 'failure' };
+  if (!Object.hasOwn(conclusions, status)) throw new Error('GITLAB_STATE_INVALID');
+  const conclusion = status === 'failed' && ['runner_system_failure', 'api_failure', 'scheduler_failure', 'runner_unsupported'].includes(failureReason)
+    ? 'startup_failure' : status === 'failed' && ['job_execution_timeout', 'stuck_or_timeout_failure'].includes(failureReason)
+      ? 'timed_out' : conclusions[status];
+  return { status: 'completed', conclusion };
 }
