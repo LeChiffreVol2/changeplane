@@ -73,9 +73,11 @@ jobs:
         run: |
           # Playwright downloads its own Chromium. An inconsistent, unused Chrome
           # apt feed on the disposable runner must not block Ubuntu library setup.
-          if [[ -f /etc/apt/sources.list.d/google-chrome.list ]]; then
-            sudo mv /etc/apt/sources.list.d/google-chrome.list "$RUNNER_TEMP/google-chrome.list"
-          fi
+          for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            if [[ -f "$source" ]] && grep -Eq 'https?://dl[.]google[.]com/linux/chrome(-stable)?/deb' "$source"; then
+              sudo mv "$source" "$RUNNER_TEMP/$(basename "$source")"
+            fi
+          done
           npx playwright install --with-deps chromium
       - name: Test onboarding in a real browser
         run: npx playwright test
