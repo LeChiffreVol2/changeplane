@@ -350,9 +350,9 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <div className="auth-message">
-            <p className="auth-kicker"><span /> Agentic SDLC assurance</p>
+            <p className="auth-kicker"><span /> Open-source PR evidence assessment</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Agents can author the change. ChangePlane keeps intent, review, evidence, and delivery tied to the exact commit before GitHub decides what ships.</p>
+            <p>Keep your coding agent and your tests. ChangePlane checks whether the evidence matches the exact change, then gives your agent a clear next step.</p>
           </div>
 
           <div className="auth-signal" aria-label="Exact-revision assurance contract">
@@ -376,20 +376,24 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{exampleOnly ? "Public example" : "GitHub-native setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "See the SDLC assurance spine." : "Give agent PRs independent lifecycle assurance."}</h2>
+            <p className="auth-eyebrow">{exampleOnly ? "Community Alpha · Apache-2.0" : "GitHub-native setup"}</p>
+            <h2 id="sign-in-title">{exampleOnly ? "Evidence you can inspect. Code you can run." : "Give agent PRs independent lifecycle assurance."}</h2>
             <p>{exampleOnly
-              ? "Inspect a reconstruction of one synthetic change from bound intent through exact-head evidence and back to GitHub. Nothing connects to a repository."
+              ? "Start with the free CLI or GitHub Action. No model key or ChangePlane account. For individual developers and teams."
               : "Connect a repository, bind one real test, and merge one setup pull request. ChangePlane handles the normal path from then on."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
             {exampleOnly ? (
-              <button className={`github-sign-in ${isSigningIn ? "is-loading" : ""}`} type="button" onClick={onExplore} disabled={isSigningIn}>
-                {isSigningIn ? <ArrowsClockwise className="spin" size={20} weight="bold" aria-hidden="true" /> : <Play size={19} weight="fill" aria-hidden="true" />}
-                <span>{isSigningIn ? "Opening workspace…" : "Open RouteThai example workspace"}</span>
-                {!isSigningIn && <ArrowRight size={18} aria-hidden="true" />}
-              </button>
+              <>
+                <a className="github-sign-in community-start" href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">
+                  <GithubLogo size={21} weight="fill" aria-hidden="true" />
+                  <span>Get started with open source</span><ArrowRight size={18} aria-hidden="true" />
+                </a>
+                <button className="github-existing" type="button" onClick={onExplore} disabled={isSigningIn}>
+                  {isSigningIn ? "Opening workspace…" : "Open RouteThai example workspace"}
+                </button>
+              </>
             ) : (
               <>
                 <button
@@ -438,7 +442,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                 ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
-              <p className="auth-deployment-note">New GitHub installations stay closed while the release-owner canary is verified.</p>
+              <p className="auth-deployment-note">Community is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.</p>
             ) : privateAlpha ? (
               <p className="auth-deployment-note">Design Partner Alpha · only pre-approved repositories can complete setup.</p>
             ) : exampleOnly ? (
@@ -455,6 +459,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <footer className="auth-footer">
             <span>Exact commit · trusted checks · clear receipt</span>
             <span className="auth-footer-links">
+              <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/ACCEPTABLE_USE.md" target="_blank" rel="noreferrer">AUP draft</a>

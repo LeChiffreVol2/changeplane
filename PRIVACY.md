@@ -1,5 +1,7 @@
 # Privacy Notice — approval draft
 
+This draft concerns the ChangePlane-operated hosted service. Use of the open-source software is governed by [Apache-2.0](LICENSE); Community CLI/Action do not call that service.
+
 **Status:** Not yet effective. This notice requires legal review, the provider identity and contact details below, and approval bound to one exact protected Production release before public self-service may open.
 
 **Controller/provider:** [LEGAL ENTITY AND ADDRESS]  

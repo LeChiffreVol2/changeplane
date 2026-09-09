@@ -2,12 +2,12 @@
   "name": "changeplane",
   "version": "1.0.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js server/*.test.js tests/*.test.js",
+    "test": "node --test --test-concurrency=1 src/lib/*.test.js action/*.test.js server/*.test.js tests/*.test.js community/*.test.js",
     "test:guard-journal": "node scripts/test-guard-journal-postgres.mjs",
     "test:pilot-admission": "node scripts/test-pilot-admission-postgres.mjs",
     "test:postgres-tls": "node scripts/test-postgres-tls.mjs",
@@ -18,7 +18,8 @@
     "audit:claims": "node scripts/audit-release-claims.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "report:launch": "node scripts/report-launch.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "community": "node community/cli.js"
   },
   "engines": {
     "node": ">=22.18 <23"

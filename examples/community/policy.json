@@ -1,0 +1,19 @@
+{
+  "protectedPaths": {
+    "requireApproval": [
+      "infra/**"
+    ],
+    "block": [
+      "secrets/**"
+    ]
+  },
+  "evidence": {
+    "requiredChecks": [
+      {
+        "name": "Behavior",
+        "appSlug": "github-actions",
+        "workflowPath": ".github/workflows/ci.yml"
+      }
+    ]
+  }
+}

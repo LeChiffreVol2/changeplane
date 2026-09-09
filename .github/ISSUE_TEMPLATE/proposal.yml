@@ -1,0 +1,15 @@
+name: Proposal or adoption feedback
+description: Describe a real workflow need or share a redacted installation result.
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What outcome are you trying to achieve?
+      description: Explain your workflow and the limitation. Use synthetic examples only.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What have you tried?
+      description: Setup time, repeated use, useful or disputed findings, and workarounds are welcome. No private repository data.

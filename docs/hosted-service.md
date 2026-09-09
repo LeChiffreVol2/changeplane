@@ -63,6 +63,6 @@ Production configuration is documented in [`.env.example`](../.env.example). Sec
 
 ## Self-hosting boundary
 
-The repository is publicly visible for transparency and evaluation, but it is proprietary and `UNLICENSED`. Self-hosting, commercial operation, copying, modification, and redistribution are not granted. A fork also lacks the production source identity required for GitHub writes, even if it supplies environment variables with similar names.
+ChangePlane source is licensed under Apache-2.0, including commercial use, modification and redistribution under that license. Community CLI and Action operate independently using read-only GitHub access. Licensing does not grant access to the ChangePlane-operated service, credentials or trademarks. A fork of the hosted controller lacks the production source identity required for hosted GitHub writes; the license permits modification, but self-operated Guard publication is not a qualified Community capability. See [Community support boundaries](community.md).
 
 Authorized ChangePlane operators release through a protected pull request, required CI, Vercel Git deployment, exact-source readiness verification, signed-out smoke test, and documented rollback path. See the [production runbook](production-runbook.md) and [release checklist](release-checklist.md).

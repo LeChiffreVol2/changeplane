@@ -59,14 +59,15 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "See the SDLC assurance spine." })).toBeVisible();
-  await expect(page.getByText("ChangePlane keeps intent, review, evidence, and delivery tied to the exact commit", { exact: false })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Evidence you can inspect. Code you can run." })).toBeVisible();
+  await expect(page.getByText("ChangePlane checks whether the evidence matches the exact change", { exact: false })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Get started with open source" })).toHaveAttribute("href", "https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute");
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   await expect(page.getByText("RouteThai use case · synthetic contract reconstruction")).toHaveCount(1);
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
-  await expect(page.getByText("New GitHub installations stay closed while the release-owner canary is verified.")).toBeVisible();
+  await expect(page.getByText("Community is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await exampleButton.focus();

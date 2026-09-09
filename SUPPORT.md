@@ -1,6 +1,6 @@
 # Support
 
-ChangePlane currently supports the hosted GitHub.com product described in the [README](README.md). GitHub Enterprise Server, GitLab, Bitbucket, fork pull requests, cross-repository repair, managed model billing, and automatic merge are outside the supported release.
+The public supported installation is [Community Alpha](docs/community.md): a dependency-free CLI and read-only GitHub Action for personal and organization accounts. Community support is best effort. GitHub Enterprise Server, GitLab, Bitbucket, fork pull requests, cross-repository repair, managed model billing, and automatic merge are outside this release. Hosted customer installations remain closed.
 
 For product questions or non-sensitive defects, open a GitHub issue with the browser version, affected product step, request ID, and a description that contains no private repository content or credentials.
 

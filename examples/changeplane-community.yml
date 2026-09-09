@@ -1,0 +1,37 @@
+name: ChangePlane Community
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pull-request:
+        description: Open same-repository pull request number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+concurrency:
+  group: community-${{ github.event.workflow_run.head_branch || inputs.pull-request }}
+  cancel-in-progress: true
+
+jobs:
+  assess:
+    name: Community assessment (advisory)
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.pull_requests[0] != null
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # No checkout, model key, artifacts, write permission or ChangePlane account.
+      # Release packaging replaces this marker with the reviewed full source SHA.
+      - uses: LeChiffreVol2/changeplane/community@COMMUNITY_RELEASE_SHA
+        id: assessment
+        with:
+          token: ${{ github.token }}
+          pull-request: ${{ inputs.pull-request }}
