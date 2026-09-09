@@ -71,6 +71,9 @@ for (const [reason, expected] of [['runner_system_failure', 'EVIDENCE_INFRASTRUC
     const f = fixture(); f.job.status = 'failed'; f.job.failure_reason = reason; f.job.allow_failure = true;
     const report = await inspect(f.read);
     assert.ok(report.findings.some(item => item.code === expected));
+    assert.equal(report.handback.evidence[0].native.failureReason, reason);
+    assert.equal(report.handback.evidence[0].native.status, 'failed');
+    assert.equal(report.handback.evidence[0].native.allowFailure, true);
     assert.equal(report.handback.campaign.sourceAttemptsAuthorized, 0);
   });
 }

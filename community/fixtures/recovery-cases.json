@@ -9,7 +9,8 @@
       "expected": {
         "decision": "OBSERVED_SUCCESS",
         "finding": null,
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REASSESS_ON_CHANGE"
       },
       "oracle": "All declared facts match; this is consistency only, not authentication."
     },
@@ -21,7 +22,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_DIAGNOSIS_REQUIRED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "INSPECT_FAILURE_EVIDENCE"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -33,7 +35,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_CANCELLED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "INSPECT_CANCELLATION"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -45,7 +48,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_TIMED_OUT",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "INSPECT_TIMEOUT"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -57,7 +61,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_INFRASTRUCTURE_FAILURE",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "INSPECT_RUNNER"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -69,7 +74,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_SKIPPED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "CHECK_REQUIRED_JOB_CONFIGURATION"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -81,7 +87,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_SKIPPED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "CHECK_REQUIRED_JOB_CONFIGURATION"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -93,7 +100,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_ACTION_REQUIRED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "CHECK_PERMISSIONS_AND_CONFIGURATION"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -105,7 +113,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_STALE",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
     },
@@ -118,7 +127,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_PENDING",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "WAIT_FOR_EVIDENCE"
       },
       "oracle": "A pending attempt is not completed evidence."
     },
@@ -130,7 +140,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_MISSING",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "A same-named result from another producer cannot meet this requirement."
     },
@@ -179,7 +190,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "AMBIGUOUS_EVIDENCE",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "Do not choose between competing current execution identities by display name."
     },
@@ -191,7 +203,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "STALE_HEAD",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "A new change revision invalidates the assessment."
     },
@@ -203,7 +216,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "POLICY_CHANGED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "A policy revision change needs fresh assessment even on the same source SHA."
     },
@@ -216,7 +230,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "STALE_EVALUATION",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "A newer generation invalidates old completion authority."
     },
@@ -228,7 +243,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "COLLECTION_INCOMPLETE",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "Partial collection cannot establish complete requirements."
     },
@@ -240,7 +256,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "EVIDENCE_CHANGED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "Two different observations are not one stable evaluation."
     },
@@ -252,7 +269,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "CONTROL_PATHS_UNRESOLVED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REQUEST_HUMAN_REVIEW"
       },
       "oracle": "Protecting a root CI file alone does not establish the executable control closure."
     },
@@ -264,7 +282,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "SUBJECT_UNVERIFIED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "CAPTURE_TESTED_SUBJECT"
       },
       "oracle": "A run SHA association does not prove the executed checkout."
     },
@@ -276,7 +295,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "SUBJECT_MISMATCH",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "A different executed source revision cannot satisfy this change."
     },
@@ -294,7 +314,8 @@
       "expected": {
         "decision": "OBSERVED_SUCCESS",
         "finding": null,
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REASSESS_ON_CHANGE"
       },
       "oracle": "A declared integration subject retains exact source and target relationships."
     },
@@ -313,7 +334,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "STALE_TARGET",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REOBSERVE_REVISION"
       },
       "oracle": "Integration evidence depends on its target revision."
     },
@@ -325,7 +347,8 @@
       "expected": {
         "decision": "OBSERVED_SUCCESS",
         "finding": null,
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REASSESS_ON_CHANGE"
       },
       "oracle": "A source-only claim does not silently become an integration claim; unchanged pinned policy remains explicit."
     },
@@ -337,7 +360,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "SUBJECT_MISMATCH",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "Source-only evidence cannot satisfy an integration requirement."
     },
@@ -359,7 +383,8 @@
       "expected": {
         "decision": "OBSERVED_SUCCESS",
         "finding": null,
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REASSESS_ON_CHANGE"
       },
       "oracle": "A merge batch has its own tested revision and explicit member relationships."
     },
@@ -380,7 +405,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "SUBJECT_MISMATCH",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "An unrelated batch cannot satisfy this change."
     },
@@ -398,7 +424,8 @@
       "expected": {
         "decision": "OBSERVED_SUCCESS",
         "finding": null,
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REASSESS_ON_CHANGE"
       },
       "oracle": "A digest and declared input relationship are assessed as claims, not authenticated provenance."
     },
@@ -416,7 +443,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "SUBJECT_MISMATCH",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "An artifact label cannot identify immutable bytes."
     },
@@ -432,7 +460,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "PROTECTED_PATH_REQUIRES_APPROVAL",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REQUEST_HUMAN_REVIEW"
       },
       "oracle": "Executable CI control changes require human review."
     },
@@ -451,7 +480,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "PROTECTED_PATH_REQUIRES_APPROVAL",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REQUEST_HUMAN_REVIEW"
       },
       "oracle": "Declared transitive CI controls remain protected."
     },
@@ -468,7 +498,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "PROTECTED_PATH_REQUIRES_APPROVAL",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REQUEST_HUMAN_REVIEW"
       },
       "oracle": "Renaming a test cannot evade protected-path review."
     },
@@ -482,7 +513,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "OUTSIDE_PLANNED_SCOPE",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "Observed changes do not expand independently supplied scope."
     },
@@ -498,7 +530,8 @@
       "expected": {
         "decision": "BLOCKED",
         "finding": "BLOCKED_PATH",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REQUEST_HUMAN_REVIEW"
       },
       "oracle": "A blocked path cannot be overridden by successful evidence."
     },
@@ -514,7 +547,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "ORIGIN_UNQUALIFIED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "A detached Origin copy cannot inherit GitHub authority."
     },
@@ -527,7 +561,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "ORIGIN_UNQUALIFIED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "REVIEW_FINDINGS"
       },
       "oracle": "Contract support does not establish a live Origin adapter."
     },
@@ -542,7 +577,8 @@
       "expected": {
         "decision": "REVIEW_REQUIRED",
         "finding": "EVIDENCE_DIAGNOSIS_REQUIRED",
-        "repairAuthorized": false
+        "repairAuthorized": false,
+        "nextAction": "INSPECT_FAILURE_EVIDENCE"
       },
       "oracle": "Caller-supplied classifications and verified flags grant no authority and are discarded."
     }

@@ -109,7 +109,7 @@ const REQUIRED_SCOPES = ["repo", "workflow"];
 const POLICY_PATH = ".changeplane.json";
 const ASSURANCE_MEMORY_PATH = ".changeplane/assurance.md";
 const MANAGED_MANIFEST_PATH = "changeplane/manifest.json";
-const MANAGED_VERSION = 15;
+const MANAGED_VERSION = 16;
 // The repair credential protocol remains v12. Managed payload releases can
 // advance independently without silently widening an existing credential.
 const MANAGED_REPAIR_ACTIVATION = "managed-v12";
@@ -123,6 +123,7 @@ const MANAGED_PATHS = [
   "changeplane/action.yml",
   "changeplane/action/index.js",
   "changeplane/src/lib/changeplane.js",
+  "changeplane/src/lib/recovery.js",
   "changeplane/src/lib/harness.js",
   "changeplane/src/lib/review.js",
   "changeplane/src/lib/runtime.js",
@@ -159,6 +160,37 @@ const LEGACY_MANAGED_HASHES = Object.freeze({
 // When MANAGED_VERSION advances, retain each prior manifest-backed version here.
 // The installer may upgrade only bytes that match one of these immutable catalogs.
 const KNOWN_MANAGED_VERSION_HASHES = Object.freeze({
+  15: {
+    "full": {
+        "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+        "changeplane/action/index.js": "8ec4b64eff399f4479826f0c529b6e8a11d816a6977046ed88c5193072cf92ba",
+        "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+        "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+        "changeplane/src/lib/review.js": "77b6e85321827a18a305bf4a952d6493d831374e8208eeca0e0987d1fd95023d",
+        "changeplane/src/lib/runtime.js": "e4fcb217c60f23217023c52b56c5c195c4a4442d86ae78301f81d7c537c80e7c",
+        "changeplane/server/github-repair-controller.js": "b67e56892908874717771a114adb378b7c2243ac6e2c364951d1034fd9fc1ddd",
+        "changeplane/server/repair-ledger.js": "7536a8cf40d51e9606434d07da5874aac500a5b4bdae0daf59f338a1e5289ebc",
+        "changeplane/examples/changeplane-claim.js": "b391de111c6c5e4bb33991e6624db4f4347862ecee3c3478ecc8dbfc85997f83",
+        "changeplane/examples/changeplane-grant.js": "648037cd2f18d4161f75c7dc7fedbc1317a5b78f6b53ac3df121f9b3eb76b9a1",
+        "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+        "changeplane/examples/changeplane-proposal.js": "e43d6f6809db1bc2d73516184be611565c77ce47f7b8c064188ea8fa83d6d8e5",
+        "changeplane/examples/changeplane-provider-openai.js": "f217665808dadfd180c960e6a1ab583b1e0d9d3c217578575e3cbf423eb348f8",
+        "changeplane/examples/changeplane-review-openai.js": "5be177e0c93b8e68df59de57d5d29686552312caa5705ba7e710a6f2501f339d",
+        "changeplane/examples/changeplane-review-run.js": "5dcdb7204c3a090d3aec88af6e82153f7f447389136c0c84d41f08895ea08d2e",
+        "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+        ".github/workflows/changeplane.yml": "246da05f00127fd8ca64cfec549921f9b06b2f332ce53d148fb4446daf8d1d39",
+        ".github/workflows/changeplane-repair.yml": "7d18ee493de579c22d2b7093f834d0bdb20d4d60fe7219dfad2eb85e60f2d45f"
+    },
+    "verify-lite": {
+        "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
+        "changeplane/action/index.js": "8ec4b64eff399f4479826f0c529b6e8a11d816a6977046ed88c5193072cf92ba",
+        "changeplane/src/lib/changeplane.js": "58af3209cbc0fb52d354a4984fca3f752bbb26241d3f403c3f5d783fe2e0c8ab",
+        "changeplane/src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+        "changeplane/examples/changeplane-evidence-policy.js": "f187c979276501f2f7e8435c479e6ae94df6c5496ef1aec8e5afc4a71ebaf4a3",
+        "changeplane/package.json": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+        ".github/workflows/changeplane.yml": "a631d3ea6f375513db25c6635c7bab429c2623c1d2fbee0a2c55528645e0d2bc"
+    }
+},
   14: Object.freeze({
     "full": Object.freeze({
       "changeplane/action.yml": "33100f509832d7dd3eefdfe81d30497cda4649848420017b790b9932e2d6c3d3",
@@ -1966,6 +1998,7 @@ ${reconciliationJob}
     { path: "changeplane/action.yml", content: readFileSync(path.join(ROOT, "action.yml"), "utf8") },
     { path: "changeplane/action/index.js", content: readFileSync(path.join(ROOT, "action/index.js"), "utf8") },
     { path: "changeplane/src/lib/changeplane.js", content: readFileSync(path.join(ROOT, "src/lib/changeplane.js"), "utf8") },
+    { path: "changeplane/src/lib/recovery.js", content: readFileSync(path.join(ROOT, "src/lib/recovery.js"), "utf8") },
     { path: "changeplane/src/lib/harness.js", content: readFileSync(path.join(ROOT, "src/lib/harness.js"), "utf8") },
     { path: "changeplane/src/lib/review.js", content: readFileSync(path.join(ROOT, "src/lib/review.js"), "utf8") },
     { path: "changeplane/src/lib/runtime.js", content: readFileSync(path.join(ROOT, "src/lib/runtime.js"), "utf8") },
@@ -2062,6 +2095,7 @@ ${reconciliationJob}`;
     "changeplane/action.yml",
     "changeplane/action/index.js",
     "changeplane/src/lib/changeplane.js",
+  "changeplane/src/lib/recovery.js",
     "changeplane/src/lib/harness.js",
     "changeplane/examples/changeplane-evidence-policy.js",
     "changeplane/package.json",

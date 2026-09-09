@@ -29,6 +29,17 @@ test('permission failure never retries or leaks the provider body', async () => 
   });
   assert.equal(calls, 1);
 });
+test('GitHub reset guidance and an unspecified secondary-limit wait cannot trigger premature retries', async () => {
+  for (const response of [
+    () => new Response('', { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '3600' } }),
+    () => new Response('', { status: 429 }),
+  ]) {
+    let calls = 0, sleeps = 0;
+    const read = reader(async () => { calls++; return response(); }, { now: () => 0, sleep: async () => { sleeps++; } });
+    await assert.rejects(read('/repos/example/repo'), /RATE_LIMITED/u);
+    assert.equal(calls, 1); assert.equal(sleeps, 0);
+  }
+});
 test('credential destination cannot be redirected by a URL or traversal', async () => {
   let calls = 0;
   const read = reader(async () => { calls++; throw new Error('must not fetch'); });

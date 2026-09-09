@@ -55,7 +55,10 @@ export function boundedReader({ provider, origin, prefix, headers = {}, fetchImp
         const rateLimited = response.status === 429 || (response.status === 403
           && (retryHeader != null || response.headers.get('x-ratelimit-remaining') === '0'));
         const transient = rateLimited || [502, 503, 504].includes(response.status);
-        const delay = retryHeader == null ? 250 * (attempt + 1)
+        const reset = response.headers.get('x-ratelimit-reset');
+        const delay = retryHeader == null ? rateLimited
+          ? reset != null && /^\d+$/u.test(reset) ? Math.max(0, Number(reset) * 1000 - now()) : NaN
+          : 250 * (attempt + 1)
           : /^\d+(?:\.\d+)?$/u.test(retryHeader) ? Number(retryHeader) * 1000 : Date.parse(retryHeader) - now();
         await response.body?.cancel();
         if (transient && attempt < 2 && Number.isFinite(delay) && delay >= 0 && delay <= 2000

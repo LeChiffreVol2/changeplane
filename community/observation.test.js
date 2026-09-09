@@ -13,6 +13,8 @@ for (const fixture of corpus.cases) test(`conformance: ${fixture.id}`, () => {
   }
   const report = assessObservation(input);
   assert.equal(report.decision, fixture.expected.decision, fixture.oracle);
+  assert.equal(report.nextAction, fixture.expected.nextAction, fixture.oracle);
+  assert.equal(report.handback.nextAction, fixture.expected.nextAction, fixture.oracle);
   if (fixture.expected.finding) assert.ok(report.findings.some(item => item.code === fixture.expected.finding), fixture.oracle);
   else assert.deepEqual(report.findings, [], fixture.oracle);
   assert.equal(report.authority.repairAuthorized, false);
@@ -21,6 +23,15 @@ for (const fixture of corpus.cases) test(`conformance: ${fixture.id}`, () => {
   assert.equal(report.authority.authenticated, false);
   assert.equal(JSON.stringify(report).includes('PRIVATE_SYNTHETIC_MARKER'), false);
   assert.deepEqual(report.handback.binding, report.binding);
+});
+test('requirements for different tested subjects match separately, while unknown competing executions remain ambiguous', () => {
+  const input = structuredClone(base);
+  input.policy.evidence.required.push({ ...input.policy.evidence.required[0], subject: 'test_merge' });
+  input.evidence.push({ ...input.evidence[0], execution: { id: '1/13/100', attempt: '100' },
+    subject: { kind: 'test_merge', id: 'c'.repeat(40), head: input.revisions.head, target: input.revisions.target } });
+  assert.equal(assessObservation(input).decision, 'OBSERVED_SUCCESS');
+  input.evidence[1].subject.kind = 'unknown';
+  assert.equal(assessObservation(input).decision, 'BLOCKED');
 });
 test('portable bindings cover project, policy, execution and mirror identities', () => {
   const original = assessObservation(base).binding.observationDigest;

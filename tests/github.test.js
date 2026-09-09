@@ -230,7 +230,7 @@ function assuranceProofFetch(fixture, {
 }
 
 function managedManifestFileResponse(managedProfile = "verify-lite") {
-  const content = Buffer.from(managedVersionSnapshot(15, managedProfile).manifest).toString("base64");
+  const content = Buffer.from(managedVersionSnapshot(16, managedProfile).manifest).toString("base64");
   return {
     ok: true,
     status: 200,
@@ -891,12 +891,13 @@ test("runtime API rejects an unsupported model before GitHub access", async () =
 
 test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit", () => {
   const files = new Map(buildSetupFiles().map((file) => [file.path, file.content]));
-  assert.equal(files.size, 9);
+  assert.equal(files.size, 10);
   for (const expected of [
     "changeplane/action.yml",
     "changeplane/action/index.js",
     "changeplane/src/lib/changeplane.js",
     "changeplane/src/lib/harness.js",
+    "changeplane/src/lib/recovery.js",
     "changeplane/examples/changeplane-evidence-policy.js",
     "changeplane/package.json",
     "changeplane/manifest.json",
@@ -917,7 +918,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
 
   const manifest = JSON.parse(files.get("changeplane/manifest.json"));
   assert.equal(manifest.schemaVersion, 2);
-  assert.equal(manifest.managedVersion, 15);
+  assert.equal(manifest.managedVersion, 16);
   assert.equal(manifest.managedProfile, "verify-lite");
   assert.equal(Object.hasOwn(manifest.managedFiles, ".changeplane.json"), false);
   assert.deepEqual(Object.keys(manifest.managedFiles).sort(), [
@@ -928,6 +929,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
     "changeplane/package.json",
     "changeplane/src/lib/changeplane.js",
     "changeplane/src/lib/harness.js",
+    "changeplane/src/lib/recovery.js",
   ]);
 
   const fullFiles = new Map(buildSetupFiles({
@@ -935,7 +937,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
     appSlug: "github-actions",
     workflowPath: ".github/workflows/ci.yml",
   }, "autonomous").map((file) => [file.path, file.content]));
-  assert.equal(fullFiles.size, 21);
+  assert.equal(fullFiles.size, 22);
   for (const expected of [
     "changeplane/src/lib/review.js",
     "changeplane/src/lib/runtime.js",
@@ -952,9 +954,9 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
   ]) assert.equal(fullFiles.has(expected), true, `Full Autonomous is missing ${expected}`);
   const fullManifest = JSON.parse(fullFiles.get("changeplane/manifest.json"));
   assert.equal(fullManifest.schemaVersion, 2);
-  assert.equal(fullManifest.managedVersion, 15);
+  assert.equal(fullManifest.managedVersion, 16);
   assert.equal(fullManifest.managedProfile, "full");
-  assert.equal(Object.keys(fullManifest.managedFiles).length, 18);
+  assert.equal(Object.keys(fullManifest.managedFiles).length, 19);
 
   const liteWorkflow = files.get(".github/workflows/changeplane.yml");
   assert.match(liteWorkflow, /Evaluate the exact pull-request revision/u);
@@ -1153,8 +1155,8 @@ test("managed install classification protects policy and rejects modified reserv
   const reservedEntries = Object.keys(currentFiles).filter((filePath) => filePath.startsWith("changeplane/"));
   assert.deepEqual(classifyManagedInstallation({ files: currentFiles, reservedEntries }), {
     state: "current",
-    currentVersion: 15,
-    targetVersion: 15,
+    currentVersion: 16,
+    targetVersion: 16,
     managedProfile: "verify-lite",
     conflicts: [],
   });
@@ -1175,7 +1177,7 @@ test("managed install classification protects policy and rejects modified reserv
   assert.deepEqual(classifyManagedInstallation({ files: legacyFiles, reservedEntries: reservedEntries.filter((path) => path !== "changeplane/manifest.json") }), {
     state: "conflict",
     currentVersion: null,
-    targetVersion: 15,
+    targetVersion: 16,
     conflicts: [".github/workflows/changeplane.yml"],
   });
 
@@ -1234,11 +1236,11 @@ test("v13 profiles preserve their immutable hashes and upgrade without adding an
     ["verify-lite", "550ef2f0fd030686ac5b2d9b285cbc0019d751a171e239515f86f61279de1f20", 7],
   ]) {
     const previous = managedVersionSnapshot(13, profile);
-    const current = managedVersionSnapshot(15, profile);
+    const current = managedVersionSnapshot(16, profile);
     assert.equal(previous.managedProfile, profile);
     assert.equal(previous.managedHashes[".github/workflows/changeplane.yml"], workflowHash);
     assert.equal(Object.keys(previous.managedHashes).length, count);
-    assert.deepEqual(Object.keys(current.managedHashes), Object.keys(previous.managedHashes));
+    assert.deepEqual(Object.keys(current.managedHashes).filter(path => path !== "changeplane/src/lib/recovery.js"), Object.keys(previous.managedHashes));
     assert.notEqual(current.managedHashes[".github/workflows/changeplane.yml"], workflowHash);
     const classification = {
       digests: { ...previous.managedHashes },
@@ -1249,7 +1251,7 @@ test("v13 profiles preserve their immutable hashes and upgrade without adding an
     assert.deepEqual(classifyManagedInstallationDigests(classification), {
       state: "outdated",
       currentVersion: 13,
-      targetVersion: 15,
+      targetVersion: 16,
       managedProfile: profile,
       conflicts: [],
     });
@@ -1308,7 +1310,7 @@ test("a Verify Lite managed upgrade preserves its profile and repository policy"
     }
     if (url.pathname.endsWith("/pulls")) return githubJsonResponse([]);
     if (url.pathname.endsWith("/git/ref/heads/main")) return githubJsonResponse({ object: { sha: baseSha } });
-    if (url.pathname.endsWith("/git/ref/heads/changeplane/observe-upgrade-v15")) {
+    if (url.pathname.endsWith("/git/ref/heads/changeplane/observe-upgrade-v16")) {
       return branchCreated ? githubJsonResponse({ object: { sha: headSha } }) : githubJsonResponse({}, 404);
     }
     if (url.pathname.endsWith(`/git/commits/${baseSha}`)) return githubJsonResponse({ tree: { sha: baseTreeSha } });
@@ -1330,7 +1332,7 @@ test("a Verify Lite managed upgrade preserves its profile and repository policy"
       baseSha,
     }, { token: "test-upgrade-token" });
     assert.equal(result.managedProfile, "verify-lite");
-    assert.equal(result.managedVersion, 15);
+    assert.equal(result.managedVersion, 16);
     assert.equal(result.policyIncluded, false);
     const tree = mutations.find(({ path }) => path.endsWith("/git/trees")).body;
     assert.equal(tree.base_tree, baseTreeSha);
@@ -1340,7 +1342,7 @@ test("a Verify Lite managed upgrade preserves its profile and repository policy"
     const manifestBlob = mutations.filter(({ path }) => path.endsWith("/git/blobs"))
       .map(({ body }) => body.content).find((content) => content.includes('"managedFiles"'));
     assert.equal(JSON.parse(manifestBlob).managedProfile, "verify-lite");
-    assert.equal(Object.keys(JSON.parse(manifestBlob).managedFiles).length, 7);
+    assert.equal(Object.keys(JSON.parse(manifestBlob).managedFiles).length, 8);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1351,7 +1353,7 @@ test("runtime trusts a managed profile only after exact tree and reserved-path v
     version: 1,
     harness: { mode: "verify", maxAttempts: 2, budgetMinutes: 15 },
   }, null, 2)}\n`;
-  const liteManifest = managedVersionSnapshot(15, "verify-lite").manifest;
+  const liteManifest = managedVersionSnapshot(16, "verify-lite").manifest;
   const liteTree = managedRuntimeTreeFixture("verify-lite", policy).payload.tree;
   assert.deepEqual(classifyManagedRuntimeTree({
     manifest: liteManifest,
@@ -1383,7 +1385,7 @@ test("runtime trusts a managed profile only after exact tree and reserved-path v
   });
 
   const forgedFullProfile = classifyManagedRuntimeTree({
-    manifest: managedVersionSnapshot(15, "full").manifest,
+    manifest: managedVersionSnapshot(16, "full").manifest,
     policy,
     treeEntries: liteTree,
   });
@@ -1395,7 +1397,7 @@ test("runtime trusts a managed profile only after exact tree and reserved-path v
 
 test("pristine v11 is safely classified for a v15 Full upgrade", () => {
   const v11 = managedVersionSnapshot(11);
-  const v15 = managedVersionSnapshot(15);
+  const v15 = managedVersionSnapshot(16);
   assert.equal(v11.managedVersion, 11);
   assert.equal(Object.keys(v11.managedHashes).length, 18);
   assert.equal(v11.manifest.includes('"managedVersion": 11'), true);
@@ -1409,7 +1411,7 @@ test("pristine v11 is safely classified for a v15 Full upgrade", () => {
   }), {
     state: "outdated",
     currentVersion: 11,
-    targetVersion: 15,
+    targetVersion: 16,
     managedProfile: "full",
     conflicts: [],
   });
@@ -1432,7 +1434,7 @@ test("pristine v11 is safely classified for a v15 Full upgrade", () => {
   }), {
     state: "conflict",
     currentVersion: null,
-    targetVersion: 15,
+    targetVersion: 16,
     conflicts: ["changeplane/action/index.js"],
   });
 });
@@ -1577,7 +1579,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
     if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
       return githubJsonResponse(upgradePullRequest ? [upgradePullRequest] : []);
     }
-    if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v15") {
+    if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v16") {
       return upgradeBranch
         ? githubJsonResponse({ object: { sha: upgradeBranch } })
         : githubJsonResponse({}, 404);
@@ -1607,7 +1609,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
     }
     if (url.pathname === "/repos/alice/service/git/refs" && method === "POST") {
       assert.deepEqual(body, {
-        ref: "refs/heads/changeplane/observe-upgrade-v15",
+        ref: "refs/heads/changeplane/observe-upgrade-v16",
         sha: upgradeHeadSha,
       });
       upgradeBranch = upgradeHeadSha;
@@ -1658,7 +1660,7 @@ test("v12 recovery creates one exact reviewed policy upgrade and never provision
       permissions: { push: true, admin: true },
     },
     baseSha,
-    installation: { state: "outdated", currentVersion: 12, targetVersion: 15 },
+    installation: { state: "outdated", currentVersion: 12, targetVersion: 16 },
   };
   try {
     const first = await createObserveUpgradePullRequest(target, { token: "alice-token" }, exactCheck);
@@ -1774,7 +1776,7 @@ test("pristine manifestless Full install creates one manifest-only v15 upgrade P
       if (url.pathname === "/repos/alice/service/pulls" && method === "GET") {
         return response(upgradePullRequest ? [upgradePullRequest] : []);
       }
-      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v15") {
+      if (url.pathname === "/repos/alice/service/git/ref/heads/changeplane/observe-upgrade-v16") {
         return upgradeBranch ? response({ object: { sha: upgradeBranch } }) : response({}, 404);
       }
       if (url.pathname === "/repos/alice/service/git/blobs" && method === "POST") return response({ sha: manifestBlobSha }, 201);
@@ -1876,7 +1878,7 @@ test("pristine manifestless Full install creates one manifest-only v15 upgrade P
       assert.equal(staleRecoveryPreflight.statusCode, 200);
       assert.equal(JSON.parse(staleRecoveryPreflight.body).installable, false);
       assert.equal(JSON.parse(staleRecoveryPreflight.body).setup.state, "stale");
-      assert.match(JSON.parse(staleRecoveryPreflight.body).setup.message, /Close it and delete changeplane\/observe-upgrade-v15/u);
+      assert.match(JSON.parse(staleRecoveryPreflight.body).setup.message, /Close it and delete changeplane\/observe-upgrade-v16/u);
       assert.equal(calls.filter(({ method }) => method !== "GET").length, firstMutationCount);
 
       repoAdmin = false;
@@ -1946,7 +1948,7 @@ test("Verify-first setup defaults a selected Check to Verify and reuses one GitH
       goal: "Install the ChangePlane verify harness",
       scope: [...new Set(scope)],
       harnessMode: "verify",
-      managedVersion: 15,
+      managedVersion: 16,
       managedProfile: "verify-lite",
       requiredCheck: configuredCheck,
     };
@@ -2173,7 +2175,7 @@ test("Verify-first setup defaults a selected Check to Verify and reuses one GitH
         goal: "Install the ChangePlane observe harness",
         scope: [...new Set(scope)],
         harnessMode: "observe",
-        managedVersion: 15,
+        managedVersion: 16,
         managedProfile: "verify-lite",
       };
       const conflictingBehaviorResponse = responseRecorder();
@@ -2198,7 +2200,7 @@ test("Verify-first setup defaults a selected Check to Verify and reuses one GitH
         goal: "Install the ChangePlane autonomous harness",
         scope: [...new Set(autonomousScope)],
         harnessMode: "autonomous",
-        managedVersion: 15,
+        managedVersion: 16,
         managedProfile: "full",
         requiredCheck: configuredCheck,
       };
@@ -3518,7 +3520,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       const payload = JSON.parse(response.body);
       assert.equal(payload.installable, true);
       assert.equal(payload.defaultBranch, "main");
-      assert.equal(payload.setupFiles, 9);
+      assert.equal(payload.setupFiles, 10);
       assert.equal(payload.setupProfile, "verify-lite");
       assert.deepEqual(payload.payloadProfiles, {
         verifyLite: {
@@ -3537,7 +3539,7 @@ test("repository preflight is read-only and exposes the exact zero-impact bounda
       assert.deepEqual(payload.installation, {
         state: "fresh",
         currentVersion: null,
-        targetVersion: 15,
+        targetVersion: 16,
         conflicts: [],
       });
       assert.deepEqual(payload.conflicts, []);
@@ -6554,6 +6556,6 @@ test("v14 profiles retain their exact catalog and offer a protected v15 upgrade"
       reservedEntries: Object.keys(prior.managedHashes),
     });
     assert.equal(result.state, "outdated");
-    assert.equal(result.targetVersion, 15);
+    assert.equal(result.targetVersion, 16);
   }
 });

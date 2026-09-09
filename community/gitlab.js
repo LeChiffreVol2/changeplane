@@ -85,6 +85,7 @@ export async function inspectMergeRequest({ project: requestedProject, number, t
       execution: { id: `${pipeline.project_id}/${pipeline.id}/${job.id}`, attempt: String(job.id) },
       // The API associates this job with a SHA; a script can still override its checkout.
       subject: { kind: 'unknown', id: pipeline.sha, head: pipeline.sha }, ...state(job),
+      native: { status: job.status, failureReason: job.failure_reason ?? null, allowFailure: job.allow_failure ?? null },
     }));
     return { evidence, execution: { projectId: pipeline.project_id, pipelineId: pipeline.id, sha: pipeline.sha,
       status: pipeline.status, source: pipeline.source, jobIds: jobs.map(job => job.id).sort((a, b) => a - b) } };

@@ -9,6 +9,9 @@ const text = value => typeof value === 'string' && value.length > 0 && value.len
 const revision = value => typeof value === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value);
 const kinds = ['change_head', 'test_merge', 'merge_batch', 'artifact'];
 const origins = { github: 'https://github.com', gitlab: 'https://gitlab.com', origin: 'https://cursor.com' };
+const nativeStatuses = new Set(['created', 'pending', 'preparing', 'running', 'scheduled', 'waiting_for_resource', 'canceling', 'success', 'canceled', 'skipped', 'manual', 'failed']);
+const nativeReasons = new Set(['runner_system_failure', 'api_failure', 'scheduler_failure', 'runner_unsupported',
+  'job_execution_timeout', 'stuck_or_timeout_failure', 'script_failure', 'unknown_failure', 'data_integrity_failure', 'missing_dependency_failure', 'archived_failure']);
 const digest = value => createHash('sha256').update(canonical(value)).digest('hex');
 const requireValue = condition => { if (!condition) throw new Error('OBSERVATION_INVALID'); };
 const producer = value => {
@@ -83,9 +86,16 @@ export function assessObservation(input) {
       requireValue(Array.isArray(item.subject.members) && item.subject.members.length > 0 && item.subject.members.length <= 100
         && item.subject.members.every(revision)); subject.members = [...item.subject.members];
     }
+    let native = null;
+    if (item.native != null) {
+      requireValue(object(item.native) && nativeStatuses.has(item.native.status));
+      native = { status: item.native.status,
+        failureReason: item.native.failureReason == null ? null : nativeReasons.has(item.native.failureReason) ? item.native.failureReason : 'unclassified',
+        allowFailure: typeof item.native.allowFailure === 'boolean' ? item.native.allowFailure : null };
+    }
     // Discard arbitrary diagnostics, verified flags, tokens, URLs and caller-provided failure classifications.
     return { name: item.name, producer: producer(item.producer), execution: { id: item.execution.id, attempt: item.execution.attempt },
-      subject, status: item.status, conclusion: item.conclusion ?? null,
+      subject, status: item.status, conclusion: item.conclusion ?? null, native,
       diagnosis: diagnoseEvidence({ status: item.status, conclusion: item.conclusion }) };
   });
   const protectedPaths = effectiveProtectedPaths({ ...policy, evidence: { protectedPaths: policy.evidence.protectedPaths } }, files);
@@ -102,7 +112,9 @@ export function assessObservation(input) {
   // Mirror observations are not yet authenticated by a qualified live Origin adapter.
   if (input.mirror != null || forge === 'origin') add('ORIGIN_UNQUALIFIED');
   for (const requirement of policy.evidence.required) {
-    const candidates = evidence.filter(item => item.name === requirement.name && canonical(item.producer) === canonical(requirement.producer));
+    const named = evidence.filter(item => item.name === requirement.name && canonical(item.producer) === canonical(requirement.producer));
+    const subjectCandidates = named.filter(item => item.subject.kind === requirement.subject || item.subject.kind === 'unknown');
+    const candidates = subjectCandidates.length ? subjectCandidates : named;
     if (candidates.length !== 1) { add(candidates.length ? 'AMBIGUOUS_EVIDENCE' : 'EVIDENCE_MISSING', requirement.name); continue; }
     const item = candidates[0], subject = item.subject;
     if (item.diagnosis.code) add(item.diagnosis.code, requirement.name);
