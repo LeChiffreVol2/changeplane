@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible Community defect using synthetic data.
+description: Report a reproducible defect in ChangePlane Open Source using synthetic data.
 body:
   - type: markdown
     attributes:
@@ -7,7 +7,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Community version, Node version and OS
+      label: Release version, Node version and OS
       placeholder: "0.1.0-alpha.1, Node 22.18, Linux"
     validations:
       required: true

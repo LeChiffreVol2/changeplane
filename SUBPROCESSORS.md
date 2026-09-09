@@ -1,6 +1,6 @@
 # Subprocessor List — approval draft
 
-This draft concerns the ChangePlane-operated hosted service. Use of the open-source software is governed by [Apache-2.0](LICENSE); Community CLI/Action do not call that service.
+This draft concerns the ChangePlane-operated hosted service. Use of the open-source software is governed by [Apache-2.0](LICENSE); the CLI and read-only GitHub Action do not call that service.
 
 **Status:** Not yet effective. The operator must confirm the contracted service, processing region, legal entity, and notification process for every provider before legal approval.
 

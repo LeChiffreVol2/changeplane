@@ -1,14 +1,14 @@
 # Security policy
 
-The public release is Community Alpha: a read-only CLI and GitHub Action using the shared deterministic evaluator. It does not publish a Guard, repair code, approve or merge. The hosted managed controller described below remains a separate controlled canary with customer access closed.
+ChangePlane Open Source provides a read-only CLI and GitHub Action using the shared deterministic evaluator. It does not publish a Guard, repair code, approve or merge. The hosted managed controller described below remains a separate controlled canary with customer access closed.
 
 Report a suspected vulnerability through [GitHub private vulnerability reporting](https://github.com/LeChiffreVol2/changeplane/security/advisories/new). Include a synthetic reproduction, affected version and impact. Do not include GitHub tokens, provider keys, private repository content, or other customer secrets. Reporting and fixes are best effort; no response-time guarantee is offered.
 
-## Community threat model
+## Read-only assessment threat model
 
-The collector reads trusted default-branch policy, never PR code for execution, and permits only fixed-origin GitHub GET requests. The recommended Action uses no checkout, cache, artifact download, write permission or model secret. A token is optional for public reads and stays in process memory; private repositories require appropriate GitHub read access. Input snapshots and JSON findings are untrusted data, not instructions. Reports are advisory and may become stale immediately after observation. There is no signed publication or durable generation authority in Community.
+The collector reads trusted default-branch policy, never PR code for execution, and permits only fixed-origin GitHub GET requests. The recommended Action uses no checkout, cache, artifact download, write permission or model secret. A token is optional for public reads and stays in process memory; private repositories require appropriate GitHub read access. Input snapshots and JSON findings are untrusted data, not instructions. Reports are advisory and may become stale immediately after observation. There is no signed publication or durable generation authority in the CLI or read-only Action.
 
-Security fixes target the latest Community alpha. Older alpha versions have no promised maintenance window. Pin the Action to a reviewed full SHA and review release notes before updating. License permission to modify the hosted controller does not establish the safety of a self-operated deployment.
+Security fixes target the latest Open Source release. Older releases have no promised maintenance window. Pin the Action to a reviewed full SHA and review release notes before updating. License permission to modify the hosted controller does not establish the safety of a self-operated deployment.
 
 ## Security invariants
 

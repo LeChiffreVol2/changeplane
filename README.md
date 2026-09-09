@@ -7,7 +7,7 @@ Open-source evidence assessment for agent-authored pull requests. Catch stale ch
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Community Alpha · free for individuals and businesses · no model key · no ChangePlane account.**
+**Open Source · free for individuals and businesses · no model key · no ChangePlane account.**
 
 [Get started](docs/community.md) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [How it works](#how-it-works) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -25,7 +25,7 @@ node community/cli.js evaluate examples/community/stale.json
 
 No `npm install`, database, model call, or network access is needed for these three synthetic assessments. Expect `EVIDENCE_SATISFIED` (exit 0), `REVIEW_REQUIRED` (exit 1), and `BLOCKED` (exit 1). Exit 2 means invalid or unavailable input.
 
-Prefer an archive? Download the dependency-free Community bundle and verify its SHA-256 from the [release assets](https://github.com/LeChiffreVol2/changeplane/releases). The same commands work inside it.
+Prefer an archive? Download the dependency-free bundle and verify its SHA-256 from the [release assets](https://github.com/LeChiffreVol2/changeplane/releases). The same commands work inside it.
 
 ## Inspect a real pull request
 
@@ -37,7 +37,7 @@ node community/cli.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
 
 For private repositories, set `GH_TOKEN` or `GITHUB_TOKEN` in your environment with read-only Contents, Pull requests, Checks and Actions access. Never pass a token on the command line. The CLI contacts only GitHub's API; it does not download source blobs, run PR code, publish Checks, write comments, or call ChangePlane.
 
-Use the [Community GitHub Action](docs/community.md#run-in-github-actions) for continuous assessments after your existing CI completes. No checkout, model key or App installation is needed. Its machine-readable output carries the exact revision, findings and an advisory handback for your existing coding agent.
+Use the [read-only GitHub Action](docs/community.md#run-in-github-actions) for continuous assessments after your existing CI completes. No checkout, model key or App installation is needed. Its machine-readable output carries the exact revision, findings and an advisory handback for your existing coding agent.
 
 ## How it works
 
@@ -53,13 +53,13 @@ flowchart LR
 - **Fresh evidence.** A later workflow run or attempt supersedes older success, even on the same commit. Head, trusted policy revision and evidence are checked again before a live report is returned.
 - **Protected evidence.** Tests, workflows, manifests and declared protected paths require human review, including renames out of protected directories.
 - **Agent-neutral handback.** JSON findings name one exact revision. Codex, Cursor, Claude Code, Copilot or another agent can consume them as data. No native agent integration is implied.
-- **Small operating footprint.** Community uses Node built-ins and the existing evaluator. Offline mode has no external requests; live mode uses bounded GitHub GET requests only.
+- **Small operating footprint.** The CLI and Action use Node built-ins and the existing evaluator. Offline mode has no external requests; live mode uses bounded GitHub GET requests only.
 
-An `EVIDENCE_SATISFIED` assessment means the declared inputs matched the checks at observation time. It does not prove the software has no defects. A snapshot supplied by a caller is unauthenticated. Neither Community output nor a green Community workflow is an App-owned `ChangePlane / guard`, Strict Head, or permission to merge.
+An `EVIDENCE_SATISFIED` assessment means the declared inputs matched the checks at observation time. It does not prove the software has no defects. A snapshot supplied by a caller is unauthenticated. Neither an assessment nor a green assessment workflow is an App-owned `ChangePlane / guard`, Strict Head, or permission to merge.
 
 ## Choose the right surface
 
-| | Community Alpha — available | Hosted service — controlled canary |
+| | Open Source — available | Hosted service — controlled canary |
 | --- | --- | --- |
 | Local and read-only GitHub assessment | Yes | Shared evaluator |
 | Personal and organization repositories | Yes, with appropriate read access | Customer activation closed |
@@ -68,7 +68,7 @@ An `EVIDENCE_SATISFIED` assessment means the declared inputs matched the checks 
 | Automatic repair / merge | Neither | Repair disabled; GitHub owns merge |
 | Operations | You run the CLI or GitHub Action | Provider recovery and scheduler gates remain open |
 
-GitHub.com same-repository PRs targeting the default branch are supported. Enterprise Cloud remains subject to organization permissions. Fork PRs, GHES, Merge Queue assessments and a self-operated Guard controller are outside Community Alpha. See [limits and troubleshooting](docs/community.md#limits-and-troubleshooting).
+GitHub.com same-repository PRs targeting the default branch are supported. Enterprise Cloud remains subject to organization permissions. Fork PRs, GHES, Merge Queue assessments and a self-operated Guard controller are outside the supported release. See [limits and troubleshooting](docs/community.md#limits-and-troubleshooting).
 
 ## Where it fits
 
@@ -78,7 +78,7 @@ It cannot improve weak tests by itself. Start with one behavioral job that prote
 
 ## Project status and roadmap
 
-Community version **0.1.0-alpha.1** is the first open-source release; interfaces may change during alpha. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
+Version **0.1.0-alpha.1** is the first open-source release; interfaces may change before version 1.0. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
 
 Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and team features are revenue hypotheses to validate with users; there is no paid offer in this release.
 
@@ -93,8 +93,8 @@ npm run verify
 npm run test:e2e
 ```
 
-Full product development uses Node.js `>=22.18 <23`; Community is exercised on Node 22 and 24. See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory map, focused tests, contribution terms and security boundaries. Report ordinary defects through [GitHub Issues](https://github.com/LeChiffreVol2/changeplane/issues); use [private reporting](SECURITY.md) for vulnerabilities.
+Full product development uses Node.js `>=22.18 <23`; the CLI and Action are exercised on Node 22 and 24. See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory map, focused tests, contribution terms and security boundaries. Report ordinary defects through [GitHub Issues](https://github.com/LeChiffreVol2/changeplane/issues); use [private reporting](SECURITY.md) for vulnerabilities.
 
 ## License
 
-[Apache License 2.0](LICENSE), for individual and commercial use. [Third-party notices](THIRD_PARTY_NOTICES.md) apply to dependencies. ChangePlane and RouteThai trademarks, hosted credentials and service access are not granted by the software license. Hosted legal documents remain drafts and do not restrict the Community license.
+[Apache License 2.0](LICENSE), for individual and commercial use. [Third-party notices](THIRD_PARTY_NOTICES.md) apply to dependencies. ChangePlane and RouteThai trademarks, hosted credentials and service access are not granted by the software license. Hosted legal documents remain drafts and do not restrict the Apache-2.0 license.

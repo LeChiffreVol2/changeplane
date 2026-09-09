@@ -13,6 +13,6 @@ ChangePlane uses third-party packages under their respective licenses. The autho
 
 The deep-teal paper texture under `src/assets` is a ChangePlane project asset. The product does not ship third-party logos, music, customer screenshots, map imagery, or production RouteThai data.
 
-The standalone Community bundle uses Node.js built-ins and first-party evaluator files. It does not bundle the frontend, PostgreSQL client, libsodium, Playwright or npm dependencies. The complete source repository's Apache-2.0 license does not relicense third-party packages. Preserve their installed license texts when redistributing them.
+The standalone Open Source bundle uses Node.js built-ins and first-party evaluator files. It does not bundle the frontend, PostgreSQL client, libsodium, Playwright or npm dependencies. The complete source repository's Apache-2.0 license does not relicense third-party packages. Preserve their installed license texts when redistributing them.
 
 RouteThai is referenced with the project owner's stated authorization as a real production use case and as the source of a sanitized public replay. This reference does not claim a third-party customer endorsement, and the product ships no private RouteThai repository content or operational data.

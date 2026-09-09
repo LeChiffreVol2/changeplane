@@ -8,4 +8,4 @@ List relevant tests or a synthetic reproduction, including failure behavior.
 
 ## Authority and compatibility
 
-Identify any changes to policy, evidence, dependencies, managed bytes or public interfaces. Community output must remain advisory; preserve exact-revision binding and hosted authority separation.
+Identify any changes to policy, evidence, dependencies, managed bytes or public interfaces. Assessment output must remain advisory; preserve exact-revision binding and hosted authority separation.

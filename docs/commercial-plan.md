@@ -6,7 +6,7 @@ Both account types use the same Verify-first installation, exact-head evidence a
 
 Verify is the core paid product. The Autonomous Assurance Agent runs the verification and handback loop without routine human interaction. Autonomous Repair is a separately priced controlled expansion and is not required for the core outcome.
 
-Community Alpha is the Apache-2.0, read-only distribution described in [Community](community.md). It is free for individuals and businesses. Hosted customer activation remains paused after managed-v15 canary qualification, pending provider authority recovery, reliable automatic reconciliation and the exact-release legal pack. The [automated SDLC architecture](automated-sdlc-architecture.md) orders those dependencies. The [launch measurement contract](launch-measurement.md) makes the existing nine pilot targets executable without claiming production ingestion or customer outcomes that have not occurred.
+ChangePlane Open Source is the Apache-2.0, read-only distribution described in [Open Source](community.md). It is free for individuals and businesses. Hosted customer activation remains paused after managed-v15 canary qualification, pending provider authority recovery, reliable automatic reconciliation and the exact-release legal pack. The [automated SDLC architecture](automated-sdlc-architecture.md) orders those dependencies. The [launch measurement contract](launch-measurement.md) makes the existing nine pilot targets executable without claiming production ingestion or customer outcomes that have not occurred.
 
 ## Candidate pilot admission
 

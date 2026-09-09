@@ -3,7 +3,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { assess, COMMUNITY_VERSION } from './core.js';
 import { inspectPullRequest } from './github.js';
 
-const help = `ChangePlane Community ${COMMUNITY_VERSION}
+const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
 Usage:
   node community/cli.js evaluate snapshot.json
   node community/cli.js inspect owner/repository PR_NUMBER

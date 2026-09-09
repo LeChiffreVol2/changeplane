@@ -46,9 +46,9 @@ jobs:
         run: npm ci
       - name: Test
         run: npm test
-      - name: Test dependency-free Community on Node 24
+      - name: Test dependency-free Open Source on Node 24
         run: npx --yes --package=node@24.13.0 -- node --test community/*.test.js
-      - name: Build and exercise the standalone Community release archive
+      - name: Build and exercise the standalone Open Source release archive
         run: |
           python3 scripts/package-community.py "$GITHUB_SHA" "$RUNNER_TEMP/community-release"
           mkdir "$RUNNER_TEMP/community-unpacked"
@@ -70,7 +70,15 @@ jobs:
       - name: Audit release claims
         run: npm run audit:claims
       - name: Install the Chromium test browser
-        run: npx playwright install --with-deps chromium
+        run: |
+          # Playwright downloads its own Chromium. An inconsistent, unused Chrome
+          # apt feed on the disposable runner must not block Ubuntu library setup.
+          for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            if [[ -f "$source" ]] && grep -Eq 'https?://dl[.]google[.]com/linux/chrome(-stable)?/deb' "$source"; then
+              sudo mv "$source" "$RUNNER_TEMP/$(basename "$source")"
+            fi
+          done
+          npx playwright install --with-deps chromium
       - name: Test onboarding in a real browser
         run: npx playwright test
       - name: Audit production dependencies
