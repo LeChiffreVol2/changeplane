@@ -1,5 +1,14 @@
 # Changelog
 
+## Community 0.1.0-alpha.1
+
+- License the source under Apache-2.0 and add contribution, security and installation guidance.
+- Add a zero-dependency CLI and read-only GitHub Action using the existing deterministic evaluator.
+- Bind live assessments to default-branch policy, exact PR head and the latest observed workflow attempt; reject drift and incomplete evidence.
+- Publish standalone release bundles with source manifests and SHA-256 checksums.
+- Make Community the public entry point while hosted Guard and Repair remain closed to customers.
+
+
 ## Unreleased — managed payload v13 local candidate
 
 This candidate is implemented in the local worktree. It has not been merged to protected `main`, deployed to Vercel Production, exercised in a live GitHub installation, or measured in an external benchmark.

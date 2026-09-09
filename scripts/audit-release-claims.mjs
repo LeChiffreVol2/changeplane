@@ -5,6 +5,11 @@ import { auditReleaseClaims } from "../src/lib/release-claims.js";
 const paths = [
   "ACCEPTABLE_USE.md",
   "README.md",
+  "CONTRIBUTING.md",
+  "docs/community.md",
+  "docs/community-positioning.md",
+  "docs/community-roadmap.md",
+  "docs/managed-product.md",
   "PRIVACY.md",
   "SECURITY.md",
   "SUBPROCESSORS.md",

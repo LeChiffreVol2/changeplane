@@ -1,0 +1,15 @@
+{
+  "protectedPaths": {
+    "requireApproval": ["community/**", "src/lib/**", "server/**", "api/**"],
+    "block": ["secrets/**"]
+  },
+  "evidence": {
+    "requiredChecks": [
+      {
+        "name": "CI / verify",
+        "appSlug": "github-actions",
+        "workflowPath": ".github/workflows/ci.yml"
+      }
+    ]
+  }
+}

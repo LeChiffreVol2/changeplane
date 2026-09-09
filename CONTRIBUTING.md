@@ -1,0 +1,46 @@
+# Contributing to ChangePlane
+
+Start with a reproducible problem and a small pull request. English is the shared language for documentation and issue discussions; clear reports in other languages are welcome. We maintain the project on a best-effort basis and do not promise a response time.
+
+## Setup
+
+Community needs Node 22.18+ and no dependencies. Full product development uses Node `>=22.18 <23`:
+
+```sh
+npm ci
+node --test community/*.test.js
+npm test
+npm run verify
+npm run test:e2e
+```
+
+Chromium may need `npx playwright install chromium`. CI additionally exercises disposable local PostgreSQL for journal, admission and TLS behavior. Never point tests at a production database. No live GitHub credentials or model key is required for the ordinary test suite.
+
+## Find your way around
+
+| Path | Responsibility |
+| --- | --- |
+| `community/` | Public CLI, read-only GitHub collector, Action and tests |
+| `src/lib/changeplane.js` | Shared deterministic evaluator |
+| `examples/changeplane-evidence-policy.js` | Shared protected-evidence rules |
+| `action/`, `server/`, `api/` | Hosted managed runtime and trusted controllers |
+| `src/App.jsx`, `src/styles.css` | Public product and synthetic replay |
+| `docs/`, `evidence/` | Contracts and bounded historical observations |
+
+## Pull requests
+
+Forking this project to contribute is welcome under Apache-2.0. The product's unsupported **fork PR** scope concerns the repositories it assesses, not contributions to this project.
+
+Explain the user-visible problem, final behavior and validation. Add a regression test for substantive behavior changes. Keep changes to evidence, dependencies, managed runtime, policy and workflows explicit for human review. Never add a second evaluator or allow a model, report, comment or workflow job to grant Guard authority.
+
+Only `.github/workflows/ci.yml` is active here. New customer workflows belong in `examples/` until reviewed and installed elsewhere. Avoid network-dependent tests; inject bounded GitHub responses and prove drift/failure behavior. Source changes go through protected PRs with `CI / verify`; maintainers do not bypass it.
+
+By intentionally submitting a contribution, you offer it under this project's Apache-2.0 license, as described in section 5 of that license. Submit only work you have the right to contribute and retain third-party notices. No CLA or copyright assignment is required by this project at present.
+
+## Community conduct
+
+Be respectful, discuss ideas and code rather than people, and welcome newcomers. Harassment, threats, doxxing and disclosure of another person's private information are unacceptable. Maintainers may edit/remove harmful public content and restrict participation. Do not post personal details publicly.
+
+## Reporting
+
+Use the issue templates for ordinary defects and proposals. Include a synthetic reproduction, Community version, Node version, OS, redacted error code and expected behavior. Do not upload real private assessment JSON, source, tokens or screenshots containing repository secrets. Report vulnerabilities using [SECURITY.md](SECURITY.md).

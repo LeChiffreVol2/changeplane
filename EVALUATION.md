@@ -1,5 +1,7 @@
 # Evaluate ChangePlane
 
+For the public Apache-2.0 Community release, start with the [dependency-free quickstart](docs/community.md). The historical managed-product evaluation below does not activate the hosted service.
+
 ChangePlane is independent, exact-revision assurance for code written and repaired by AI agents. The fastest evaluation path is public, requires no credentials, and does not access a production repository.
 
 The hosted product is the supported deployment. Evaluators and customers do not need a Vercel account or a self-hosted ChangePlane instance.

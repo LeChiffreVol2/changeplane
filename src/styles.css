@@ -290,6 +290,15 @@ button {
   text-align: left;
 }
 
+.community-start {
+  text-decoration: none;
+}
+
+.community-start:focus-visible {
+  outline: 3px solid #0c4d55;
+  outline-offset: 4px;
+}
+
 .github-sign-in:hover:not(:disabled) {
   background: #080b09;
   transform: translateY(-1px);

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "policy": {
+    "protectedPaths": {
+      "requireApproval": [
+        "infra/**"
+      ],
+      "block": [
+        "secrets/**"
+      ]
+    },
+    "evidence": {
+      "requiredChecks": [
+        {
+          "name": "Behavior",
+          "appSlug": "github-actions",
+          "workflowPath": ".github/workflows/ci.yml"
+        }
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "src/sort.js"
+    }
+  ],
+  "checks": [
+    {
+      "name": "Behavior",
+      "source": "github-actions",
+      "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "workflowPath": ".github/workflows/ci.yml",
+      "status": "completed",
+      "conclusion": "failure"
+    }
+  ]
+}

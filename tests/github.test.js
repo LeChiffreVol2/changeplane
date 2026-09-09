@@ -1036,7 +1036,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
   const installerSource = readFileSync(new URL("../api/github.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.match(appSource, /Agentic SDLC assurance/u);
-  assert.match(appSource, /keeps intent, review, evidence, and delivery tied to the exact commit/u);
+  assert.match(appSource, /checks whether the evidence matches the exact change/u);
   assert.match(appSource, /Portable evidence, never portable authority/u);
   assert.match(installerSource, /\*\*Done when:\*\* open or update one normal pull request/u);
   assert.match(installerSource, /\*\*Neutral\*\* means ChangePlane reported findings without changing merge rules/u);

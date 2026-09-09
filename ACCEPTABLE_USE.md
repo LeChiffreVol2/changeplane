@@ -1,5 +1,7 @@
 # Acceptable Use Policy — approval draft
 
+This draft concerns the ChangePlane-operated hosted service. Use of the open-source software is governed by [Apache-2.0](LICENSE); Community CLI/Action do not call that service.
+
 **Status:** Not yet effective. This draft must be approved with the Design Partner Terms for one exact protected Production release.
 
 Customers and users must not use ChangePlane to:

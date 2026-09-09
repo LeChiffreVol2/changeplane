@@ -1,0 +1,20 @@
+name: ChangePlane Community
+description: Read-only, exact-revision evidence assessment for agent-authored GitHub pull requests. No model key or hosted account.
+branding:
+  icon: shield
+  color: green
+inputs:
+  token:
+    description: Read-only GitHub token (contents, pull requests, checks, actions).
+    required: true
+  pull-request:
+    description: Optional PR number for workflow_dispatch. Otherwise resolved from pull_request_target or workflow_run.
+    required: false
+outputs:
+  decision:
+    description: EVIDENCE_SATISFIED, REVIEW_REQUIRED or BLOCKED. Never a published Guard.
+  assessment:
+    description: Single-line JSON assessment with exact revision, findings and advisory authority.
+runs:
+  using: node24
+  main: action.js
