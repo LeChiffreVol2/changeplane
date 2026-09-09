@@ -1631,6 +1631,16 @@ function nextAction(receipt) {
       action: "Restore the first bound contract or open a new pull request. An agent cannot broaden scope after evaluation starts.",
     };
   }
+  const diagnosticActions = {
+    EVIDENCE_DIAGNOSIS_REQUIRED: "Inspect the failed job to establish its cause before requesting a code patch. Then reassess the current revision.",
+    EVIDENCE_CANCELLED: "Inspect who or what cancelled the job. Re-run it only if the revision and job are still intended.",
+    EVIDENCE_TIMED_OUT: "Inspect the timed-out job and its runner before choosing a rerun or code change.",
+    EVIDENCE_INFRASTRUCTURE_FAILURE: "Restore runner or provider availability, then reassess fresh evidence. No code-repair attempt was requested.",
+    EVIDENCE_ACTION_REQUIRED: "Check the job's permissions and configuration, then reassess fresh evidence.",
+    EVIDENCE_SKIPPED: "Check why the required job did not execute successfully, then run the intended job.",
+    EVIDENCE_STALE: "Collect new evidence for the current revision before continuing.",
+  };
+  if (Object.hasOwn(diagnosticActions, receipt.reason)) return { owner: "CI or platform owner", action: diagnosticActions[receipt.reason] };
   if (["EVIDENCE_FAILED", "EVIDENCE_PENDING", "EVIDENCE_MISSING", "EVIDENCE_SOURCE_MISMATCH"].includes(receipt.reason)) {
     return {
       owner: "CI or platform owner",

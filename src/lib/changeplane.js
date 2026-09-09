@@ -1,3 +1,5 @@
+import { diagnoseEvidence } from './recovery.js';
+
 export const DECISION = Object.freeze({
   PASS: 'PASS',
   REVIEW_REQUIRED: 'REVIEW_REQUIRED',
@@ -302,7 +304,7 @@ export function evaluateEvidence({ requiredChecks = [], checks = [] } = {}) {
     } else if (conclusion !== 'SUCCESS') {
       const diagnostic = normalizeEvidenceDiagnostic(check.diagnostic);
       reasons.push({
-        code: 'EVIDENCE_FAILED',
+        code: diagnoseEvidence({ status, conclusion, failureKind: check.failureKind }).code,
         path: `check:${name}`,
         pathKind: 'evidence',
         ...(diagnostic ? { diagnostic } : {}),

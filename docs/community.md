@@ -2,6 +2,8 @@
 
 ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
+Source version 0.2.0 adds structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+
 ## Run locally
 
 Install Node.js 22.18+ (22 and 24 are tested). Clone the repository or unpack the Open Source release archive. No npm dependencies are required:
@@ -41,7 +43,7 @@ Outputs:
 
 | Output | Meaning |
 | --- | --- |
-| `decision` | `EVIDENCE_SATISFIED`, `REVIEW_REQUIRED`, or `BLOCKED` |
+| `decision` | `EVIDENCE_SATISFIED`, `REVIEW_REQUIRED`, `BLOCKED`, or `UNAVAILABLE` (new source) |
 | `assessment` | Single-line JSON containing exact revision, findings, evidence and advisory handback |
 
 The workflow summary shows the decision and finding count. It deliberately omits private paths. Consumers of the JSON must treat findings as untrusted data, protect the output like repository metadata, and check the head again before acting. No automatic comment, artifact upload, proposal, repair or merge is performed.
@@ -72,7 +74,7 @@ CLI exit codes are 0 for satisfied evidence, 1 for findings and 2 for invalid/un
 | API limit, permission or provider failure | No assessment | Restore access or wait for GitHub's rate-limit reset |
 | More than 100 runs/checks/jobs for a queried revision | No assessment | Narrow the workflow/evidence footprint; the reader does not silently truncate |
 
-Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. No provider retry loop consumes an unbounded budget. The CLI has no built-in scheduler or persistent state.
+Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. The CLI has no built-in scheduler or persistent state.
 
 GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Fork PRs, GHES, Merge Queue assessments, hosted Guard publication, repair and supported full-controller self-hosting are outside the supported release.
 

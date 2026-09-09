@@ -542,7 +542,7 @@ for (const [name, targetPermissions, widenedPermissions, message] of [
   });
 }
 
-test("automatic first-head contract authorizes bounded evidence repair before its receipt exists", async () => {
+test("unclassified first-head CI failure cannot authorize source repair even with assertion-like prose", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const title = "Make checkout retries idempotent";
   const contract = { scope: ["src/payments/retry.js"], goal: title };
@@ -586,7 +586,7 @@ test("automatic first-head contract authorizes bounded evidence repair before it
     }],
   });
 
-  const candidate = await buildTrustedRepairCandidate({
+  await assert.rejects(buildTrustedRepairCandidate({
     controllerRequest: request,
     installationToken: "installation-token",
     appId: APP_ID,
@@ -595,18 +595,8 @@ test("automatic first-head contract authorizes bounded evidence repair before it
     publicKeys: ledgerPublicKeys(privateKey),
     expectedRepository: REPOSITORY,
     request: github.request,
-  });
-
-  assert.equal(candidate.repairKind, "evidence");
-  assert.deepEqual(candidate.declaredScope, contract.scope);
-  assert.deepEqual(candidate.allowedPaths, contract.scope);
-  assert.deepEqual(candidate.instructions, [{
-    code: "EVIDENCE_FAILED",
-    path: "check:checkout-race",
-    pathKind: "evidence",
-    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
-    diagnostic,
-  }]);
+  }), /no longer authorizes autonomous repair/u);
+  assert.equal(github.dispatches.length, 0);
   assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 
   github.workflowRuns.set(10_091, {
@@ -726,182 +716,38 @@ test("github-actions bot comments cannot authorize an automatic contract", async
   assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
-test("signed generation ledger preserves the first-head contract across a later head", async () => {
+test("signed generation ledger preserves an authorized scope contract across a later head", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const title = "Make checkout retries idempotent";
-  const contract = { scope: ["src/payments/retry.js"], goal: title };
-  const files = [{ path: "src/payments/retry.js" }];
-  const policy = {
-    version: 1,
-    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
-  };
-  const instructions = [{
-    code: "EVIDENCE_FAILED",
-    path: "check:checkout-race",
-    pathKind: "evidence",
-    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
-    diagnostic: "Checkout race failed",
-  }];
-  const first = automaticFixture({
-    contract,
-    files,
-    policy,
-    repairKind: "evidence",
-    allowedPaths: contract.scope,
-    instructions,
-  });
-  const github = fakeGitHub(policy, {
-    pullRequestBody: "",
-    pullRequestTitle: title,
-    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
-    initialChecks: [{
-      id: 92,
-      name: "checkout-race",
-      head_sha: HEAD_SHA,
-      status: "completed",
-      conclusion: "failure",
-      app: { slug: "github-actions" },
-      output: { title: "Checkout race failed", annotations_count: 0 },
-    }],
-  });
-
-  const options = {
-    appId: APP_ID,
-    privateKey,
-    publisherReleaseSha: RELEASE_SHA,
-    generation: 1,
-    enabled: true,
-    expectedRepository: REPOSITORY,
-    request: github.request,
-  };
-  const firstPublished = await publishTrustedRepair({
-    ...options,
-    controllerRequest: first.request,
-    now: new Date("2026-07-19T00:00:00.000Z"),
-  });
-  assert.equal(firstPublished.attempt, 1);
-
-  github.setPullRequest({ headSha: NEXT_HEAD_SHA });
-  github.checks.push({
-    id: 191,
-    name: "checkout-race",
-    head_sha: NEXT_HEAD_SHA,
-    details_url: `https://github.com/${REPOSITORY}/actions/runs/10191`,
-    status: "completed",
-    conclusion: "failure",
-    app: { slug: "github-actions" },
-    output: { title: "Checkout race failed", annotations_count: 0 },
-  });
-  const second = automaticFixture({
-    contract,
-    files,
-    policy,
-    repairKind: "evidence",
-    allowedPaths: contract.scope,
-    instructions,
-    attempt: 2,
-    headSha: NEXT_HEAD_SHA,
-  });
-  const secondPublished = await publishTrustedRepair({
-    ...options,
-    controllerRequest: second.request,
-    now: new Date("2026-07-19T00:01:00.000Z"),
-  });
-
-  assert.equal(secondPublished.attempt, 2);
+  const { policy, request } = fixtureRequest();
+  const github = fakeGitHub(policy);
+  const options = { appId: APP_ID, privateKey, publisherReleaseSha: RELEASE_SHA,
+    generation: 1, enabled: true, expectedRepository: REPOSITORY, request: github.request };
+  await publishTrustedRepair({ ...options, controllerRequest: request, now: new Date("2026-07-19T00:00:00.000Z") });
+  github.setPullRequest({ body: "", headSha: NEXT_HEAD_SHA });
+  const second = automaticFixture({ contract: request.contract, files: [{ path: "docs/oops.md" }], policy,
+    repairKind: "scope", allowedPaths: request.allowedPaths, instructions: request.instructions,
+    attempt: 2, headSha: NEXT_HEAD_SHA });
+  const published = await publishTrustedRepair({ ...options, controllerRequest: second.request,
+    now: new Date("2026-07-19T00:01:00.000Z") });
+  assert.equal(published.attempt, 2);
   assert.equal(github.dispatches.length, 2);
   assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
-test("signed generation ledger rejects rebinding to an expanded contract", async () => {
+test("signed generation ledger rejects rebinding an authorized scope contract", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const title = "Make checkout retries idempotent";
-  const firstContract = { scope: ["src/payments/retry.js"], goal: title };
-  const firstFiles = [{ path: "src/payments/retry.js" }];
-  const policy = {
-    version: 1,
-    protectedPaths: { requireApproval: [".github/**"], block: ["secrets/**"] },
-    evidence: { requiredChecks: [{ name: "checkout-race", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml" }] },
-  };
-  const evidenceInstruction = [{
-    code: "EVIDENCE_FAILED",
-    path: "check:checkout-race",
-    pathKind: "evidence",
-    action: "RESTORE_FAILED_EVIDENCE_WITHIN_DECLARED_SCOPE",
-    diagnostic: "Checkout race failed",
-  }];
-  const first = automaticFixture({
-    contract: firstContract,
-    files: firstFiles,
-    policy,
-    repairKind: "evidence",
-    allowedPaths: firstContract.scope,
-    instructions: evidenceInstruction,
-  });
-  const github = fakeGitHub(policy, {
-    pullRequestBody: "",
-    pullRequestTitle: title,
-    pullRequestFiles: [{ filename: "src/payments/retry.js" }],
-    initialChecks: [{
-      id: 93,
-      name: "checkout-race",
-      head_sha: HEAD_SHA,
-      status: "completed",
-      conclusion: "failure",
-      app: { slug: "github-actions" },
-      output: { title: "Checkout race failed", annotations_count: 0 },
-    }],
-  });
-  const options = {
-    appId: APP_ID,
-    privateKey,
-    publisherReleaseSha: RELEASE_SHA,
-    generation: 1,
-    enabled: true,
-    expectedRepository: REPOSITORY,
-    request: github.request,
-  };
-  await publishTrustedRepair({
-    ...options,
-    controllerRequest: first.request,
-    now: new Date("2026-07-19T00:00:00.000Z"),
-  });
-
-  const expandedContract = { scope: ["docs/oops.md", "src/payments/retry.js"], goal: title };
-  const expandedFiles = [{ path: "src/payments/retry.js" }, { path: "docs/oops.md" }];
-  github.setPullRequest({
-    headSha: NEXT_HEAD_SHA,
-    files: [{ filename: "src/payments/retry.js" }, { filename: "docs/oops.md" }],
-  });
-  github.checks.push({
-    id: 192,
-    name: "checkout-race",
-    head_sha: NEXT_HEAD_SHA,
-    details_url: `https://github.com/${REPOSITORY}/actions/runs/10192`,
-    status: "completed",
-    conclusion: "failure",
-    app: { slug: "github-actions" },
-    output: { title: "Checkout race failed", annotations_count: 0 },
-  });
-  const expanded = automaticFixture({
-    contract: expandedContract,
-    files: expandedFiles,
-    policy,
-    repairKind: "evidence",
-    allowedPaths: expandedContract.scope,
-    instructions: evidenceInstruction,
-    attempt: 2,
-    headSha: NEXT_HEAD_SHA,
-  });
-
-  await assert.rejects(publishTrustedRepair({
-    ...options,
-    controllerRequest: expanded.request,
-    now: new Date("2026-07-19T00:01:00.000Z"),
-  }), /ledger document identity/u);
+  const { policy, request } = fixtureRequest();
+  const github = fakeGitHub(policy);
+  const options = { appId: APP_ID, privateKey, publisherReleaseSha: RELEASE_SHA,
+    generation: 1, enabled: true, expectedRepository: REPOSITORY, request: github.request };
+  await publishTrustedRepair({ ...options, controllerRequest: request, now: new Date("2026-07-19T00:00:00.000Z") });
+  github.setPullRequest({ body: "", headSha: NEXT_HEAD_SHA });
+  const expanded = automaticFixture({ contract: { scope: ["src/payments/**", "docs/**"], goal: null },
+    files: [{ path: "docs/oops.md" }], policy, repairKind: "scope", allowedPaths: request.allowedPaths,
+    instructions: request.instructions, attempt: 2, headSha: NEXT_HEAD_SHA });
+  await assert.rejects(publishTrustedRepair({ ...options, controllerRequest: expanded.request,
+    now: new Date("2026-07-19T00:01:00.000Z") }), /ledger document identity/u);
   assert.equal(github.dispatches.length, 1);
-  assert.equal(github.requests.some(({ path }) => path.includes("/comments?")), false);
 });
 
 test("controller and claim HMACs are repository-bound and tamper evident", () => {

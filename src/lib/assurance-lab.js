@@ -240,6 +240,7 @@ const CASE_DEFINITIONS = Object.freeze([
       source: 'trusted-ci',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral', // Synthetic harness classification; live metadata alone does not supply this.
       diagnostic: 'AssertionError: expected one charge but observed two',
       completedAt: '2026-08-31T00:00:00.000Z',
     }],
@@ -262,6 +263,7 @@ const CASE_DEFINITIONS = Object.freeze([
       source: 'trusted-ci',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral', // Synthetic harness classification; live metadata alone does not supply this.
       diagnostic: 'AssertionError: retry was not idempotent',
       completedAt: '2026-08-31T00:00:00.000Z',
     }],
@@ -285,6 +287,7 @@ const CASE_DEFINITIONS = Object.freeze([
       source: 'trusted-ci',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral', // Synthetic harness classification; live metadata alone does not supply this.
       diagnostic: 'AssertionError: retry was not idempotent',
       completedAt: '2026-08-31T00:00:00.000Z',
     }],

@@ -2,10 +2,11 @@
 
 ## Product boundary
 
-- ChangePlane is a GitHub-native delivery control plane for agent-authored pull requests. GitHub remains the forge, source of truth, branch-policy surface, and merge authority.
-- The normal path is autonomous: bind an exact revision and behavioral check, return a fixable failure to a bounded proposal model, validate the patch in a clean job, apply it through a separately credentialed controller, and publish `ChangePlane / guard` only after fresh exact-head evidence passes.
+- ChangePlane is an open-source assurance and recovery layer for pull requests and merge requests, independent of the authoring agent. The accepted target covers GitHub, GitLab and Cursor Origin; the authoritative forge retains repository state and merge authority. Platform support is qualified per capability, not inferred from a common status name.
+- The default recovery path diagnoses failures and performs only qualified bounded transient recovery. Source repair is opt-in per repository: classify a behavioral failure, bind its exact revision and trusted scope, obtain a bounded proposal, validate it in a clean job, and apply it through a separately credentialed controller. A generic failed CI conclusion is not a behavioral diagnosis.
 - The product complements Codex, Cursor, Claude Code, Trae, Copilot, OpenSWE, and other coding agents. Do not turn it into an IDE, Git host, merge service, proprietary agent workspace, or general-purpose orchestrator.
-- Public onboarding supports GitHub.com personal accounts and organizations, including Enterprise Cloud organizations. GitHub Enterprise Server, forks, and cross-repository repair are outside the supported release.
+- Hosted onboarding retains its GitHub.com personal and organization scope, including Enterprise Cloud. The next open-source scope adds read-only fork diagnosis/handback and a GitLab.com reader; live qualification is recorded separately. GHES, self-managed GitLab and cross-repository repair need separate qualification. Native Origin remains unqualified without live access.
+- Keep the core operable locally or in the user's CI with hosted service optional. Diagnostic data stays with the operator by default; no automatic ChangePlane telemetry. Model egress requires explicit feature enablement and the user's key; incident sharing is opt-in. Current platform spending is USD 0; USD 100 is a later scaling ceiling.
 
 ## Authority and evidence invariants
 

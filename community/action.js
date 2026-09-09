@@ -1,5 +1,6 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { inspectPullRequest } from './github.js';
+import { unavailable } from './transport.js';
 
 try {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
@@ -16,7 +17,11 @@ try {
     `# ChangePlane Open Source\n\n**${report.decision}** · revision \`${report.headSha}\`\n\n${report.findings.length} finding(s). Read the assessment output for exact-revision handback.\n\nRead-only assessment; no App-owned Guard, repair, or merge authorization.\n`);
   console.log(`ChangePlane Open Source: ${report.decision}; ${report.findings.length} finding(s).`);
   if (report.decision !== 'EVIDENCE_SATISFIED') process.exitCode = 1;
-} catch {
-  console.error('ChangePlane Open Source: assessment unavailable. Check the default-branch policy, supported event and read permissions. No Guard was published.');
+} catch (error) {
+  const outcome = unavailable(error);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `decision=UNAVAILABLE\nassessment=${JSON.stringify(outcome)}\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+    `# ChangePlane Open Source\n\n**UNAVAILABLE** · ${outcome.code}\n\n${outcome.message}\n\nNo assessment or Guard was issued.\n`);
+  console.error(`ChangePlane Open Source: ${outcome.code}. ${outcome.message}`);
   process.exitCode = 2;
 }

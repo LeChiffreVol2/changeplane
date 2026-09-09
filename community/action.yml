@@ -12,7 +12,7 @@ inputs:
     required: false
 outputs:
   decision:
-    description: EVIDENCE_SATISFIED, REVIEW_REQUIRED or BLOCKED. Never a published Guard.
+    description: EVIDENCE_SATISFIED, REVIEW_REQUIRED, BLOCKED or UNAVAILABLE. Never a published Guard.
   assessment:
     description: Single-line JSON assessment with exact revision, findings and advisory authority.
 runs:

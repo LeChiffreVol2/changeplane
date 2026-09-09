@@ -27,9 +27,13 @@ paths = [
     'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md',
     'community/core.js', 'community/github.js', 'community/cli.js',
     'community/action.js', 'community/action.yml', 'community/core.test.js',
-    'src/lib/changeplane.js', 'src/lib/harness.js', 'examples/changeplane-evidence-policy.js',
+    'community/gitlab.js', 'community/gitlab.test.js', 'community/observation.js', 'community/observation.test.js',
+    'community/transport.js', 'community/transport.test.js', 'community/action-output.test.js',
+    'community/fixtures/observation.json', 'community/fixtures/recovery-cases.json',
+    'src/lib/changeplane.js', 'src/lib/recovery.js', 'src/lib/harness.js', 'examples/changeplane-evidence-policy.js',
     'examples/community/satisfied.json', 'examples/community/failed.json',
     'examples/community/stale.json', 'examples/community/policy.json',
+    'examples/community/gitlab-policy.json',
 ]
 files = {name: source(name) for name in paths}
 files['package.json'] = (json.dumps({'name': 'changeplane-community', 'version': version,
@@ -45,7 +49,7 @@ Source commit: `{revision}`
 node community/cli.js evaluate examples/community/satisfied.json
 node community/cli.js evaluate examples/community/failed.json
 node community/cli.js evaluate examples/community/stale.json
-node --test community/core.test.js
+node --test community/*.test.js
 ```
 
 Expected exits: 0, 1, 1. Invalid input exits 2. Assessments are advisory;
@@ -58,7 +62,9 @@ node community/cli.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
 
 Use GH_TOKEN or GITHUB_TOKEN via your environment for private GitHub read access.
 Never put tokens on the command line. Offline mode has no network access;
-live mode contacts only GitHub through bounded GET requests.
+live readers use bounded fixed-origin GET requests. The GitLab reader candidate uses
+`inspect-gitlab GROUP/PROJECT MR_NUMBER` and `GITLAB_TOKEN`; it does not claim verified
+tested subjects, CI include closure, merge enforcement or live installation qualification.
 
 [Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
 [Security](https://github.com/LeChiffreVol2/changeplane/security/advisories/new)
