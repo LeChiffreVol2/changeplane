@@ -1,6 +1,8 @@
 const DEFAULT_EVIDENCE_PROTECTED_PATHS = Object.freeze([
   ".changeplane.json",
   ".github/workflows/**",
+  ".gitlab-ci.yml",
+  ".gitlab/**",
   "changeplane/**",
   "test/**",
   "tests/**",
@@ -73,6 +75,7 @@ const EVIDENCE_CONTROL_FILES = new Set([
 
 const IMMUTABLE_EVIDENCE_PREFIXES = Object.freeze([
   ".github/workflows",
+  ".gitlab",
   "changeplane",
 ]);
 
@@ -146,7 +149,7 @@ export function effectiveProtectedPaths(policy, actualFiles = []) {
 export function isEvidenceControlPath(value) {
   const normalized = normalizedEvidencePath(value);
   if (!normalized) return true;
-  if (normalized === ".changeplane.json"
+  if (normalized === ".changeplane.json" || normalized === ".gitlab-ci.yml"
     || IMMUTABLE_EVIDENCE_PREFIXES.some((prefix) => (
       normalized === prefix || normalized.startsWith(`${prefix}/`)
     ))) return true;

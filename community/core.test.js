@@ -51,14 +51,14 @@ test('missing requirements and traversal are rejected, never interpreted as succ
 
 function fixture(overrides = {}) {
   const root = '/repos/example/project';
-  const pr = { number: 7, state: 'open', changed_files: 1,
-    head: { sha: head, ref: 'feature', repo: { full_name: 'example/project' } },
-    base: { sha: base, ref: 'main', repo: { full_name: 'example/project' } } };
+  const pr = { id: 71, number: 7, state: 'open', changed_files: 1,
+    head: { sha: head, ref: 'feature', repo: { id: 1, full_name: 'example/project' } },
+    base: { sha: base, ref: 'main', repo: { id: 1, full_name: 'example/project' } } };
   const run = { id: 12, workflow_id: 18, run_number: 2, run_attempt: 2, head_sha: head,
     path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success',
     repository: { full_name: 'example/project' }, head_repository: { full_name: 'example/project' } };
   const payloads = {
-    [root]: { full_name: 'example/project', default_branch: 'main' },
+    [root]: { id: 1, full_name: 'example/project', default_branch: 'main' },
     [`${root}/pulls/7`]: pr,
     [`${root}/commits/main`]: { sha: base },
     [`${root}/contents/.changeplane.json?ref=${base}`]: { type: 'file', encoding: 'base64', size: JSON.stringify(policy).length,
@@ -95,10 +95,14 @@ test('later workflow run wins even when the API returns the old success first', 
   list.total_count = 2; list.workflow_runs.push({ ...f.run, id: 13, run_number: 3, status: 'queued', conclusion: null });
   assert.equal((await inspect(f.read)).decision, 'REVIEW_REQUIRED');
 });
-test('fork PRs fail before reading policy, code or evidence', async () => {
-  const f = fixture(); f.pr.head.repo.full_name = 'someone/fork';
-  await assert.rejects(inspect(f.read), /TARGET_UNSUPPORTED/u);
-  assert.equal(f.requests.length, 2);
+test('fork assessment reads target policy and preserves separate source identity without executing code', async () => {
+  const f = fixture(); f.pr.head.repo = { id: 2, full_name: 'someone/fork' };
+  f.run.head_repository.full_name = 'someone/fork';
+  const report = await inspect(f.read);
+  assert.equal(report.handback.binding.identity.sourceRepositoryId, '2');
+  assert.equal(report.handback.binding.identity.repositoryId, '1');
+  assert.equal(report.authority.repairAuthorized, false);
+  assert.equal(f.requests.some(path => path.includes('/repos/someone/')), false);
 });
 test('recreated workflow identities cannot inherit an older run number success', async () => {
   const f = fixture(); const list = f.payloads[`/repos/example/project/actions/runs?head_sha=${head}&per_page=100`];
@@ -140,7 +144,7 @@ test('transport is fixed-origin GET-only, redacts errors and refuses credential 
     assert.equal(options.headers.Authorization, 'Bearer synthetic-token');
     return new Response('private response', { status: 403 });
   });
-  await assert.rejects(reader('/repos/example/project'), error => error.message.includes('GITHUB_HTTP_403') && !error.message.includes('private'));
+  await assert.rejects(reader('/repos/example/project'), error => error.code === 'PERMISSION_DENIED' && !error.message.includes('private'));
 });
 test('CLI quickstart runs without dependencies and uses meaningful exit codes', () => {
   for (const [name, status] of [['satisfied', 0], ['failed', 1], ['stale', 1]]) {

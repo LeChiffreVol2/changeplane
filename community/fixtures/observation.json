@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 2,
+  "identity": {
+    "forge": "gitlab",
+    "origin": "https://gitlab.com",
+    "repositoryId": "1",
+    "sourceRepositoryId": "1",
+    "changeId": "7"
+  },
+  "revisions": {
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "currentHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "mergeBase": "dddddddddddddddddddddddddddddddddddddddd",
+    "diffStart": "cccccccccccccccccccccccccccccccccccccccc",
+    "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "currentPolicy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "policy": {
+    "schemaVersion": 2,
+    "protectedPaths": {
+      "block": [
+        "secrets/**"
+      ],
+      "requireApproval": [
+        "infra/**"
+      ]
+    },
+    "evidence": {
+      "required": [
+        {
+          "name": "Behavior",
+          "producer": {
+            "kind": "gitlab-ci",
+            "id": "1"
+          },
+          "subject": "change_head"
+        }
+      ],
+      "protectedPaths": []
+    }
+  },
+  "files": [
+    {
+      "path": "src/sort.js"
+    }
+  ],
+  "collection": {
+    "complete": true,
+    "stable": true,
+    "controlPathsComplete": true,
+    "controlPaths": []
+  },
+  "evidence": [
+    {
+      "name": "Behavior",
+      "producer": {
+        "kind": "gitlab-ci",
+        "id": "1"
+      },
+      "execution": {
+        "id": "1/12/99",
+        "attempt": "99"
+      },
+      "subject": {
+        "kind": "change_head",
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ]
+}

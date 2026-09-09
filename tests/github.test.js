@@ -1051,7 +1051,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
   assert.deepEqual(policy.evidence, {
     requiredChecks: [],
     protectedPaths: [
-      ".changeplane.json", ".github/workflows/**", "changeplane/**",
+      ".changeplane.json", ".github/workflows/**", ".gitlab-ci.yml", ".gitlab/**", "changeplane/**",
       "test/**", "tests/**", "spec/**", "specs/**", "__tests__/**", "e2e/**", "cypress/**",
       "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
       "pyproject.toml", "pytest.ini", "tox.ini", "poetry.lock", "Pipfile", "Pipfile.lock",
@@ -1094,7 +1094,7 @@ test("managed setup defaults to Verify Lite and keeps Full Autonomous explicit",
       workflowPath: ".github/workflows/ci.yml",
     }],
     protectedPaths: [
-      ".changeplane.json", ".github/workflows/**", "changeplane/**",
+      ".changeplane.json", ".github/workflows/**", ".gitlab-ci.yml", ".gitlab/**", "changeplane/**",
       "test/**", "tests/**", "spec/**", "specs/**", "__tests__/**", "e2e/**", "cypress/**",
       "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
       "pyproject.toml", "pytest.ini", "tox.ini", "poetry.lock", "Pipfile", "Pipfile.lock",

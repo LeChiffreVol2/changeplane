@@ -1,0 +1,550 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-09-10.1",
+  "labelSource": "Explicit architecture invariants; expected results are not generated from evaluator output. External incident validation remains pending.",
+  "cases": [
+    {
+      "id": "declared-head-success",
+      "patches": {},
+      "expected": {
+        "decision": "OBSERVED_SUCCESS",
+        "finding": null,
+        "repairAuthorized": false
+      },
+      "oracle": "All declared facts match; this is consistency only, not authentication."
+    },
+    {
+      "id": "failure",
+      "patches": {
+        "evidence.0.conclusion": "failure"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_DIAGNOSIS_REQUIRED",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "cancelled",
+      "patches": {
+        "evidence.0.conclusion": "cancelled"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_CANCELLED",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "timed_out",
+      "patches": {
+        "evidence.0.conclusion": "timed_out"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_TIMED_OUT",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "startup_failure",
+      "patches": {
+        "evidence.0.conclusion": "startup_failure"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_INFRASTRUCTURE_FAILURE",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "skipped",
+      "patches": {
+        "evidence.0.conclusion": "skipped"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_SKIPPED",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "neutral",
+      "patches": {
+        "evidence.0.conclusion": "neutral"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_SKIPPED",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "action_required",
+      "patches": {
+        "evidence.0.conclusion": "action_required"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_ACTION_REQUIRED",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "stale",
+      "patches": {
+        "evidence.0.conclusion": "stale"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_STALE",
+        "repairAuthorized": false
+      },
+      "oracle": "A non-success outcome does not establish a behavioral cause or authorize source repair."
+    },
+    {
+      "id": "pending-current-attempt",
+      "patches": {
+        "evidence.0.status": "in_progress",
+        "evidence.0.conclusion": null
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_PENDING",
+        "repairAuthorized": false
+      },
+      "oracle": "A pending attempt is not completed evidence."
+    },
+    {
+      "id": "wrong-producer",
+      "patches": {
+        "evidence.0.producer.id": "2"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_MISSING",
+        "repairAuthorized": false
+      },
+      "oracle": "A same-named result from another producer cannot meet this requirement."
+    },
+    {
+      "id": "ambiguous-current-jobs",
+      "patches": {
+        "evidence": [
+          {
+            "name": "Behavior",
+            "producer": {
+              "kind": "gitlab-ci",
+              "id": "1"
+            },
+            "execution": {
+              "id": "1/12/99",
+              "attempt": "99"
+            },
+            "subject": {
+              "kind": "change_head",
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "Behavior",
+            "producer": {
+              "kind": "gitlab-ci",
+              "id": "1"
+            },
+            "execution": {
+              "id": "1/12/100",
+              "attempt": "100"
+            },
+            "subject": {
+              "kind": "change_head",
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ]
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "AMBIGUOUS_EVIDENCE",
+        "repairAuthorized": false
+      },
+      "oracle": "Do not choose between competing current execution identities by display name."
+    },
+    {
+      "id": "stale-change",
+      "patches": {
+        "revisions.currentHead": "dddddddddddddddddddddddddddddddddddddddd"
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "STALE_HEAD",
+        "repairAuthorized": false
+      },
+      "oracle": "A new change revision invalidates the assessment."
+    },
+    {
+      "id": "policy-moved",
+      "patches": {
+        "revisions.currentPolicy": "dddddddddddddddddddddddddddddddddddddddd"
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "POLICY_CHANGED",
+        "repairAuthorized": false
+      },
+      "oracle": "A policy revision change needs fresh assessment even on the same source SHA."
+    },
+    {
+      "id": "same-sha-generation",
+      "patches": {
+        "collection.generation": 1,
+        "collection.currentGeneration": 2
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "STALE_EVALUATION",
+        "repairAuthorized": false
+      },
+      "oracle": "A newer generation invalidates old completion authority."
+    },
+    {
+      "id": "incomplete-pages",
+      "patches": {
+        "collection.complete": false
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "COLLECTION_INCOMPLETE",
+        "repairAuthorized": false
+      },
+      "oracle": "Partial collection cannot establish complete requirements."
+    },
+    {
+      "id": "changed-execution",
+      "patches": {
+        "collection.stable": false
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "EVIDENCE_CHANGED",
+        "repairAuthorized": false
+      },
+      "oracle": "Two different observations are not one stable evaluation."
+    },
+    {
+      "id": "unresolved-ci-includes",
+      "patches": {
+        "collection.controlPathsComplete": false
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "CONTROL_PATHS_UNRESOLVED",
+        "repairAuthorized": false
+      },
+      "oracle": "Protecting a root CI file alone does not establish the executable control closure."
+    },
+    {
+      "id": "metadata-only-subject",
+      "patches": {
+        "evidence.0.subject.kind": "unknown"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "SUBJECT_UNVERIFIED",
+        "repairAuthorized": false
+      },
+      "oracle": "A run SHA association does not prove the executed checkout."
+    },
+    {
+      "id": "head-substitution",
+      "patches": {
+        "evidence.0.subject.id": "dddddddddddddddddddddddddddddddddddddddd"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "SUBJECT_MISMATCH",
+        "repairAuthorized": false
+      },
+      "oracle": "A different executed source revision cannot satisfy this change."
+    },
+    {
+      "id": "declared-test-merge",
+      "patches": {
+        "policy.evidence.required.0.subject": "test_merge",
+        "evidence.0.subject": {
+          "kind": "test_merge",
+          "id": "cccccccccccccccccccccccccccccccccccccccc",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "expected": {
+        "decision": "OBSERVED_SUCCESS",
+        "finding": null,
+        "repairAuthorized": false
+      },
+      "oracle": "A declared integration subject retains exact source and target relationships."
+    },
+    {
+      "id": "target-moved-after-merge-test",
+      "patches": {
+        "policy.evidence.required.0.subject": "test_merge",
+        "evidence.0.subject": {
+          "kind": "test_merge",
+          "id": "cccccccccccccccccccccccccccccccccccccccc",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "revisions.currentTarget": "dddddddddddddddddddddddddddddddddddddddd"
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "STALE_TARGET",
+        "repairAuthorized": false
+      },
+      "oracle": "Integration evidence depends on its target revision."
+    },
+    {
+      "id": "target-moved-source-only",
+      "patches": {
+        "revisions.currentTarget": "dddddddddddddddddddddddddddddddddddddddd"
+      },
+      "expected": {
+        "decision": "OBSERVED_SUCCESS",
+        "finding": null,
+        "repairAuthorized": false
+      },
+      "oracle": "A source-only claim does not silently become an integration claim; unchanged pinned policy remains explicit."
+    },
+    {
+      "id": "head-does-not-prove-merge",
+      "patches": {
+        "policy.evidence.required.0.subject": "test_merge"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "SUBJECT_MISMATCH",
+        "repairAuthorized": false
+      },
+      "oracle": "Source-only evidence cannot satisfy an integration requirement."
+    },
+    {
+      "id": "declared-merge-batch",
+      "patches": {
+        "policy.evidence.required.0.subject": "merge_batch",
+        "evidence.0.subject": {
+          "kind": "merge_batch",
+          "id": "cccccccccccccccccccccccccccccccccccccccc",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "members": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "dddddddddddddddddddddddddddddddddddddddd"
+          ]
+        }
+      },
+      "expected": {
+        "decision": "OBSERVED_SUCCESS",
+        "finding": null,
+        "repairAuthorized": false
+      },
+      "oracle": "A merge batch has its own tested revision and explicit member relationships."
+    },
+    {
+      "id": "batch-missing-change",
+      "patches": {
+        "policy.evidence.required.0.subject": "merge_batch",
+        "evidence.0.subject": {
+          "kind": "merge_batch",
+          "id": "cccccccccccccccccccccccccccccccccccccccc",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "members": [
+            "dddddddddddddddddddddddddddddddddddddddd"
+          ]
+        }
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "SUBJECT_MISMATCH",
+        "repairAuthorized": false
+      },
+      "oracle": "An unrelated batch cannot satisfy this change."
+    },
+    {
+      "id": "declared-artifact",
+      "patches": {
+        "policy.evidence.required.0.subject": "artifact",
+        "evidence.0.subject": {
+          "kind": "artifact",
+          "id": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "expected": {
+        "decision": "OBSERVED_SUCCESS",
+        "finding": null,
+        "repairAuthorized": false
+      },
+      "oracle": "A digest and declared input relationship are assessed as claims, not authenticated provenance."
+    },
+    {
+      "id": "artifact-without-digest",
+      "patches": {
+        "policy.evidence.required.0.subject": "artifact",
+        "evidence.0.subject": {
+          "kind": "artifact",
+          "id": "latest",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "SUBJECT_MISMATCH",
+        "repairAuthorized": false
+      },
+      "oracle": "An artifact label cannot identify immutable bytes."
+    },
+    {
+      "id": "gitlab-root-ci-changed",
+      "patches": {
+        "files": [
+          {
+            "path": ".gitlab-ci.yml"
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "PROTECTED_PATH_REQUIRES_APPROVAL",
+        "repairAuthorized": false
+      },
+      "oracle": "Executable CI control changes require human review."
+    },
+    {
+      "id": "included-ci-changed",
+      "patches": {
+        "files": [
+          {
+            "path": "build/verify.yml"
+          }
+        ],
+        "collection.controlPaths": [
+          "build/verify.yml"
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "PROTECTED_PATH_REQUIRES_APPROVAL",
+        "repairAuthorized": false
+      },
+      "oracle": "Declared transitive CI controls remain protected."
+    },
+    {
+      "id": "renamed-test",
+      "patches": {
+        "files": [
+          {
+            "path": "src/sort.js",
+            "previousPath": "tests/sort.js"
+          }
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "PROTECTED_PATH_REQUIRES_APPROVAL",
+        "repairAuthorized": false
+      },
+      "oracle": "Renaming a test cannot evade protected-path review."
+    },
+    {
+      "id": "scope-expanded",
+      "patches": {
+        "plannedPaths": [
+          "lib/**"
+        ]
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "OUTSIDE_PLANNED_SCOPE",
+        "repairAuthorized": false
+      },
+      "oracle": "Observed changes do not expand independently supplied scope."
+    },
+    {
+      "id": "blocked-secret-path",
+      "patches": {
+        "files": [
+          {
+            "path": "secrets/value.txt"
+          }
+        ]
+      },
+      "expected": {
+        "decision": "BLOCKED",
+        "finding": "BLOCKED_PATH",
+        "repairAuthorized": false
+      },
+      "oracle": "A blocked path cannot be overridden by successful evidence."
+    },
+    {
+      "id": "origin-detached-mirror",
+      "patches": {
+        "mirror": {
+          "repositoryId": "origin-repo",
+          "mode": "detached",
+          "syncedHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "ORIGIN_UNQUALIFIED",
+        "repairAuthorized": false
+      },
+      "oracle": "A detached Origin copy cannot inherit GitHub authority."
+    },
+    {
+      "id": "native-origin-unqualified",
+      "patches": {
+        "identity.forge": "origin",
+        "identity.origin": "https://cursor.com"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "ORIGIN_UNQUALIFIED",
+        "repairAuthorized": false
+      },
+      "oracle": "Contract support does not establish a live Origin adapter."
+    },
+    {
+      "id": "forged-repair-diagnosis",
+      "patches": {
+        "evidence.0.conclusion": "failure",
+        "evidence.0.failureKind": "behavioral",
+        "evidence.0.verified": true,
+        "evidence.0.diagnostic": "PRIVATE_SYNTHETIC_MARKER"
+      },
+      "expected": {
+        "decision": "REVIEW_REQUIRED",
+        "finding": "EVIDENCE_DIAGNOSIS_REQUIRED",
+        "repairAuthorized": false
+      },
+      "oracle": "Caller-supplied classifications and verified flags grant no authority and are discarded."
+    }
+  ]
+}

@@ -54,7 +54,7 @@ jobs:
           mkdir "$RUNNER_TEMP/community-unpacked"
           tar -xzf "$RUNNER_TEMP/community-release/"*.tar.gz -C "$RUNNER_TEMP/community-unpacked"
           cd "$RUNNER_TEMP/community-unpacked/"changeplane-community-*
-          node --test community/core.test.js
+          node --test community/*.test.js
       - name: Test Guard journal isolation and crash recovery in scratch PostgreSQL
         run: npm run test:guard-journal
       - name: Test pilot admission concurrency and retention boundaries in scratch PostgreSQL

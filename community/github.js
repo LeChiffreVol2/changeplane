@@ -1,5 +1,7 @@
 import { assess, canonical, validatePolicy } from './core.js';
 import { githubWorkflowFilePath } from '../src/lib/harness.js';
+import { boundedReader } from './transport.js';
+import { createHash } from 'node:crypto';
 
 const SHA = /^[a-f0-9]{40}$/u;
 const positive = value => Number.isSafeInteger(value) && value > 0;
@@ -7,21 +9,9 @@ const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLow
 
 /** Fixed-origin, GET-only transport. Never follows redirects with credentials. */
 export function githubReader(token = '', fetchImpl = fetch) {
-  return async path => {
-    if (!path.startsWith('/repos/') || /[\r\n]/u.test(path)) throw new Error('GITHUB_PATH_INVALID');
-    let response;
-    try {
-      response = await fetchImpl(`https://api.github.com${path}`, {
-        method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15_000),
-        headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'changeplane-community', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      });
-    } catch { throw new Error('GITHUB_UNAVAILABLE: retry when GitHub is reachable.'); }
-    if (!response.ok) throw new Error(`GITHUB_HTTP_${response.status}: check read permissions or rate limits; no assessment was issued.`);
-    const body = await response.text();
-    if (body.length > 4_000_000) throw new Error('GITHUB_LIMIT: response exceeds the bounded reader.');
-    try { return JSON.parse(body); } catch { throw new Error('GITHUB_RESPONSE_INVALID'); }
-  };
+  return boundedReader({ provider: 'github', origin: 'https://api.github.com', prefix: '/repos/', fetchImpl,
+    headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'changeplane-open-source', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
 }
 
 function boundedList(response, key, max = 100) {
@@ -34,11 +24,13 @@ function boundedList(response, key, max = 100) {
 
 function target(pr, repo, defaultBranch) {
   if (!positive(pr?.number) || pr.state !== 'open' || !SHA.test(pr.head?.sha) || !SHA.test(pr.base?.sha)
-    || !same(pr.head.repo?.full_name, repo) || !same(pr.base.repo?.full_name, repo)
+    || !positive(pr.head.repo?.id) || !positive(pr.base.repo?.id) || !positive(pr.id)
+    || typeof pr.head.repo.full_name !== 'string' || !same(pr.base.repo?.full_name, repo)
     || pr.base.ref !== defaultBranch || !Number.isSafeInteger(pr.changed_files) || pr.changed_files < 1 || pr.changed_files > 3000) {
-    throw new Error('TARGET_UNSUPPORTED: use an open same-repository PR targeting the default branch (1–3000 files).');
+    throw new Error('TARGET_UNSUPPORTED: use an open PR targeting the default branch with available source identity (1–3000 files).');
   }
-  return { headSha: pr.head.sha, baseSha: pr.base.sha, headRef: pr.head.ref, baseRef: pr.base.ref, files: pr.changed_files };
+  return { headSha: pr.head.sha, baseSha: pr.base.sha, headRef: pr.head.ref, baseRef: pr.base.ref, files: pr.changed_files,
+    sourceRepository: pr.head.repo.full_name, sourceRepositoryId: pr.head.repo.id, repositoryId: pr.base.repo.id, changeId: pr.id };
 }
 
 export async function inspectPullRequest({ repository, number, token, read = githubReader(token) }) {
@@ -46,10 +38,11 @@ export async function inspectPullRequest({ repository, number, token, read = git
     || !positive(number)) throw new Error('TARGET_INVALID: use owner/repository and a positive pull request number.');
   const root = `/repos/${repository}`;
   const repo = await read(root);
-  if (!same(repo.full_name, repository) || !repo.default_branch) throw new Error('REPOSITORY_INVALID');
+  if (!positive(repo.id) || !same(repo.full_name, repository) || !repo.default_branch) throw new Error('REPOSITORY_INVALID');
   const pr = await read(`${root}/pulls/${number}`);
   if (pr.number !== number) throw new Error('TARGET_INVALID');
   const initial = target(pr, repository, repo.default_branch);
+  if (initial.repositoryId !== repo.id) throw new Error('REPOSITORY_INVALID');
   const base = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
   if (!SHA.test(base.sha)) throw new Error('BASE_INVALID');
   const contents = await read(`${root}/contents/.changeplane.json?ref=${base.sha}`);
@@ -93,7 +86,7 @@ export async function inspectPullRequest({ repository, number, token, read = git
       const candidates = runs.filter(run => run.head_sha === initial.headSha
         && githubWorkflowFilePath(run.path) === requirement.workflowPath);
       if (candidates.some(run => !positive(run.id) || !positive(run.workflow_id) || !positive(run.run_number) || !positive(run.run_attempt)
-        || !same(run.repository?.full_name, repository) || !same(run.head_repository?.full_name, repository))) {
+        || !same(run.repository?.full_name, repository) || !same(run.head_repository?.full_name, initial.sourceRepository))) {
         throw new Error('WORKFLOW_IDENTITY_INVALID');
       }
       if (new Set(candidates.map(run => run.workflow_id)).size > 1) {
@@ -127,13 +120,19 @@ export async function inspectPullRequest({ repository, number, token, read = git
   const finalRepo = await read(root);
   const finalBase = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
   const finalPr = await read(`${root}/pulls/${number}`);
-  if (finalRepo.default_branch !== repo.default_branch || finalBase.sha !== base.sha
+  if (finalRepo.id !== repo.id || finalRepo.default_branch !== repo.default_branch || finalBase.sha !== base.sha
     || finalPr.number !== number || canonical(target(finalPr, repository, repo.default_branch)) !== canonical(initial)) {
     throw new Error('REVISION_CHANGED: the PR or trusted default branch changed; reassess.');
   }
   const report = assess({ schemaVersion: 1, baseSha: base.sha, headSha: initial.headSha,
     currentHeadSha: finalPr.head.sha, policy, files, checks: second.checks });
-  return { ...report, observation: { source: 'github-api', repository, pullRequest: number,
+  const identity = { forge: 'github', origin: 'https://github.com', repositoryId: String(repo.id),
+    sourceRepositoryId: String(initial.sourceRepositoryId), changeId: String(initial.changeId) };
+  const binding = { ...report.handback.binding, identity, policyRevision: base.sha, targetRevision: initial.baseSha,
+    observationDigest: createHash('sha256').update(canonical({ identity, initial, policyDigest: report.policyDigest,
+      inputDigest: report.inputDigest, executions: second.identities })).digest('hex') };
+  return { ...report, handback: { ...report.handback, binding, executions: second.identities },
+    observation: { source: 'github-api', identity, repository, pullRequest: number,
     observedAt: new Date().toISOString(), workflowIdentities: second.identities,
     limitation: 'Point-in-time read-only assessment. GitHub may change immediately afterward; this is not a Guard or merge approval.' } };
 }

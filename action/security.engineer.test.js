@@ -13,13 +13,13 @@ test("required deterministic evidence accepts success only", () => {
     checks: [{ name: "race-reproduction", status: "completed", conclusion: "success" }],
   }).decision, DECISION.PASS);
 
-  for (const conclusion of ["neutral", "skipped", "failure", "cancelled"]) {
+  for (const [conclusion, code] of [["neutral", "EVIDENCE_SKIPPED"], ["skipped", "EVIDENCE_SKIPPED"], ["failure", "EVIDENCE_DIAGNOSIS_REQUIRED"], ["cancelled", "EVIDENCE_CANCELLED"]]) {
     const result = evaluateEvidence({
       requiredChecks: ["race-reproduction"],
       checks: [{ name: "race-reproduction", status: "completed", conclusion }],
     });
     assert.equal(result.decision, DECISION.REVIEW_REQUIRED);
-    assert.deepEqual(result.reasons.map(({ code }) => code), ["EVIDENCE_FAILED"]);
+    assert.deepEqual(result.reasons.map(({ code }) => code), [code]);
   }
 });
 

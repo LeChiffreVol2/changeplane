@@ -179,6 +179,7 @@ test('binds required evidence to the declared GitHub App identity', () => {
         source: 'trusted-ci',
         status: 'completed',
         conclusion: 'failure',
+      failureKind: 'behavioral',
         checkRunId: 808,
         publisherAppId: 15368,
         completedAt: '2026-08-20T00:01:00Z',
@@ -330,6 +331,7 @@ test('returns proposal-only changes required when verify-only agent handoff is e
       source: 'trusted-ci',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral',
     }],
   });
   const evidencePlan = planAutonomousDecision({
@@ -359,6 +361,7 @@ test('keeps verify-only handoff opt-in and limited to one fixable finding kind',
       name: 'checkout-race',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral',
     }],
   });
   const mixedResult = {
@@ -379,6 +382,7 @@ test('routes a completed failed check into a bounded in-scope repair contract', 
       source: 'trusted-ci',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral',
       diagnostic: 'AssertionError: expected one charge but observed two',
     }],
   });
@@ -412,6 +416,7 @@ test('bounds and sanitizes failed evidence before returning it to a proposal mod
       name: 'checkout-race',
       status: 'completed',
       conclusion: 'failure',
+      failureKind: 'behavioral',
       diagnostic: `\u0000duplicate charge\r\n${'x'.repeat(7_000)}`,
     }],
   });

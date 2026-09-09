@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "protectedPaths": {
+    "block": [
+      "secrets/**"
+    ],
+    "requireApproval": [
+      "infra/**"
+    ]
+  },
+  "evidence": {
+    "required": [
+      {
+        "name": "Behavior",
+        "producer": {
+          "kind": "gitlab-ci",
+          "id": "1"
+        },
+        "subject": "change_head"
+      }
+    ],
+    "protectedPaths": []
+  }
+}
