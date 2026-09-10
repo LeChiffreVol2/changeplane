@@ -32,7 +32,6 @@ import {
 import {
   evaluateChange,
 } from "./lib/changeplane.js";
-import { runOriginBoundaryProof } from "./lib/assurance-lab.js";
 import { ApiError, responseJson } from "./lib/api-client.js";
 import {
   REVISION_STAGE_STATE,
@@ -400,7 +399,7 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
   );
 }
 
-function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore, onOpenLab, usage, onUsage, onSettings }) {
+function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore, usage, onUsage, onSettings }) {
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const controlledCanary = rolloutMode === "controlled_canary";
@@ -501,10 +500,6 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                 View RouteThai example
               </button>
             )}
-
-            <button className="assurance-lab-entry" type="button" onClick={onOpenLab} disabled={isSigningIn}>
-              <ShieldCheck size={16} weight="fill" /> Run the synthetic Origin boundary proof <ArrowRight size={14} />
-            </button>
 
             <p className="auth-security"><LockKey size={15} /> {controlledCanary
               ? "The example never accesses GitHub. Private rollout access can see only the pre-authorized canary repository."
@@ -2536,184 +2531,6 @@ function BackboneDrawer({ change, onClose }) {
   );
 }
 
-const ORIGIN_PROOF_FILTERS = Object.freeze([
-  { id: "origin", label: "Authoring surface" },
-  { id: "contract", label: "Guard contract" },
-  { id: "all", label: "All cases" },
-]);
-
-function proofReason(item) {
-  if (["FAILED", "REJECTED"].includes(item.observed.providerStatus)) return item.observed.automationReason;
-  return item.observed.reasonCodes[0]
-    || (item.observed.guardEligible ? "TRUSTED_EXACT_HEAD" : item.observed.automationReason)
-    || "NONE";
-}
-
-function AssuranceLabDrawer({ onClose }) {
-  const [report, setReport] = useState(() => runOriginBoundaryProof());
-  const [filter, setFilter] = useState("origin");
-  const [copied, setCopied] = useState(false);
-  const [runCount, setRunCount] = useState(1);
-  const dialogRef = useDialogFocus(true, onClose);
-  const originCases = report.cases.filter(({ category }) => category === "origin-boundary");
-  const guardCases = report.cases.filter(({ category }) => category !== "origin-boundary");
-  const filteredCases = filter === "origin" ? originCases : filter === "contract" ? guardCases : report.cases;
-  const filterCounts = { origin: originCases.length, contract: guardCases.length, all: report.cases.length };
-
-  async function copyReport() {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  function rerunProof() {
-    setReport(runOriginBoundaryProof());
-    setRunCount((count) => count + 1);
-    setCopied(false);
-  }
-
-  return (
-    <div className="drawer-overlay assurance-lab-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="drawer assurance-lab-drawer" role="dialog" aria-modal="true" aria-labelledby="assurance-lab-title" ref={dialogRef} tabIndex={-1}>
-        <header className="drawer-head assurance-lab-head">
-          <div>
-            <p>Runnable synthetic contract · documented Origin boundary</p>
-            <h2 id="assurance-lab-title">Synthetic GitHub-mirrored Origin boundary proof</h2>
-          </div>
-          <button type="button" aria-label="Close Origin boundary proof" onClick={onClose}><X size={19} /></button>
-        </header>
-
-        <p className="origin-proof-lede">Cursor Origin may be the authoring and mirror surface. This zero-request synthetic proof checks ChangePlane's own GitHub-side contract; it does not test or write to Origin or GitHub.</p>
-
-        <section className="origin-proof-posture" aria-labelledby="origin-proof-posture-title">
-          <div>
-            <p id="origin-proof-posture-title">Executable contract path</p>
-            <strong>GitHub-mirrored Origin</strong>
-            <span>Synthetic contract · v13 App/OIDC baseline proven · live Origin mirror unavailable</span>
-          </div>
-          <div>
-            <p>Release authority</p>
-            <strong>GitHub</strong>
-            <span>Guard is evidence, never merge authority</span>
-          </div>
-          <div className="origin-proof-unsupported">
-            <p>Standalone Origin</p>
-            <strong>Unsupported</strong>
-            <span>Not tested · not counted as proof</span>
-          </div>
-        </section>
-
-        <div className="assurance-lab-summary origin-proof-summary" aria-live="polite" aria-atomic="true">
-          <strong><span>{report.summary.passed}</span> / {report.summary.total} boundary assertions passed</strong>
-          <p><b>Run {runCount}.</b> {report.summary.executableCasesPassed} / {report.summary.executableCases} contract cases matched the same deterministic evaluator. No GitHub or Origin API request was made.</p>
-          <dl>
-            <div><dt>Contract cases</dt><dd>{report.summary.executableCasesPassed} / {report.summary.executableCases}</dd></div>
-            <div><dt>Origin cases</dt><dd>{report.summary.originBoundaryCases}</dd></div>
-            <div><dt>External requests</dt><dd>{report.execution.externalRequests}</dd></div>
-          </dl>
-        </div>
-
-        <section className="origin-proof-assertions" aria-labelledby="origin-proof-assertions-title">
-          <div className="origin-proof-section-heading">
-            <div><p>Observed locally</p><h3 id="origin-proof-assertions-title">Six boundary assertions</h3></div>
-            <span>{report.summary.allPassed ? "All matched" : `${report.summary.failed} failed`}</span>
-          </div>
-          <ol>
-            {report.assertions.map((assertion, index) => (
-              <li className={assertion.passed ? "assertion-pass" : "assertion-fail"} key={assertion.id}>
-                {assertion.passed
-                  ? <CheckCircle size={17} weight="fill" aria-hidden="true" />
-                  : <WarningOctagon size={17} weight="fill" aria-hidden="true" />}
-                <span><strong>{String(index + 1).padStart(2, "0")} · {assertion.label}</strong><small>{assertion.observed}</small></span>
-                <b>{assertion.passed ? "MATCH" : "MISMATCH"}</b>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section className="origin-proof-sources" aria-labelledby="origin-proof-sources-title">
-          <div className="origin-proof-section-heading">
-            <div><p>Published context</p><h3 id="origin-proof-sources-title">Cursor documentation</h3></div>
-            <span>{report.documentedContext.originStatus.replaceAll("_", " ")} · checked {report.documentedContext.asOf}</span>
-          </div>
-          <p>Cursor documents Origin as an early-beta git forge. For a GitHub mirror, GitHub remains the source of truth and the mirrored pull-request path returns to GitHub.</p>
-          <ul>
-            {report.documentedContext.sources.map((source) => (
-              <li key={source.url}>
-                <a href={source.url} target="_blank" rel="noreferrer">{source.label}<ArrowRight size={12} aria-hidden="true" /></a>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="origin-proof-cases" aria-labelledby="origin-proof-cases-title">
-          <div className="origin-proof-section-heading origin-proof-cases-heading">
-            <div><p>Executable fixtures</p><h3 id="origin-proof-cases-title">Inspect the evidence</h3></div>
-            <span>{filteredCases.length} shown</span>
-          </div>
-          <div className="origin-proof-filters" role="group" aria-label="Proof case filter">
-            {ORIGIN_PROOF_FILTERS.map((option) => (
-              <button
-                type="button"
-                key={option.id}
-                aria-pressed={filter === option.id}
-                onClick={() => setFilter(option.id)}
-              >
-                {option.label}<span>{filterCounts[option.id]}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="assurance-lab-cases">
-            {filteredCases.map((item, index) => {
-              const outcome = item.observed.outcome;
-              const reason = proofReason(item);
-              return (
-                <details className={`assurance-lab-case outcome-${outcome.toLowerCase()}`} key={item.id} style={{ "--case-index": index }}>
-                  <summary>
-                    <span className="assurance-lab-case-index">{String(index + 1).padStart(2, "0")}</span>
-                    <span><strong>{item.label}</strong><small>{item.description}</small></span>
-                    <span className="assurance-lab-outcome">{outcome.replaceAll("_", " ")}</span>
-                    <CaretRight size={15} />
-                  </summary>
-                  <dl>
-                    <div><dt>Authoring surface</dt><dd>{item.boundary.authoringSurface.replaceAll("_", " ")}</dd></div>
-                    <div><dt>Source of truth</dt><dd>{item.boundary.sourceOfTruth}</dd></div>
-                    <div><dt>Head binding</dt><dd title={item.revision.headSha} aria-label={`${item.revision.exactHead ? "Exact head" : "Stale head"} ${item.revision.headSha}`}>{item.revision.exactHead ? `Exact · ${item.revision.headSha.slice(0, 8)}` : `Stale · ${item.revision.evaluatedHeadSha.slice(0, 8)}`}</dd></div>
-                    <div><dt>Decision reason</dt><dd>{reason}</dd></div>
-                    <div><dt>Guard publication</dt><dd>{item.observed.guardEligible ? "Eligible (not published)" : "Not eligible"}</dd></div>
-                    <div><dt>Mutation</dt><dd>{item.observed.repositoryMutation ? "Allowed" : "Withheld"}</dd></div>
-                    <div><dt>Merge authority</dt><dd>{item.boundary.mergeAuthority}</dd></div>
-                    <div><dt>Assertion</dt><dd>{item.assertion.passed ? "Matched expected contract" : "Mismatch"}</dd></div>
-                  </dl>
-                </details>
-              );
-            })}
-          </div>
-        </section>
-
-        <aside className="origin-proof-limit" aria-labelledby="origin-proof-limit-title">
-          <strong id="origin-proof-limit-title"><LockKey size={14} aria-hidden="true" /> What this proves</strong>
-          <p>{report.limits[1]}</p>
-          <p>{report.limits[2]}</p>
-        </aside>
-
-        <footer className="assurance-lab-actions">
-          <button className="secondary-action" type="button" onClick={rerunProof}>
-            <ArrowsClockwise size={15} weight="bold" /> Run proof again
-          </button>
-          <button className="primary-action" type="button" onClick={copyReport}>
-            <Copy size={15} /> {copied ? "Proof JSON copied" : "Copy proof JSON"}
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-}
-
 export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [usage, setUsage] = useState('individual');
@@ -2761,7 +2578,6 @@ export function App() {
   const [previewEvidenceOpen, setPreviewEvidenceOpen] = useState(false);
   const [backboneOpen, setBackboneOpen] = useState(false);
   const [handbackOpen, setHandbackOpen] = useState(false);
-  const [assuranceLabOpen, setAssuranceLabOpen] = useState(false);
   const timersRef = useRef([]);
   const focusedPageRef = useRef(null);
 
@@ -3387,13 +3203,11 @@ export function App() {
           onSignIn={signIn}
           onAuthorize={authorizeExisting}
           onExplore={exploreProduct}
-          onOpenLab={() => setAssuranceLabOpen(true)}
           usage={usage}
           onUsage={setUsage}
           onSettings={() => setSettingsOpen(true)}
         />
         {settingsDrawer}
-        {assuranceLabOpen && <AssuranceLabDrawer onClose={() => setAssuranceLabOpen(false)} />}
       </>
     );
   }

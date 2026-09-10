@@ -49,6 +49,7 @@
 
 ## Release quality
 
+- Do not bump versions or create release tags for routine fixes, UI polish or documentation changes. Reserve version changes for major product changes; identify routine deployments by commit SHA and keep published release assets immutable.
 - Preserve unrelated worktree changes and use protected pull requests for production changes.
 - Before release, run unit/integration tests, production build, Chromium onboarding journeys, dependency audit, public-data scan, and signed-out production smoke checks.
 - Keep branch protection, the exact `CI / verify` required check, immutable Action SHAs, Vercel Git deployment provenance, the repair kill switch, generation invalidation, and the previous known-good deployment available for rollback.

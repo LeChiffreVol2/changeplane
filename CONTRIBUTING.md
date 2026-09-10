@@ -35,6 +35,8 @@ Explain the user-visible problem, final behavior and validation. Add a regressio
 
 Only `.github/workflows/ci.yml` is active here. New customer workflows belong in `examples/` until reviewed and installed elsewhere. Avoid network-dependent tests; inject bounded GitHub responses and prove drift/failure behavior. Source changes go through protected PRs with `CI / verify`; maintainers do not bypass it.
 
+Routine fixes, UI polish and documentation updates do not need a version bump or a new release tag. Version changes are reserved for major product changes. Identify routine builds by their full commit SHA; published tags and release assets stay immutable.
+
 By intentionally submitting a contribution, you offer it under this project's Apache-2.0 license, as described in section 5 of that license. Submit only work you have the right to contribute and retain third-party notices. No CLA or copyright assignment is required by this project at present.
 
 ## Community conduct

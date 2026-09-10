@@ -54,6 +54,8 @@ These are ChangePlane contract claims. They do not establish that Origin is unsa
 
 ### Tier 1: executable synthetic contract
 
+This is an engineering check run from the CLI and CI. It is not part of the public onboarding interface.
+
 Run:
 
 ```sh

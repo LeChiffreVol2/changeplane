@@ -63,6 +63,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   await expect(page.getByRole("radio", { name: "Individual", exact: true })).toBeChecked();
   await expect(page.getByRole("radio", { name: "Teams", exact: true })).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Set up Individual" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /synthetic Origin|Origin boundary proof/u })).toHaveCount(0);
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   await expect(page.getByText("RouteThai use case · synthetic contract reconstruction")).toHaveCount(1);
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
@@ -195,80 +196,6 @@ test("self-serve root explains organization approval recovery without changing a
   await expect(page.getByRole("button", { name: "Install ChangePlane on GitHub" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Already installed? Continue with GitHub" })).toBeVisible();
   await expect(page.getByText("Organization access may require owner approval.", { exact: false })).toBeVisible();
-  expect(externalRequests).toEqual([]);
-});
-
-test("public Cursor Origin drawer proves the GitHub boundary without claiming native Origin support", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const externalRequests = await mockLocalApi(page, (route, url) => {
-    expect(url.searchParams.get("action")).toBe("session");
-    return json(route, {
-      configured: true,
-      authenticated: false,
-      authMode: "github_app",
-      rolloutMode: "self_serve",
-    });
-  });
-
-  await page.goto("/");
-  const openProof = page.getByRole("button", { name: "Run the synthetic Origin boundary proof" });
-  await expect(openProof).toBeVisible();
-  await openProof.focus();
-  await expect(openProof).toBeFocused();
-  await page.keyboard.press("Enter");
-
-  const dialog = page.getByRole("dialog", { name: "Synthetic GitHub-mirrored Origin boundary proof" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator(".origin-proof-summary")).toContainText("6 / 6 boundary assertions passed");
-  await expect(dialog.locator(".origin-proof-summary")).toContainText("12 / 12 contract cases matched");
-  await expect(dialog.locator(".origin-proof-summary")).toContainText("Origin cases3");
-  await expect(dialog.locator(".origin-proof-summary")).toContainText("External requests0");
-  await expect(dialog.locator(".origin-proof-assertions li")).toHaveCount(6);
-  await expect(dialog.locator(".origin-proof-assertions li", { hasText: "MATCH" })).toHaveCount(6);
-
-  const unsupported = dialog.locator(".origin-proof-unsupported");
-  await expect(unsupported).toContainText("Standalone Origin");
-  await expect(unsupported).toContainText("Unsupported");
-  await expect(unsupported).toContainText("Not tested · not counted as proof");
-
-  await expect(dialog.locator(".assurance-lab-case")).toHaveCount(3);
-  await expect(dialog.getByRole("button", { name: /Authoring surface\s*3/u })).toHaveAttribute("aria-pressed", "true");
-  await dialog.getByRole("button", { name: /All cases\s*12/u }).click();
-  await expect(dialog.locator(".assurance-lab-case")).toHaveCount(12);
-  await expect(dialog.getByText("12 shown", { exact: true })).toBeVisible();
-
-  const exactHeadCase = dialog.locator(".assurance-lab-case").filter({ hasText: "Origin mirror · exact GitHub head" });
-  await exactHeadCase.locator("summary").click();
-  await expect(exactHeadCase.locator("dl")).toContainText("Guard publicationEligible (not published)");
-
-  const staleHeadCase = dialog.locator(".assurance-lab-case").filter({ hasText: "Origin mirror · stale visible head" });
-  await staleHeadCase.locator("summary").click();
-  await expect(staleHeadCase.locator("dl")).toContainText("STALE_HEAD");
-  await expect(staleHeadCase.locator("dl")).toContainText("Guard publicationNot eligible");
-  await expect(staleHeadCase.locator("dl")).toContainText("Merge authoritygithub");
-
-  const originOverview = dialog.getByRole("link", { name: "Cursor Origin" });
-  const mirrorDocs = dialog.getByRole("link", { name: "GitHub mirroring" });
-  const originApi = dialog.getByRole("link", { name: "Origin API" });
-  await expect(originOverview).toBeVisible();
-  await expect(originOverview).toHaveAttribute("href", "https://cursor.com/docs/origin");
-  await expect(mirrorDocs).toBeVisible();
-  await expect(mirrorDocs).toHaveAttribute("href", "https://cursor.com/docs/origin/mirror-github");
-  await expect(originApi).toBeVisible();
-  await expect(originApi).toHaveAttribute("href", "https://cursor.com/docs/api/origin");
-  await expect(page).toHaveURL(`${APP_ORIGIN}/`);
-
-  await expect(dialog.locator(".origin-proof-limit")).toContainText("does not prove that ChangePlane is faster");
-  await expect(dialog.locator(".origin-proof-limit")).toContainText("Standalone Origin repositories remain unsupported");
-  await expect(dialog.locator(".origin-proof-summary")).toContainText("No GitHub or Origin API request was made");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-
-  const closeProof = dialog.getByRole("button", { name: "Close Origin boundary proof" });
-  await expect(closeProof).toBeVisible();
-  await closeProof.click();
-  await expect(dialog).toHaveCount(0);
-  await expect(openProof).toBeFocused();
   expect(externalRequests).toEqual([]);
 });
 
