@@ -1,0 +1,37 @@
+/* Shared product roles. Keep geometry such as chart marks outside this scale. */
+:root {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, monospace;
+  --text-meta: 0.75rem;
+  --text-body: 0.875rem;
+  --text-section: 1rem;
+  --text-subtitle: 1.25rem;
+  --text-title: 1.5rem;
+  --text-display: 1.75rem;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+  --tracking-tight: -0.025em;
+  --tracking-label: 0.04em;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --control-small: 36px;
+  --control-default: 40px;
+  --control-touch: 44px;
+  --radius-control: 4px;
+  --radius-pill: 999px;
+  --accent: #0b6269;
+  --accent-soft: #e8efeb;
+  --focus: #0a6069;
+  --motion-fast: 160ms;
+}
