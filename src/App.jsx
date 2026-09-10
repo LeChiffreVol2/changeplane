@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   ArrowsClockwise,
@@ -12,6 +12,7 @@ import {
   Copy,
   FileCode,
   FunnelSimple,
+  GearSix,
   GitBranch,
   GithubLogo,
   GitMerge,
@@ -328,7 +329,78 @@ function sessionFor(login, csrf, authMode = "oauth") {
   };
 }
 
-function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore, onOpenLab }) {
+function UsageChoice({ usage, onChange }) {
+  const groupName = useId();
+  return (
+    <fieldset className="usage-choice">
+      <legend>Who is this setup for?</legend>
+      <div className="usage-options">
+        {[['individual', 'Individual', 'Your projects and coding agents'], ['teams', 'Teams', 'Shared projects, people and agents']].map(([value, label, description]) => (
+          <label key={value} className={usage === value ? 'is-selected' : ''}>
+            <input type="radio" name={groupName} value={value} checked={usage === value} onChange={() => onChange(value)} aria-label={label} />
+            <span><strong>{label}</strong><small>{description}</small></span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
+  const dialogRef = useDialogFocus(true, onClose);
+  const [copyStatus, setCopyStatus] = useState('');
+  const policyFields = JSON.stringify({ team: draft }, null, 2);
+  useEffect(() => { setCopyStatus(''); }, [policyFields, usage]);
+  async function copySettings() {
+    try {
+      await navigator.clipboard.writeText(policyFields);
+      setCopyStatus('Copied draft. Review it in a configuration PR before it takes effect.');
+    } catch {
+      setCopyStatus('Clipboard unavailable. Select and copy the JSON below; repository settings have not changed.');
+    }
+  }
+  return (
+    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Dismiss settings" />
+      <section className="guide-drawer settings-drawer" ref={dialogRef} tabIndex={-1}>
+        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close settings" data-dialog-initial><X size={18} /></button>
+        <p className="eyebrow">Open Source · local setup draft</p>
+        <h2 id="settings-title">Settings</h2>
+        <p className="guide-intro">Choose how you work. Both options support personal and organization repositories; GitHub permissions stay with the repository.</p>
+        <UsageChoice usage={usage} onChange={onUsage} />
+        <section className="settings-section" aria-labelledby="assessment-settings-title">
+          <h3 id="assessment-settings-title">PR and CI assessment</h3>
+          <p>Available to everyone. Bind your existing behavioral CI job and receive revision-specific findings for your coding agent. No model key or ChangePlane account is required.</p>
+        </section>
+        <section className="settings-section" aria-labelledby="coordination-settings-title">
+          <h3 id="coordination-settings-title">Parallel work</h3>
+          <label className="settings-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => onDraft({ ...draft, enabled: event.target.checked })} /> Coordinate parallel work</label>
+          <p>{usage === 'individual' ? 'Give your own agents separate scopes and worktrees. Leave this off for PR assessment without a task board.' : 'Coordinate scoped tasks, dependencies and handbacks for teammates and their agents.'}</p>
+          <label className="settings-capacity">Maximum active tasks
+            <select value={draft.maxActive} disabled={!draft.enabled} onChange={(event) => onDraft({ ...draft, maxActive: Number(event.target.value) })}>
+              {Array.from({ length: 20 }, (_, index) => index + 1).map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <p>Each participating writer needs a separate workspace. A task reservation never grants push, approval or merge access.</p>
+        </section>
+        <details className="settings-policy">
+          <summary>Review the repository settings</summary>
+          <p>These are draft policy fields, not a complete policy file. Merge only the <code>team</code> field into the existing trusted <code>.changeplane.json</code> through a configuration PR. Preserve evidence checks, protected paths and other settings.</p>
+          <p>Before disabling coordination, stop participating writers and the observer; preserve active reservations and worktrees. Changing this draft does not stop running agents.</p>
+          <pre aria-label="Coordination settings JSON">{policyFields}</pre>
+          <button className="secondary-action" type="button" onClick={copySettings}><Copy size={16} /> Copy coordination settings</button>
+          <p role="status">{copyStatus}</p>
+        </details>
+        <p className="settings-draft-note">Draft only · stays in this page until refresh. Nothing is installed or applied to a repository here.</p>
+        <a className="primary-action guide-primary" href={`https://github.com/LeChiffreVol2/changeplane/blob/main/docs/${draft.enabled ? 'team-operator' : 'community'}.md`} target="_blank" rel="noreferrer">
+          {draft.enabled ? 'Continue to parallel work setup' : 'Continue to PR assessment setup'} <ArrowRight size={17} />
+        </a>
+      </section>
+    </div>
+  );
+}
+
+function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore, onOpenLab, usage, onUsage, onSettings }) {
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const controlledCanary = rolloutMode === "controlled_canary";
@@ -350,9 +422,9 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <div className="auth-message">
-            <p className="auth-kicker"><span /> Open-source coordination for agent teams</p>
+            <p className="auth-kicker"><span /> Open source for individuals and teams</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Work on separate features with the coding agents you already use. ChangePlane coordinates task scopes and dependencies, then returns PR, CI and review findings to the assigned writer.</p>
+            <p>Develop on your own or with a team using the coding agents you already use. ChangePlane follows PR and CI outcomes, with scoped parallel work when you need it.</p>
           </div>
 
           <div className="auth-signal" aria-label="Exact-revision assurance contract">
@@ -377,19 +449,21 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
         <div className="auth-access">
           <div className="auth-form">
             <p className="auth-eyebrow">{exampleOnly ? "Open Source · Apache-2.0" : "GitHub-native setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "Give every agent a clear task and next step." : "Give agent PRs independent lifecycle assurance."}</h2>
+            <h2 id="sign-in-title">{exampleOnly ? "Set up your way of working." : "Give agent PRs independent lifecycle assurance."}</h2>
             <p>{exampleOnly
-              ? "Set up one repository, then develop in separate worktrees. Free for individuals and teams; use your existing agents and GitHub rules."
+              ? "Start with your own PR workflow or coordinate a shared repository. Free for individuals and teams."
               : "Connect a repository, bind one real test, and merge one setup pull request. ChangePlane handles the normal path from then on."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
+            <UsageChoice usage={usage} onChange={onUsage} />
+
             {exampleOnly ? (
               <>
-                <a className="github-sign-in community-start" href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/team-operator.md" target="_blank" rel="noreferrer">
-                  <GithubLogo size={21} weight="fill" aria-hidden="true" />
-                  <span>Set up parallel teamwork</span><ArrowRight size={18} aria-hidden="true" />
-                </a>
+                <button className="github-sign-in community-start" type="button" onClick={onSettings}>
+                  <GearSix size={21} aria-hidden="true" />
+                  <span>{usage === 'individual' ? 'Set up Individual' : 'Set up Teams'}</span><ArrowRight size={18} aria-hidden="true" />
+                </button>
                 <button className="github-existing" type="button" onClick={onExplore} disabled={isSigningIn}>
                   {isSigningIn ? "Opening workspace…" : "Open RouteThai example workspace"}
                 </button>
@@ -459,6 +533,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <footer className="auth-footer">
             <span>Exact commit · trusted checks · clear receipt</span>
             <span className="auth-footer-links">
+              <button className="settings-link" type="button" onClick={onSettings}>Settings</button>
               <a href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">Local quickstart</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
@@ -929,6 +1004,7 @@ function GitHubSetup({
   onResetInstall,
   onOpenWorkspace,
   onSignOut,
+  onSettings,
 }) {
   const [query, setQuery] = useState("");
   const [evidenceMode, setEvidenceMode] = useState("behavior");
@@ -1022,7 +1098,7 @@ function GitHubSetup({
             <span className="auth-mark" aria-hidden="true"><ShieldCheck size={18} weight="fill" /></span>
             <span>ChangePlane</span>
           </a>
-          <SetupAccount session={session} onSignOut={onSignOut} />
+          <div className="setup-header-actions"><button className="settings-link" type="button" onClick={onSettings}><GearSix size={17} /> Settings</button><SetupAccount session={session} onSignOut={onSignOut} /></div>
         </header>
 
         <div className="setup-grid" id="setup">
@@ -2639,6 +2715,9 @@ function AssuranceLabDrawer({ onClose }) {
 }
 
 export function App() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [usage, setUsage] = useState('individual');
+  const [settingsDrafts, setSettingsDrafts] = useState({ individual: { enabled: false, maxActive: 2 }, teams: { enabled: true, maxActive: 3 } });
   const [session, setSession] = useState(() => PREVIEW_MODE ? readStoredJson(SESSION_KEY, null) : null);
   const [authStatus, setAuthStatus] = useState(PREVIEW_MODE ? "ready" : "loading");
   const [githubConfigured, setGithubConfigured] = useState(PREVIEW_MODE ? false : null);
@@ -2684,12 +2763,18 @@ export function App() {
   const [handbackOpen, setHandbackOpen] = useState(false);
   const [assuranceLabOpen, setAssuranceLabOpen] = useState(false);
   const timersRef = useRef([]);
+  const focusedPageRef = useRef(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || settingsOpen) return;
+    if (focusedPageRef.current?.session === session && focusedPageRef.current?.workspaceOpen === workspaceOpen) return;
     const targetId = workspaceOpen && session.isPreview ? "workspace-main-title" : "setup-main-title";
-    window.requestAnimationFrame(() => document.getElementById(targetId)?.focus());
-  }, [workspaceOpen, session]);
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.focus();
+      focusedPageRef.current = { session, workspaceOpen };
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [workspaceOpen, session, settingsOpen]);
 
   useEffect(() => {
     selectedRepositoryRef.current = selectedRepository;
@@ -3286,6 +3371,8 @@ export function App() {
     }
   }
 
+  const settingsDrawer = settingsOpen && <SettingsDrawer usage={usage} onUsage={setUsage} draft={settingsDrafts[usage]} onDraft={(draft) => setSettingsDrafts(current => ({ ...current, [usage]: draft }))} onClose={() => setSettingsOpen(false)} />;
+
   if (!session) {
     return (
       <>
@@ -3301,7 +3388,11 @@ export function App() {
           onAuthorize={authorizeExisting}
           onExplore={exploreProduct}
           onOpenLab={() => setAssuranceLabOpen(true)}
+          usage={usage}
+          onUsage={setUsage}
+          onSettings={() => setSettingsOpen(true)}
         />
+        {settingsDrawer}
         {assuranceLabOpen && <AssuranceLabDrawer onClose={() => setAssuranceLabOpen(false)} />}
       </>
     );
@@ -3309,6 +3400,7 @@ export function App() {
 
   if (!workspaceOpen || !session.isPreview) {
     return (
+      <>
       <GitHubSetup
         session={session}
         repositories={repositories}
@@ -3359,7 +3451,10 @@ export function App() {
         onResetInstall={resetInstall}
         onOpenWorkspace={() => setWorkspaceOpen(true)}
         onSignOut={signOut}
+        onSettings={() => setSettingsOpen(true)}
       />
+      {settingsDrawer}
+      </>
     );
   }
 
@@ -3375,6 +3470,7 @@ export function App() {
             <span>{session.isPreview ? "Proposed change" : `PR #${change.pr}`}</span>
           </div>
           <div className="topbar-actions">
+            <button className="settings-link" type="button" onClick={() => { setPolicyOpen(false); setAccountOpen(false); setSettingsOpen(true); }}><GearSix size={17} /> Settings</button>
             <div className="topbar-menu-wrap">
               <button className="policy-switcher" type="button" aria-expanded={policyOpen} onClick={() => { setPolicyOpen((open) => !open); setAccountOpen(false); }}>
                 <span>Policy</span><strong>Release Governance v3</strong><CaretDown size={15} />
@@ -3439,6 +3535,7 @@ export function App() {
       </div>
 
       <FileDialog file={inspectedFile} onClose={() => setInspectedFile(null)} />
+      {settingsDrawer}
       {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} onStart={() => { setSelectedId("route"); setGuideOpen(false); }} />}
       {previewEvidenceOpen && <PreviewEvidenceDrawer change={change} onClose={() => setPreviewEvidenceOpen(false)} onCopy={copyHead} />}
       {backboneOpen && <BackboneDrawer change={change} onClose={() => setBackboneOpen(false)} />}

@@ -2,7 +2,17 @@
 
 ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
-Source version 0.4.0 includes [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+Choose **Individual** for read-only PR/CI assessment. If you run several agents yourself, enable optional parallel coordination; **Teams** starts with coordination selected. Both use the same repository engine and support personal and organization repositories with appropriate permissions. The usage choice does not identify the repository owner or grant access.
+
+Source version 0.4.1 includes Individual and Teams setup settings and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+
+## Settings for Individual and Teams
+
+Open **Settings** from the website's public landing, hosted setup or synthetic workspace. **Individual** defaults to read-only assessment; enabling parallel agents starts at 2 active tasks. **Teams** starts with coordination enabled and 3 active tasks. Adjust coordination capacity from 1–20; each usage choice retains its own draft capacity.
+
+Settings prepare a local draft, not a connected account or installed repository configuration. For read-only use, follow [Inspect your repository](#inspect-your-repository) below. For coordination, choose **Copy coordination settings**, then open a reviewed configuration PR changing only the `team` field in the existing default-branch `.changeplane.json`. Preserve the existing evidence requirements, protected paths and other policy fields. If no policy exists, create the baseline policy through the assessment setup first, then follow [parallel setup](team-operator.md).
+
+Before disabling existing coordination, stop participating writers and the observer. Preserve reservations, local journals, worktrees and source branches; resolve unfinished work with its owner before merging the policy change. Switching the Settings draft to Individual does not stop running operators or remove repository state.
 
 ## Run locally
 

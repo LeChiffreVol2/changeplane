@@ -1,8 +1,14 @@
-# Set up parallel teamwork
+# Set up parallel agents for yourself or a team
 
-Give each feature a scoped task and a separate worktree. ChangePlane follows its PR, CI and review outcomes and returns the next action to the assigned writer. Your existing coding agent develops the feature; GitHub applies the repository's checks, reviews and merge rules.
+Give each feature a scoped task and a separate worktree, whether you run several agents yourself or develop with teammates. ChangePlane follows PR, CI and review outcomes and returns the next action to the assigned writer. Your existing coding agent develops the feature; GitHub applies the repository's checks, reviews and merge rules. For one developer who only needs PR/CI findings, start with [Individual read-only assessment](https://github.com/LeChiffreVol2/changeplane/blob/main/docs/community.md#inspect-your-repository).
 
 This guide uses a trusted local operator plus a repository-owned GitHub Actions observer. It requires GitHub.com access, Git, Node.js 22.18+ and an existing behavioral CI job. It adds no ChangePlane service or model spend. GitHub Actions and any coding agents remain subject to your own plans. For a credential-free first look, use the [local quickstart](https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute).
+
+## Choose your settings
+
+Open **Settings** on the website and choose **Individual** or **Teams**. Individual starts with read-only assessment; enable parallel agents for coordination with a default capacity of 2. Teams starts with coordination selected and capacity 3. Either capacity can be 1–20. These are usage preferences for the same engine, independent of personal versus organization repository ownership.
+
+Use **Copy coordination settings** to prepare the `team` field for review. Settings remain a local draft and confer no permissions. Merge that field into the existing `.changeplane.json` through a setup PR, preserving all evidence requirements, protected paths and other policy. The JSON fragment alone is not an installation; complete the operator and workflow setup below.
 
 ## 1. Prepare one repository
 
@@ -15,6 +21,8 @@ If the target has no `.changeplane.json`, start from the [assessment setup guide
 ```json
 "team": { "enabled": true, "maxActive": 3 }
 ```
+
+This example uses the Teams default. A solo parallel setup can use `maxActive: 2`, or the capacity selected in Settings.
 
 Open and review one setup PR. Include `changeplane-team.yml` and `changeplane-team-review-signal.yml` from the same release under the target repository's `.github/workflows/`. Keep the observer's runtime pinned to that release's full SHA. If using source templates, replace `CHANGEPLANE_TEAM_RELEASE_SHA` with the reviewed full commit SHA. Change the observer's watched `CI` name to your behavioral workflow's display name; retain `ChangePlane review signal`.
 
@@ -61,7 +69,7 @@ node community/cli.js team worktree OWNER/REPO search-api /absolute/path/to/new-
 
 Retain the returned task, branch, workspace ID and path. Worktree creation does not install dependencies or run repository scripts; Git checkout filters are disabled. Perform trusted repository setup with your existing tools. Develop and open a same-repository PR from the assigned branch to the default branch.
 
-Have a second member start a task in a different scope and their own worktree. An overlapping task must wait. Declare a dependency if the second feature needs the first PR merged. Path separation helps coordination but does not establish semantic independence.
+Have your second agent or another member start a task in a different scope and its own worktree. Each running agent must retain its exact task and workspace IDs and continue only that work, even when one person's member label owns several tasks. An overlapping task must wait. Declare a dependency if the second feature needs the first PR merged. Path separation helps coordination but does not establish semantic independence.
 
 ```sh
 node community/cli.js team reconcile OWNER/REPO
@@ -99,7 +107,7 @@ node community/cli.js team status OWNER/REPO
 
 After reviewing a changed policy, the trusted operator for the task owner may run `team adopt-policy OWNER/REPO TASK EXPECTED_POLICY_SHA`, using the exact current full default-branch SHA that was reviewed. Adoption clears stale handoff context while retaining task scope, generation, branch and workspace. Read `team next` again afterward. This is a policy-adoption decision, not an approval of source changes, and it must not be delegated to untrusted review text or a proposal model.
 
-There is no automatic expiry, arbitrary branch reset or cross-machine takeover. The owner must resolve uncertain writers before manually repairing coordination. Preserve the metadata history as an audit record. Stop participating writers and the observer before uninstalling; revoke dedicated credentials and remove reviewed workflows, preserving worktrees and source branches.
+There is no automatic expiry, arbitrary branch reset or cross-machine takeover. The owner must resolve uncertain writers before manually repairing coordination. Preserve the metadata history as an audit record. Before disabling coordination, stop participating writers and the observer, preserve reservations and local journals, and resolve unfinished work with its owner. Change only the `team` field through a reviewed policy PR; changing the Settings draft does not stop installed operators. For uninstall, revoke dedicated credentials and remove reviewed workflows, preserving worktrees and source branches.
 
 ## Upgrade existing installations
 

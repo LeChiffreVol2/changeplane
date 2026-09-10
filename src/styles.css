@@ -83,6 +83,32 @@ button {
   padding: 30px;
 }
 
+.usage-choice { min-width: 0; border: 0; padding: 0; margin: 24px 0; }
+.usage-choice legend { margin-bottom: 10px; font-size: 12px; font-weight: 650; color: var(--muted); }
+.usage-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.usage-options label { display: flex; align-items: flex-start; gap: 8px; padding: 13px 10px; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+.usage-options label.is-selected { border-color: #0b6269; background: #e8efeb; }
+.usage-options input { margin: 3px 0 0; accent-color: #0b6269; }
+.usage-options strong { display: block; font-size: 14px; }
+.usage-options small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.settings-link { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border: 0; background: none; color: inherit; font-size: 12px; cursor: pointer; }
+.settings-link:hover { text-decoration: underline; }
+.setup-header-actions { display: flex; align-items: center; gap: 20px; }
+.settings-section { padding: 18px 0; border-top: 1px solid var(--line); }
+.settings-section h3 { margin: 0 0 12px; font-size: 16px; letter-spacing: -0.02em; }
+.settings-section p, .settings-policy p { color: var(--muted); font-size: 13px; line-height: 1.65; }
+.settings-toggle { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.settings-toggle input { accent-color: #0b6269; }
+.settings-capacity { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0; font-size: 13px; }
+.settings-capacity select { min-width: 76px; padding: 8px; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; font: inherit; }
+.settings-capacity select:focus-visible, .usage-options input:focus-visible, .settings-toggle input:focus-visible { outline: 2px solid #0a6069; outline-offset: 3px; }
+.settings-policy { border-top: 1px solid var(--line); padding: 18px 0; }
+.settings-policy summary { cursor: pointer; font-size: 13px; font-weight: 650; }
+.settings-policy pre { overflow-x: auto; padding: 14px; background: var(--paper-soft); font-size: 12px; line-height: 1.6; }
+.settings-policy .secondary-action { display: inline-flex; align-items: center; gap: 8px; }
+.settings-draft-note { font-size: 12px; line-height: 1.6; color: var(--muted); }
+.settings-drawer .guide-primary { text-decoration: none; margin-top: 18px; }
+
 .auth-shell {
   width: min(100%, 1480px);
   height: calc(100dvh - 60px);
