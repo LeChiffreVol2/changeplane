@@ -46,6 +46,6 @@ Reproduce the local protocol cases with `node --test community/team*.test.js`. T
 
 ## Cleanup and boundaries
 
-The scheduled observer is disabled. Repository deletion has been requested and is awaiting GitHub owner reauthentication; completed deletion is not claimed. The repository is disposable; its run and PR identifiers are retained here as historical evidence rather than permanent live links.
+The scheduled observer was disabled, all three disposable local canary checkouts were removed, and the repository was deleted after owner reauthentication. An authenticated repository lookup returned HTTP404 on 2026-09-10. No canary scheduler or remote repository remains. The repository is disposable; its run and PR identifiers are retained here as historical evidence rather than permanent live links.
 
 The supported increment is cooperative repository coordination and assigned recovery for running clients. It does not provide abandoned-writer fencing, wake a stopped agent, prove semantic independence of separate paths, remove required human review, publish Guard, or grant merge authority. GitLab and native Origin live qualification remain outside this record. See [setup and operating limits](repository-team.md).
