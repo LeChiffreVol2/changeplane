@@ -78,6 +78,8 @@ Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 M
 
 GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Team writes exclude forks. Fork reading and GitLab reading have their own [qualification boundaries](recovery-core.md). GHES, Merge Queue assessments, hosted Guard publication, automatic source repair and supported full-controller self-hosting remain outside this open-source release.
 
+See the [QA and DevOps audit](open-source-qa-audit.md) for the tested platform matrix, fixed setup issues and remaining operating limits.
+
 ## Uninstall and data
 
 Remove the assessment workflow and its policy through your normal configuration review. Revoke any token created only for the CLI. Delete local reports if desired. There is no ChangePlane account, database enrollment, server-side assessment history or telemetry to remove. GitHub retains workflow metadata and logs according to your repository settings. The interactive website has a separate [hosted privacy draft](../PRIVACY.md).
