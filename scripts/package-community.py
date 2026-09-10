@@ -37,7 +37,7 @@ paths = [
     'examples/community/stale.json', 'examples/community/policy.json',
     'examples/community/gitlab-policy.json',
     'docs/repository-team.md',
-    'examples/changeplane-team.yml',
+    'examples/changeplane-team.yml', 'examples/changeplane-team-agent.md',
 ]
 files = {name: source(name) for name in paths}
 files['examples/changeplane-team.yml'] = files['examples/changeplane-team.yml'].replace(b'CHANGEPLANE_TEAM_RELEASE_SHA', revision.encode())
@@ -71,7 +71,7 @@ live readers use bounded fixed-origin GET requests. The GitLab reader candidate 
 `inspect-gitlab GROUP/PROJECT MR_NUMBER` and `GITLAB_TOKEN`; it does not claim verified
 tested subjects, CI include closure, merge enforcement or live installation qualification.
 
-[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
+[Parallel team setup](docs/repository-team.md)\n\n[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
 [Security](https://github.com/LeChiffreVol2/changeplane/security/advisories/new)
 '''.encode()
 files['SOURCE.json'] = (json.dumps({'repository': 'LeChiffreVol2/changeplane', 'commit': revision,

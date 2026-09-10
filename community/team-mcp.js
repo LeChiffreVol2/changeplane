@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COMMUNITY_VERSION } from './core.js';
 import { configuredTeam, teamFailure } from './team-cli.js';
-import { operateTeam } from './team-github.js';
+import { operateTeam, nextTeamHandoffs } from './team-github.js';
 import { prepareTeamWorktree } from './team-worktree.js';
 import { requireTeam } from './team.js';
 
@@ -22,6 +22,10 @@ export const teamTools = [
   definition('changeplane_start', 'Reserve one scoped task for the configured member. Overlapping active tasks and unmet dependencies block the claim. Never retry an uncertain claim before reading status.', { contract }, ['contract']),
   definition('changeplane_worktree', 'Create a separate local worktree for a claimed task under the operator-configured workspace root. Refuses existing paths and branches; does not run tests or coding agents.', { task: taskId }, ['task']),
   definition('changeplane_reconcile', 'Discover task PRs and refresh CI, scope, merge and dependency outcomes. Records metadata only; does not rerun CI, edit source, approve or merge.'),
+  definition('changeplane_next', 'Refresh and return revision-bound handoffs for the configured member. Resume the existing task writer; never create a second writer. Receipt repeats until acknowledged.'),
+  definition('changeplane_acknowledge', 'Record receipt of one fresh handoff by its assigned workspace. Does not mark repair or work complete.', {
+    task: taskId, workspaceId: { type: 'string' }, handoff: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+  }, ['task', 'workspaceId', 'handoff']),
 ];
 
 export async function callTeamTool(name, args, configuration = process.env) {
@@ -31,6 +35,7 @@ export async function callTeamTool(name, args, configuration = process.env) {
     && tool.inputSchema.required.every(key => Object.hasOwn(args, key)), 'TEAM_COMMAND_INVALID');
   const repository = configuration.CHANGEPLANE_TEAM_REPOSITORY;
   const api = configuredTeam(repository, configuration);
+  if (name === 'changeplane_next') return nextTeamHandoffs({ api, owner: configuration.CHANGEPLANE_TEAM_MEMBER });
   if (name === 'changeplane_worktree') {
     requireTeam(typeof args.task === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(args.task)
       && typeof configuration.CHANGEPLANE_WORKSPACE_ROOT === 'string' && configuration.CHANGEPLANE_WORKSPACE_ROOT.length > 0,
@@ -38,7 +43,8 @@ export async function callTeamTool(name, args, configuration = process.env) {
     return prepareTeamWorktree({ api, taskId: args.task, owner: configuration.CHANGEPLANE_TEAM_MEMBER,
       destination: resolve(configuration.CHANGEPLANE_WORKSPACE_ROOT, args.task) });
   }
-  const command = name === 'changeplane_start' ? { action: 'start', contract: args.contract, owner: configuration.CHANGEPLANE_TEAM_MEMBER }
+  const command = name === 'changeplane_acknowledge' ? { action: 'acknowledge', ...args, owner: configuration.CHANGEPLANE_TEAM_MEMBER }
+    : name === 'changeplane_start' ? { action: 'start', contract: args.contract, owner: configuration.CHANGEPLANE_TEAM_MEMBER }
     : name === 'changeplane_plan' ? { action: 'plan', tasks: args.tasks }
       : { action: name === 'changeplane_status' ? 'status' : 'reconcile' };
   return operateTeam({ api, command });

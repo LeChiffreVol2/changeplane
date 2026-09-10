@@ -46,10 +46,15 @@ export function validateTeam(input, repositoryId = input?.repositoryId) {
       && (task.workspaceId === null || typeof task.workspaceId === 'string' && /^[a-f0-9-]{36}$/u.test(task.workspaceId))
       && (task.branch === null || task.branch === `changeplane/work/${task.id}-${task.generation}`)
       && (task.outcome === null || text(task.outcome, 100)), 'TEAM_STATE_INVALID');
+    const handoff = task.handoff ?? null;
+    requireTeam(handoff === null || typeof handoff === 'object'
+      && /^[a-f0-9]{64}$/u.test(handoff.id) && sha(handoff.headSha) && sha(handoff.baseSha)
+      && text(handoff.outcome, 100) && ['pending', 'acknowledged'].includes(handoff.status), 'TEAM_STATE_INVALID');
     requireTeam(task.state === 'planned' || task.state === 'cancelled' || (task.generation > 0 && task.owner && task.baseSha && task.policySha && task.branch), 'TEAM_STATE_INVALID');
     return { id: task.id, title: task.title, paths: scope(task.paths), dependsOn: [...task.dependsOn].sort(),
       state: task.state, generation: task.generation, owner: task.owner, baseSha: task.baseSha, policySha: task.policySha,
-      branch: task.branch, headSha: task.headSha, pullRequest: task.pullRequest, issue: task.issue, workspaceId: task.workspaceId, outcome: task.outcome };
+      branch: task.branch, headSha: task.headSha, pullRequest: task.pullRequest, issue: task.issue, workspaceId: task.workspaceId, outcome: task.outcome,
+      handoff: handoff && { id: handoff.id, headSha: handoff.headSha, baseSha: handoff.baseSha, outcome: handoff.outcome, status: handoff.status } };
   });
   const byId = new Map(tasks.map(task => [task.id, task]));
   requireTeam(byId.size === tasks.length, 'TEAM_STATE_INVALID');
@@ -112,6 +117,14 @@ export function transitionTeam(input, command, context = {}) {
       requireTeam(active(task) && task.pullRequest !== null && sha(context.headSha));
       requireTeam(['merged', 'review', 'blocked'].includes(context.state) && text(context.outcome, 100));
       Object.assign(task, { state: context.state, outcome: context.outcome, headSha: context.headSha });
+      const handoff = context.handoff ?? null;
+      task.handoff = handoff?.id === task.handoff?.id ? task.handoff : handoff;
+    } else if (command.action === 'acknowledge') {
+      requireTeam(active(task) && task.owner === command.owner && task.workspaceId !== null
+        && task.workspaceId === command.workspaceId, 'TEAM_WORKSPACE_MISMATCH');
+      requireTeam(task.handoff?.id === command.handoff && context.handoff?.id === command.handoff,
+        'TEAM_HANDOFF_STALE');
+      task.handoff.status = 'acknowledged';
     } else throw new TeamError('TEAM_COMMAND_INVALID');
   }
   return validateTeam(state);

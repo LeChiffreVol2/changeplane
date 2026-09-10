@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { TeamError, requireTeam } from './team.js';
-import { teamGitHub, operateTeam } from './team-github.js';
+import { teamGitHub, operateTeam, nextTeamHandoffs } from './team-github.js';
 import { prepareTeamWorktree } from './team-worktree.js';
 
 export const teamHelp = `Repository teamwork (GitHub.com):
@@ -12,6 +12,8 @@ export const teamHelp = `Repository teamwork (GitHub.com):
   node community/cli.js team bind OWNER/REPO TASK PR_NUMBER
   node community/cli.js team cancel OWNER/REPO TASK
   node community/cli.js team reconcile OWNER/REPO
+  node community/cli.js team next OWNER/REPO
+  node community/cli.js team acknowledge OWNER/REPO TASK WORKSPACE_ID HANDOFF_ID
   node community/cli.js team watch OWNER/REPO [SECONDS (30–3600)]
 
 Merge a reviewed default-branch policy with team.enabled=true and team.maxActive first.
@@ -35,6 +37,8 @@ const actions = {
   TEAM_WORKSPACE_RESERVED: 'A workspace has already been reserved for this task. Continue with its owner; never start a second writer on the same branch.',
   TEAM_GIT_OPERATION_FAILED: 'Inspect local Git and authentication, then read worktree and branch state before retrying.',
   TEAM_PERMISSION_DENIED: 'Have the repository owner check the operator token permissions.',
+  TEAM_HANDOFF_STALE: 'The task revision or evidence changed. Read your next handoff and continue from that evidence.',
+  TEAM_WORKSPACE_MISMATCH: 'Only the assigned workspace may acknowledge this task. Do not start another writer.',
 };
 export function teamFailure(error) {
   const code = error instanceof TeamError ? error.code : 'TEAM_UNAVAILABLE';
@@ -49,6 +53,7 @@ export function configuredTeam(repository, configuration = process.env) {
 export async function runTeamCli(args) {
   if (!args.length || args[0] === '--help') return { help: teamHelp };
   const [action, repository, ...rest] = args, api = configuredTeam(repository);
+  if (action === 'next' && rest.length === 0) return nextTeamHandoffs({ api, owner: process.env.CHANGEPLANE_TEAM_MEMBER });
   if (action === 'worktree' && rest.length === 2) return prepareTeamWorktree({ api, taskId: rest[0], destination: rest[1] });
   if (action === 'watch' && rest.length <= 1) {
     const seconds = Number(rest[0] ?? 300);
@@ -73,6 +78,7 @@ export async function runTeamCli(args) {
     command = { action, contract: JSON.parse(readFileSync(rest[0], 'utf8')), owner: rest[1] };
   } else if (action === 'claim' && rest.length === 2) command = { action, task: rest[0], owner: rest[1] };
   else if (action === 'bind' && rest.length === 2 && /^[1-9][0-9]*$/u.test(rest[1])) command = { action, task: rest[0], pullRequest: Number(rest[1]) };
+  else if (action === 'acknowledge' && rest.length === 3) command = { action, task: rest[0], workspaceId: rest[1], handoff: rest[2], owner: process.env.CHANGEPLANE_TEAM_MEMBER };
   else if (action === 'cancel' && rest.length === 1) command.task = rest[0];
   else requireTeam(['status', 'reconcile'].includes(action) && rest.length === 0, 'TEAM_COMMAND_INVALID');
   return operateTeam({ api, command });

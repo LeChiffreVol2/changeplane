@@ -2,6 +2,10 @@ name: ChangePlane team observation
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review, closed]
+  workflow_run:
+    # Set this reviewed list to the names of the repository's behavioral workflows.
+    workflows: [CI]
+    types: [completed]
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
@@ -33,4 +37,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CHANGEPLANE_TEAM_WRITE: 'true'
           CHANGEPLANE_TEAM_REPOSITORY: ${{ github.repository }}
-        run: node _changeplane/community/cli.js team reconcile "$GITHUB_REPOSITORY"
+        run: |
+          node _changeplane/community/cli.js team reconcile "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/changeplane-team.json"
+          node --input-type=module -e '
+            import { readFileSync, appendFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/changeplane-team.json", "utf8"));
+            const unavailable = report.observations.filter(item => item.state === "unavailable").length;
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Observed ${report.observations.length} tasks; unavailable: ${unavailable}. Follow assigned handoffs in ChangePlane.\n`);
+            if (unavailable) process.exitCode = 1;
+          '

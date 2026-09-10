@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { TeamError } from './team.js';
-import { operateTeam, teamGitHub } from './team-github.js';
+import { operateTeam, teamGitHub, nextTeamHandoffs } from './team-github.js';
 import { CollectionError } from './transport.js';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -22,7 +22,7 @@ function fixture({ baseSha = base } = {}) {
   const pr = { id: 91, number: 9, state: 'open', merged: false, merge_commit_sha: null, changed_files: 1, draft: false, mergeable: true,
     head: { sha: head, ref: 'changeplane/work/api-1', repo: { id: 7, full_name: 'example/repo' } },
     base: { sha: base, ref: 'main', repo: { id: 7, full_name: 'example/repo' } } };
-  const f = { policy: structuredClone(policy), pr, fail: null, writes, files: [{ filename: 'src/api/a.js', status: 'modified' }], conclusion: 'success' };
+  const f = { policy: structuredClone(policy), pr, fail: null, writes, files: [{ filename: 'src/api/a.js', status: 'modified' }], conclusion: 'success', comparison: 'ahead' };
   const api = { repository: 'example/repo', root: '/repos/example/repo', request: async (method, path, body) => {
     if (f.fail?.(method, path)) throw new TeamError('TEAM_WRITE_UNCERTAIN');
     const suffix = path.replace(api.root, '');
@@ -43,7 +43,7 @@ function fixture({ baseSha = base } = {}) {
         repository: { full_name: api.repository }, head_repository: { full_name: api.repository } }] };
       if (suffix === '/actions/runs/11/attempts/1/jobs?per_page=100') return { total_count: 1, jobs: [{ id: 13, run_id: 11,
         head_sha: head, name: 'Behavior', status: 'completed', conclusion: f.conclusion }] };
-      if (suffix.startsWith('/compare/')) return { status: 'ahead' };
+      if (suffix.startsWith('/compare/')) return { status: f.comparison };
       throw new Error(`Unexpected read: ${suffix}`);
     }
     writes.push({ method, path, body });
@@ -57,7 +57,7 @@ function fixture({ baseSha = base } = {}) {
     throw new Error(`Unexpected mutation: ${suffix}`);
   } };
   return { ...f, get policy() { return f.policy; }, pr, api, setFailure: failure => { f.fail = failure; },
-    setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
+    setComparison: value => { f.comparison = value; }, setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
 }
 const run = (f, command) => operateTeam({ api: f.api, command });
 async function planned(f) {
@@ -128,29 +128,75 @@ test('real Git worktree creation leaves the developer checkout untouched and pre
   const root = mkdtempSync(join(tmpdir(), 'changeplane-team-worktree-'));
   const checkout = join(root, 'checkout'), bare = join(root, 'remote.git'), destination = join(root, 'api');
   const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  const saved = { command: process.env.GIT_SSH_COMMAND, variant: process.env.GIT_SSH_VARIANT };
+  const saved = { command: process.env.GIT_SSH_COMMAND, variant: process.env.GIT_SSH_VARIANT, token: process.env.GH_TOKEN };
   try {
     mkdirSync(checkout); git(checkout, ['init', '-b', 'main']);
     git(checkout, ['config', 'user.name', 'Synthetic Team']); git(checkout, ['config', 'user.email', 'team@example.invalid']);
     mkdirSync(join(checkout, 'src/api'), { recursive: true }); writeFileSync(join(checkout, 'src/api/a.js'), 'export const value = 1;\n');
+    writeFileSync(join(checkout, '.gitattributes'), 'src/api/a.js filter=synthetic\n');
+    const marker = join(root, 'filter-ran');
+    const filter = join(root, 'filter.sh');
+    writeFileSync(filter, `#!/bin/sh\necho unsafe > '${marker}'\ncat\n`, { mode: 0o700 });
+    git(checkout, ['config', 'filter.synthetic.smudge', filter]);
+    git(checkout, ['config', 'filter.synthetic.required', 'true']);
+    git(checkout, ['config', 'filter.synthetic.clean', 'cat']);
     git(checkout, ['add', '.']); git(checkout, ['commit', '-m', 'Synthetic baseline']);
     const revision = git(checkout, ['rev-parse', 'HEAD']);
     git(root, ['clone', '--bare', checkout, bare]);
     git(checkout, ['remote', 'add', 'origin', 'git@github.com:example/repo.git']);
     const ssh = join(root, 'ssh');
-    writeFileSync(ssh, `#!/bin/sh\nexec git-upload-pack '${bare.replaceAll("'", "'\\''")}'\n`, { mode: 0o700 });
+    writeFileSync(ssh, `#!/bin/sh\ntest -z \"$GH_TOKEN\" || exit 91\nexec git-upload-pack '${bare.replaceAll("'", "'\\''")}'\n`, { mode: 0o700 });
+    process.env.GH_TOKEN = 'synthetic-env-marker';
     process.env.GIT_SSH_COMMAND = ssh; process.env.GIT_SSH_VARIANT = 'simple';
     writeFileSync(join(checkout, 'unrelated.txt'), 'Keep this draft');
     const f = fixture({ baseSha: revision }); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
     const result = await prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', cwd: checkout, destination });
     assert.equal(result.codebase.revision, revision);
+    assert.equal(existsSync(marker), false, 'checkout must not execute smudge filters');
     assert.equal(git(destination, ['branch', '--show-current']), 'changeplane/work/api-1');
     assert.equal(git(checkout, ['branch', '--show-current']), 'main');
     assert.equal(readFileSync(join(checkout, 'unrelated.txt'), 'utf8'), 'Keep this draft');
     await assert.rejects(prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', cwd: checkout, destination: join(root, 'second-machine') }), /TEAM_WORKSPACE_RESERVED/);
   } finally {
+    if (saved.token === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = saved.token;
     if (saved.command === undefined) delete process.env.GIT_SSH_COMMAND; else process.env.GIT_SSH_COMMAND = saved.command;
     if (saved.variant === undefined) delete process.env.GIT_SSH_VARIANT; else process.env.GIT_SSH_VARIANT = saved.variant;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('merged prerequisites must remain in current default history before another claim', async () => {
+  const f = fixture(); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
+  await run(f, { action: 'reconcile' });
+  f.pr.state = 'closed'; f.pr.merged = true; f.pr.merge_commit_sha = 'c'.repeat(40);
+  await run(f, { action: 'reconcile' });
+  f.setComparison('diverged');
+  await assert.rejects(run(f, { action: 'claim', task: 'next', owner: 'alice' }), /TEAM_MERGE_NOT_ON_BASE/);
+  await assert.rejects(run(f, { action: 'start', contract: { id: 'later', title: 'Later', paths: ['src/later.js'], dependsOn: ['api'] }, owner: 'bob' }), /TEAM_MERGE_NOT_ON_BASE/);
+});
+test('handoffs repeat until workspace receipt, invalidate on new evidence and return branch-update work to the existing writer', async () => {
+  const f = fixture(); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
+  const workspaceId = '11111111-1111-1111-1111-111111111111';
+  await run(f, { action: 'workspace', task: 'api', owner: 'alice', workspaceId });
+  f.setConclusion('failure');
+  const inbox = () => nextTeamHandoffs({ api: f.api, owner: 'alice' });
+  const delivery = (await inbox()).handoffs[0];
+  assert.equal(delivery.outcome, 'INSPECT_FAILURE_EVIDENCE');
+  assert.equal(delivery.evidence.authority.mergeAuthorized, false);
+  assert.equal((await inbox()).handoffs[0].id, delivery.id);
+  assert.equal((await nextTeamHandoffs({ api: f.api, owner: 'bob' })).handoffs.length, 0);
+  const ack = { action: 'acknowledge', task: 'api', owner: 'alice', workspaceId, handoff: delivery.id };
+  await assert.rejects(run(f, { ...ack, workspaceId: '22222222-2222-2222-2222-222222222222' }), /TEAM_WORKSPACE_MISMATCH/);
+  await run(f, ack);
+  assert.equal((await inbox()).handoffs.length, 0);
+  f.setConclusion('success');
+  await assert.rejects(run(f, ack), /TEAM_HANDOFF_STALE/);
+  const ready = (await inbox()).handoffs[0];
+  assert.notEqual(ready.id, delivery.id);
+  f.setComparison('diverged');
+  assert.equal((await inbox()).handoffs[0].outcome, 'UPDATE_BRANCH_FROM_DEFAULT');
+  f.setFailure((method, path) => path.includes('/actions/'));
+  const unavailable = await inbox();
+  assert.equal(unavailable.handoffs.length, 0);
+  assert.deepEqual(unavailable.unavailable, ['api']);
 });
