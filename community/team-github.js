@@ -41,7 +41,7 @@ export function teamGitHub({ repository, token, writeEnabled = false, fetchImpl 
     } catch { throw new TeamError('TEAM_WRITE_UNCERTAIN'); }
     if (!response.ok) {
       await response.body?.cancel();
-      throw new TeamError([409, 422].includes(response.status) ? 'TEAM_CONCURRENT_UPDATE'
+      throw new TeamError([409, 422].includes(response.status) ? 'TEAM_WRITE_REJECTED'
         : [401, 403].includes(response.status) ? 'TEAM_PERMISSION_DENIED' : 'TEAM_WRITE_UNCERTAIN');
     }
     const chunks = []; let size = 0;
@@ -97,9 +97,24 @@ async function save(api, previous, state, context) {
   requireTeam(validSha(commit.sha), 'TEAM_WRITE_UNCERTAIN');
   // Both writers create a child of the same observed commit. Only one sibling
   // can fast-forward the ref; the loser re-observes instead of overwriting it.
-  const result = previous.revision
-    ? await api.request('PATCH', `${api.root}/git/refs/heads/${TEAM_REF}`, { sha: commit.sha, force: false })
-    : await api.request('POST', `${api.root}/git/refs`, { ref: `refs/heads/${TEAM_REF}`, sha: commit.sha });
+  let result;
+  try {
+    result = previous.revision
+      ? await api.request('PATCH', `${api.root}/git/refs/heads/${TEAM_REF}`, { sha: commit.sha, force: false })
+      : await api.request('POST', `${api.root}/git/refs`, { ref: `refs/heads/${TEAM_REF}`, sha: commit.sha });
+  } catch (error) {
+    if (error instanceof TeamError && error.code === 'TEAM_WRITE_REJECTED') {
+      // 409/422 alone can mean invalid input or repository rules. Only an
+      // independently observed changed ref establishes competing coordination.
+      let ref;
+      try { ref = await api.request('GET', `${api.root}/git/ref/heads/${TEAM_REF}`); } catch { throw error; }
+      if (ref?.ref === `refs/heads/${TEAM_REF}` && ref.object?.type === 'commit' && validSha(ref.object.sha)) {
+        if (ref.object.sha === commit.sha) throw new TeamError('TEAM_WRITE_UNCERTAIN');
+        if (ref.object.sha !== previous.revision) throw new TeamError('TEAM_CONCURRENT_UPDATE');
+      }
+    }
+    throw error;
+  }
   requireTeam(result?.ref === `refs/heads/${TEAM_REF}` && result.object?.sha === commit.sha, 'TEAM_WRITE_UNCERTAIN');
   return commit.sha;
 }

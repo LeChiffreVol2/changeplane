@@ -31,6 +31,7 @@ const actions = {
   TEAM_ALREADY_CLAIMED: 'Read team status and use a different task; do not duplicate the existing writer.',
   TEAM_ACTIVE_RESERVATION_HELD: 'The active reservation is retained. Finish its PR or have the repository owner contain the writer before manual recovery.',
   TEAM_CONCURRENT_UPDATE: 'Another client may have updated coordination. Read status before deciding whether to retry.',
+  TEAM_WRITE_REJECTED: 'GitHub rejected the write. Check repository rules and operator configuration; this was not treated as ordinary contention.',
   TEAM_WRITE_UNCERTAIN: 'The write may have succeeded. Read status before retrying; no automatic mutation retry was made.',
   TEAM_POLICY_CHANGED: 'The trusted policy changed. Re-read team status and review the new configuration.',
   TEAM_REVISION_CHANGED: 'Repository state changed. Re-read status before continuing.',

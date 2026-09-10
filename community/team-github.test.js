@@ -217,7 +217,7 @@ test('observer re-reads definite contention once, defers moving state and never 
   const f = fixture(); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
   let calls = 0;
   const transientApi = code => ({ ...f.api, request: async (method, path, body) => {
-    if (method === 'POST') throw new TeamError(code);
+    if (method === 'PATCH' && path.includes('/git/refs/')) throw new TeamError(code);
     return f.api.request(method, path, body);
   } });
   const result = await observeTeam({ createApi: () => ++calls === 1 ? transientApi('TEAM_CONCURRENT_UPDATE') : f.api, sleep: async () => {} });
@@ -231,4 +231,33 @@ test('observer re-reads definite contention once, defers moving state and never 
   f.setFailure((method, path) => path.includes('/actions/'));
   const unavailable = await observeTeam({ createApi: () => f.api, sleep: async () => {} });
   assert.equal(unavailable.observerStatus, 'unavailable'); assert.equal(unavailable.observerAttempts, 1);
+});
+
+test('a non-CAS HTTP 422 remains a persistent failure; only an observed changed ref proves contention', async () => {
+  const http = teamGitHub({ repository: 'example/repo', token: 'synthetic', writeEnabled: true,
+    fetchImpl: async () => new Response(JSON.stringify({ message: 'Validation Failed' }), { status: 422 }) });
+  const f = fixture(); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
+  let attempts = 0;
+  const rejected = { ...f.api, request: (method, path, body) => method === 'POST'
+    ? http.request(method, path, body) : f.api.request(method, path, body) };
+  await assert.rejects(observeTeam({ createApi: () => { attempts++; return rejected; }, sleep: async () => {} }), /TEAM_WRITE_REJECTED/);
+  assert.equal(attempts, 1);
+  const racing = fixture(); await planned(racing);
+  let raced = false;
+  const contender = { ...racing.api, request: async (method, path, body) => {
+    if (method === 'PATCH' && path.includes('/git/refs/') && !raced) {
+      raced = true;
+      await run(racing, { action: 'claim', task: 'web', owner: 'bob' });
+      throw new TeamError('TEAM_WRITE_REJECTED');
+    }
+    return racing.api.request(method, path, body);
+  } };
+  await assert.rejects(operateTeam({ api: contender, command: { action: 'claim', task: 'api', owner: 'alice' } }), /TEAM_CONCURRENT_UPDATE/);
+  const state = await run(racing, { action: 'status' });
+  assert.equal(state.tasks[0].state, 'planned'); assert.equal(state.tasks[1].state, 'active');
+  const unchanged = { ...racing.api, request: async (method, path, body) => {
+    if (method === 'PATCH') throw new TeamError('TEAM_WRITE_REJECTED');
+    return racing.api.request(method, path, body);
+  } };
+  await assert.rejects(operateTeam({ api: unchanged, command: { action: 'claim', task: 'api', owner: 'alice' } }), /TEAM_WRITE_REJECTED/);
 });
