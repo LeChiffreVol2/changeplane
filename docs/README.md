@@ -29,7 +29,7 @@ Research and roadmaps describe evaluated options or future work; they are not in
 
 [QA audit](open-source-qa-audit.md), [synthetic team qualification](repository-team-qualification.md), [managed canary evidence](current-release.md), [original open-source release](community-release.md), and files under `evidence/` preserve the versions and limitations that were actually observed. Their historical commands and release names are not instructions to publish or reinstall those versions.
 
-Routine updates are identified by commit SHA. Tagged assets remain immutable. Use the README shipped with the downloaded artifact and keep all team operators/workflows on one reviewed runtime.
+Use the single published [0.4.1 release](https://github.com/LeChiffreVol2/changeplane/releases/latest) for installation. Earlier tags and release listings were retired in a one-time consolidation; the evidence documents remain historical records. Routine updates are identified by commit SHA. Use the README shipped with the downloaded artifact and keep all team operators/workflows on one reviewed runtime.
 
 ## Commercial and hosted planning
 

@@ -1,5 +1,7 @@
 # Open Source 0.1.0-alpha.1 release verification
 
+Historical record of the first open-source release. Its tag and release listing were retired during the one-time consolidation to [0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest). Use the [current installation guide](community.md); the publication steps below describe the original release only.
+
 The first Apache-2.0 Open Source implementation was merged through [PR54](https://github.com/LeChiffreVol2/changeplane/pull/54) after [protected CI](https://github.com/LeChiffreVol2/changeplane/actions/runs/34380999376). Its protected source is `a0a2e0543d980ed3a0c87198bbd36c0b0dc5b5ae`. This document does not activate the hosted service or claim external adoption.
 
 ## Reproduce the package
