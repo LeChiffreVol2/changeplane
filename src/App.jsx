@@ -2358,11 +2358,11 @@ function FileDialog({ file, onClose }) {
   );
 }
 
-function GuideDrawer({ onClose, onStart }) {
+function GuideDrawer({ onClose }) {
   return (
     <Drawer title="Assurance workflow" titleId="guide-title" eyebrow="PR and CI assessment" onClose={onClose}
       description="Keep working in your coding agent and GitHub. ChangePlane follows the evidence for each revision."
-      footer={<button className="primary-action guide-primary" type="button" onClick={onStart}>View PR checkpoints <ArrowRight size={17} /></button>}>
+      footer={<button className="secondary-action guide-primary" type="button" onClick={onClose}>Back to change</button>}>
         <ol className="guide-steps">
           <li><span>01</span><div><strong>Platform lead · once</strong><p>Bind one meaningful Check and merge the protected Verify Lite setup PR. BYOK is needed only if the team later chooses bounded Autonomous repair.</p></div></li>
           <li><span>02</span><div><strong>Intent + change</strong><p>The pull request declares one goal and allowed scope. Any coding agent may author the diff; the declaration itself is never treated as proof.</p></div></li>
@@ -3327,7 +3327,7 @@ export function App() {
 
       <FileDialog file={inspectedFile} onClose={() => setInspectedFile(null)} />
       {settingsDrawer}
-      {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} onStart={() => { setSelectedId("route"); setGuideOpen(false); }} />}
+      {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} />}
       {previewEvidenceOpen && <PreviewEvidenceDrawer change={change} onClose={() => setPreviewEvidenceOpen(false)} onCopy={copyHead} />}
       {backboneOpen && <BackboneDrawer change={change} onClose={() => setBackboneOpen(false)} />}
       {handbackOpen && <AgentHandbackDrawer change={change} onClose={() => setHandbackOpen(false)} onCopy={copyHandback} />}
