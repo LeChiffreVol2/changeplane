@@ -2,9 +2,9 @@
 
 **Keep GitHub. Let agents ship.**
 
-Open-source repository coordination for teams developing with coding agents. Give each task its own worktree, return PR and CI findings to its owner, and integrate through GitHub’s existing rules.
+Open-source PR and CI assurance for individual developers and teams using coding agents. Inspect current evidence, return findings to the writer, and coordinate parallel work through GitHub’s existing rules.
 
-Start with [parallel repository setup and recovery](docs/team-operator.md): scoped task reservations, dependencies, isolated Git worktrees and revision-bound PR/CI handoffs, available through the CLI and an MCP server. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
+Start with [Individual assessment](docs/community.md#inspect-your-repository) or [parallel setup for yourself or a team](docs/team-operator.md). Parallel work adds scoped tasks, dependencies, isolated worktrees and revision-bound handoffs through the CLI and MCP. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -12,6 +12,16 @@ Start with [parallel repository setup and recovery](docs/team-operator.md): scop
 **Open Source · free for individuals and businesses · no model key · no ChangePlane account.**
 
 [Get started](docs/community.md) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [How it works](#how-it-works) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+## Choose how you work
+
+| Settings choice | Starting behavior | Next step |
+| --- | --- | --- |
+| **Individual** | Read-only PR/CI assessment | [Inspect one PR](docs/community.md#inspect-your-repository) |
+| **Individual with parallel agents** | Optional coordination; default capacity 2 | [Set up isolated tasks](docs/team-operator.md) |
+| **Teams** | Coordination selected; default capacity 3 | [Set up the shared repository](docs/team-operator.md) |
+
+Both choices work with personal or organization repositories, subject to repository permissions. Open **Settings** on the website to prepare your setup; coordination capacity can be 1–20. Settings are a local draft. Copying coordination settings does not install anything: review only the `team` field in a configuration PR while preserving existing evidence and protected paths. See [changing settings safely](docs/community.md#settings-for-individual-and-teams).
 
 ## Try it in one minute
 
@@ -45,8 +55,9 @@ Use the [read-only GitHub Action](docs/community.md#run-in-github-actions) for c
 
 ```mermaid
 flowchart LR
-  A[Team members and coding agents] --> B[Scoped tasks and separate worktrees]
-  B --> C[Task PRs and existing behavioral CI]
+  A[Individual developers, teams and coding agents] --> C[PRs and existing behavioral CI]
+  A --> B[Optional scoped tasks and separate worktrees]
+  B --> C
   C --> D[ChangePlane observes current evidence]
   D --> E[Handoff to the assigned writer]
   E --> C
@@ -84,7 +95,7 @@ It cannot improve weak tests by itself. Start with one behavioral job that prote
 
 ## Project status and roadmap
 
-Source version **0.4.0** adds review feedback, resumable unfinished work, fair bounded observation, terminal-task archives and setup diagnostics. Team boards upgrade to schema 2; update all operators together using the [upgrade guide](docs/team-operator.md#upgrade-existing-installations). Releases are tested from isolated archives on Linux, macOS and Windows. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
+Source version **0.4.1** provides Individual and Teams setup settings alongside review feedback, resumable unfinished work, fair bounded observation, terminal-task archives and diagnostics. Team boards use schema 2; when upgrading from 0.3.x, update all operators together using the [upgrade guide](docs/team-operator.md#upgrade-existing-installations). Releases are tested from isolated archives on Linux, macOS and Windows. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
 
 Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and organization controls are revenue hypotheses to validate with users; there is no paid offer in this release.
 

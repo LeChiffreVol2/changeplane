@@ -73,7 +73,7 @@ live readers use bounded fixed-origin GET requests. The GitLab reader candidate 
 `inspect-gitlab GROUP/PROJECT MR_NUMBER` and `GITLAB_TOKEN`; it does not claim verified
 tested subjects, CI include closure, merge enforcement or live installation qualification.
 
-[Parallel team setup and recovery](docs/team-operator.md)\n\n[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
+[Individual PR assessment and settings](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)\n\n[Parallel setup for yourself or a team](docs/team-operator.md)\n\n[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
 [Security](https://github.com/LeChiffreVol2/changeplane/security/advisories/new)
 '''.encode()
 files['SOURCE.json'] = (json.dumps({'repository': 'LeChiffreVol2/changeplane', 'commit': revision,

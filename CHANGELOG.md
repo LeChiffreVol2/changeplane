@@ -1,5 +1,12 @@
 # Changelog
 
+## Open Source 0.4.1
+
+- Restore equal Individual and Teams setup paths; individual developers can optionally coordinate several coding agents.
+- Add Settings to the public entry, hosted setup and synthetic workspace, with separate local drafts and configurable parallel task capacity.
+- Copy only coordination policy fields for a reviewed configuration PR. Settings never imply repository access, installation or applied policy.
+- Update setup guides and cover mode changes, draft retention, clipboard failure and authorization separation in browser journeys.
+
 ## Open Source 0.4.0
 
 - Return current review feedback and resumable unfinished work to the existing assigned agent, including after acknowledgment and restart.

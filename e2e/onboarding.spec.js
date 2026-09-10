@@ -59,9 +59,10 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "Give every agent a clear task and next step." })).toBeVisible();
-  await expect(page.getByText("ChangePlane coordinates task scopes and dependencies", { exact: false })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Set up parallel teamwork" })).toHaveAttribute("href", "https://github.com/LeChiffreVol2/changeplane/blob/main/docs/team-operator.md");
+  await expect(page.getByRole("heading", { name: "Set up your way of working." })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Individual", exact: true })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Teams", exact: true })).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Set up Individual" })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   await expect(page.getByText("RouteThai use case · synthetic contract reconstruction")).toHaveCount(1);
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
@@ -1709,5 +1710,126 @@ test("pending, current, and owner-review states never offer an unsafe mutation",
   );
 
   expect(installRequests).toBe(0);
+  expect(externalRequests).toEqual([]);
+});
+
+test("Individual and Teams settings remain separate drafts across setup and workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mutations = [];
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    if (route.request().method() !== "GET") mutations.push(url.href);
+    expect(url.searchParams.get("action")).toBe("session");
+    return json(route, { configured: true, authenticated: false, authMode: "github_app", rolloutMode: "controlled_canary" });
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text) => { window.settingsCopied = text; } } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Set up Individual" }).click();
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  await expect(settings.getByRole("button", { name: "Close settings", exact: true })).toBeFocused();
+  await expect(settings.getByRole("checkbox", { name: "Coordinate parallel work" })).not.toBeChecked();
+  await expect(settings.getByLabel("Maximum active tasks")).toBeDisabled();
+  await expect(settings.getByRole("link", { name: "Continue to PR assessment setup" })).toHaveAttribute("href", /\/docs\/community\.md$/);
+  await settings.getByRole("checkbox", { name: "Coordinate parallel work" }).check();
+  await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("2");
+  await settings.getByLabel("Maximum active tasks").selectOption("4");
+  await settings.getByRole("radio", { name: "Teams", exact: true }).check();
+  await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("3");
+  await settings.getByLabel("Maximum active tasks").selectOption("20");
+  await settings.getByText("Review the repository settings", { exact: true }).click();
+  await settings.getByRole("button", { name: "Copy coordination settings" }).click();
+  expect(JSON.parse(await page.evaluate(() => window.settingsCopied))).toEqual({ team: { enabled: true, maxActive: 20 } });
+  await expect(settings.getByRole("status")).toContainText("Copied draft");
+  await expect(settings.getByText("Nothing is installed or applied to a repository here.", { exact: false })).toBeVisible();
+  await expect(settings).toContainText("Preserve evidence checks, protected paths and other settings.");
+  await page.keyboard.press("Escape");
+  await expect(settings).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Set up Teams" })).toBeFocused();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("20");
+  await settings.getByRole("radio", { name: "Individual", exact: true }).check();
+  await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("4");
+  await expect(settings.getByRole("checkbox", { name: "Coordinate parallel work" })).toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Open RouteThai example workspace" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(settings.getByRole("radio", { name: "Individual", exact: true })).toBeChecked();
+  await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("4");
+  await settings.getByRole("checkbox", { name: "Coordinate parallel work" }).uncheck();
+  await settings.getByText("Review the repository settings", { exact: true }).click();
+  await settings.getByRole("button", { name: "Copy coordination settings" }).click();
+  expect(JSON.parse(await page.evaluate(() => window.settingsCopied))).toEqual({ team: { enabled: false, maxActive: 4 } });
+  await expect(settings).toContainText("stop participating writers and the observer");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
+  expect(mutations).toEqual([]);
+  expect(externalRequests).toEqual([]);
+  await page.reload();
+  await page.getByRole("button", { name: "Set up Individual" }).click();
+  await expect(settings.getByRole("checkbox", { name: "Coordinate parallel work" })).not.toBeChecked();
+});
+
+test("hosted setup exposes both usage settings without changing repository authorization", async ({ page }) => {
+  const requested = [];
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    const action = url.searchParams.get("action");
+    requested.push({ action, method: route.request().method() });
+    if (action === "session") return json(route, { configured: true, authenticated: true, login: "solo-builder", csrf: "fixture-csrf", authMode: "github_app", rolloutMode: "controlled_canary" });
+    if (action === "repos") return json(route, { repositories: [] });
+    throw new Error(`Unexpected settings request: ${action}`);
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  await settings.getByRole("radio", { name: "Teams", exact: true }).check();
+  await expect(settings.getByRole("link", { name: "Continue to parallel work setup" })).toHaveAttribute("href", /\/docs\/team-operator\.md$/);
+  await settings.getByText("Review the repository settings", { exact: true }).click();
+  await settings.getByRole("button", { name: "Copy coordination settings" }).click();
+  await expect(settings.getByRole("status")).toContainText("Clipboard unavailable");
+  await expect(settings.getByRole("status")).toContainText("repository settings have not changed");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "One repository. One setup PR." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
+  expect(requested.every(({ method }) => method === "GET")).toBe(true);
+  expect(externalRequests).toEqual([]);
+});
+
+test("Settings keeps keyboard focus while a delayed authenticated session opens hosted setup", async ({ page }) => {
+  let pendingSession;
+  const requests = [];
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    const action = url.searchParams.get("action");
+    requests.push({ action, method: route.request().method() });
+    if (action === "session") { pendingSession = route; return; }
+    if (action === "repos") return json(route, { repositories: [] });
+    throw new Error(`Unexpected delayed-session request: ${action}`);
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => Boolean(pendingSession)).toBe(true);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  await expect(settings.getByRole("button", { name: "Close settings", exact: true })).toBeFocused();
+
+  await json(pendingSession, { configured: true, authenticated: true, login: "delayed-owner",
+    csrf: "fixture-csrf", authMode: "github_app", rolloutMode: "controlled_canary" });
+  await expect(page.locator("#setup-main-title")).toBeAttached();
+  // Drain the animation frames used by the page-transition focus effect.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await settings.evaluate(dialog => dialog.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Shift+Tab");
+  await expect(settings.getByRole("link", { name: "Continue to PR assessment setup" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(settings.getByRole("button", { name: "Close settings", exact: true })).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(settings).toHaveCount(0);
+  await expect(page.locator("#setup-main-title")).toBeFocused();
+  expect(requests.every(({ method }) => method === "GET")).toBe(true);
   expect(externalRequests).toEqual([]);
 });
