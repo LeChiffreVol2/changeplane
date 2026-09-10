@@ -475,14 +475,33 @@ button {
 
 .auth-footer {
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
   margin-top: var(--space-6);
   color: var(--muted);
   font-size: var(--text-meta);
 }
 
-.auth-footer-status { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
 .auth-footer .settings-link { padding-left: 0; font-size: var(--text-meta); }
+
+.auth-resources summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-height: var(--control-small);
+  width: fit-content;
+  margin-left: auto;
+  list-style: none;
+  cursor: pointer;
+}
+
+.auth-resources summary::-webkit-details-marker { display: none; }
+.auth-resources summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+.auth-resources summary svg { transition: transform var(--motion-fast) ease; }
+.auth-resources[open] summary svg { transform: rotate(180deg); }
+.auth-resources-content { display: grid; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--line); }
 
 .auth-footer a {
   display: inline-flex;
@@ -497,7 +516,7 @@ button {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: var(--space-1) var(--space-4);
 }
 

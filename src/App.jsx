@@ -541,21 +541,23 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <footer className="auth-footer">
-            <div className="auth-footer-status">
-              <button className="settings-link" type="button" onClick={onSettings}>Settings</button>
-              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : privateAlpha ? "Invite-only alpha" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
-            </div>
-            <nav className="auth-footer-links" aria-label="Project resources">
-              <a href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">Local quickstart</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
-            </nav>
-            <nav className="auth-footer-links" aria-label="Draft policies">
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/ACCEPTABLE_USE.md" target="_blank" rel="noreferrer">AUP draft</a>
-            </nav>
+            <button className="settings-link" type="button" onClick={onSettings}>Settings</button>
+            <details className="auth-resources">
+              <summary>Resources <CaretDown size={14} aria-hidden="true" /></summary>
+              <div className="auth-resources-content">
+                <nav className="auth-footer-links" aria-label="Project resources">
+                  <a href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">Local quickstart</a>
+                  <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
+                  <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
+                  <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
+                </nav>
+                <nav className="auth-footer-links" aria-label="Draft policies">
+                  <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
+                  <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>
+                  <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/ACCEPTABLE_USE.md" target="_blank" rel="noreferrer">AUP draft</a>
+                </nav>
+              </div>
+            </details>
           </footer>
         </div>
       </section>
