@@ -4,7 +4,7 @@ ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses 
 
 Choose **Individual** for read-only PR/CI assessment. If you run several agents yourself, enable optional parallel coordination; **Teams** starts with coordination selected. Both use the same repository engine and support personal and organization repositories with appropriate permissions. The usage choice does not identify the repository owner or grant access.
 
-Source version 0.4.1 includes Individual and Teams setup settings and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+Version 0.4.1 includes the CLI, setup generator, read-only MCP, agent skill, Individual and Teams settings, and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md). It builds on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts.
 
 ## Settings for Individual and Teams
 
@@ -29,11 +29,11 @@ These commands read local JSON only. The second and third intentionally exit 1. 
 
 ## Install the command
 
-Current source includes the command wrapper, guided setup and read-only MCP. Previously tagged assets are immutable and may have the earlier interface. Check the README inside your download; `--version` alone does not identify routine updates. Current CI bundles include the exact commit in `SOURCE.json`.
+Download the archive, workflow templates and `SHA256SUMS` from [ChangePlane 0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest). This is the single published release and includes the command wrapper, guided setup and read-only MCP. Its release notes and bundled `SOURCE.json` identify the exact source commit; `--version` alone does not identify routine updates. If you saved an earlier 0.4.1 archive, download the consolidated bundle and review the changed source commit before upgrading.
 
-To get a tested bundle, open a successful **main** run in [CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) and download its `changeplane-source-COMMIT-attempt-N` artifact. GitHub requires sign-in for artifact downloads. Bundles expire after seven days; a source checkout at that exact commit remains usable with `node bin/changeplane.js`. The existing tagged releases remain available for their documented capabilities.
+To evaluate changes after the published release, open a successful **main** run in [CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) and download its `changeplane-source-COMMIT-attempt-N` artifact. GitHub requires sign-in for CI artifact downloads. These artifacts expire after seven days; the release assets remain the primary download. A source checkout at an exact commit also works with `node bin/changeplane.js`.
 
-Extract the artifact, check its archive and workflow files against `SHA256SUMS`, then extract the `.tar.gz`. Run from the extracted directory with `node bin/changeplane.js`, or install its dependency-free command into your existing writable npm prefix:
+Check the archive and workflow files against `SHA256SUMS`, then extract the `.tar.gz`. If using a CI artifact, extract its outer zip first. Run from the extracted directory with `node bin/changeplane.js`, or install its dependency-free command into your existing writable npm prefix:
 
 ```sh
 npm install --global --offline --ignore-scripts --no-audit --no-fund "/absolute/path/to/extracted/changeplane-community-0.4.1"

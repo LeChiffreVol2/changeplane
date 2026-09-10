@@ -49,7 +49,7 @@ node bin/changeplane.js evaluate examples/community/stale.json
 
 These are synthetic inputs for learning the report format. Exit 2 indicates invalid or unavailable input. Run `node bin/changeplane.js --help` for all commands.
 
-Prefer a command on your PATH? Use a verified dependency-free [CI bundle and local installation](docs/community.md#install-the-command). New entrypoints are in current source and commit-addressed CI bundles; older [tagged assets](https://github.com/LeChiffreVol2/changeplane/releases) keep their original interface. No npm-registry package is required.
+Prefer a command on your PATH? Download [ChangePlane 0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest) and follow the [local installation guide](docs/community.md#install-the-command). The dependency-free bundle includes the CLI, setup generator, MCP and agent skill. No npm-registry package is required.
 
 ## Inspect a real pull request
 
@@ -117,7 +117,9 @@ Enterprise Cloud access follows organization rules. GitHub Enterprise Server, se
 
 ## Releases and upgrades
 
-Use [tagged releases](https://github.com/LeChiffreVol2/changeplane/releases) for a reproducible installation. `main` may contain improvements made after the latest tagged release; published assets and pinned Actions remain immutable. Read the [upgrade guide](docs/team-operator.md#upgrade-existing-installations) before changing existing operators or workflow pins.
+The single published release is [0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest). Its release notes identify the full source commit; `SOURCE.json` and `SHA256SUMS` identify the downloaded bytes. Earlier tags and release listings were retired in a one-time consolidation. If you downloaded 0.4.1 before that consolidation, download the current bundle and review its source commit before upgrading.
+
+Routine changes keep the version number and are identified by commit SHA. Later `main` commits and CI bundles may be newer than the published release; routine updates do not move its tag or replace its assets. Pin Actions to a reviewed full commit SHA. Read the [upgrade guide](docs/team-operator.md#upgrade-existing-installations) before changing existing operators or workflow pins.
 
 ## Develop and contribute
 
