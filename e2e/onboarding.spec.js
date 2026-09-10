@@ -37,10 +37,13 @@ test("shared controls remain readable and separate at narrow widths and enlarged
       const context = box('.repository-context');
       const status = box('.queue-meta .status-mark');
       const time = box('.queue-meta time');
+      const queue = box('.queue-list');
+      const queueItem = box('.queue-item');
       return {
         headerGap: actions.left - brand.right,
         contextSeparate: context.bottom <= actions.top || context.top >= actions.bottom || context.right <= actions.left,
         queueSeparate: time.top >= status.bottom || time.left - status.right >= 8,
+        singleQueueFits: Math.abs(queueItem.width - queue.width) < 1,
         checkpointFont: parseFloat(getComputedStyle(document.querySelector('.revision-stage small')).fontSize),
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
@@ -48,6 +51,7 @@ test("shared controls remain readable and separate at narrow widths and enlarged
     expect(geometry.headerGap).toBeGreaterThanOrEqual(8);
     expect(geometry.contextSeparate).toBe(true);
     expect(geometry.queueSeparate).toBe(true);
+    expect(geometry.singleQueueFits).toBe(true);
     expect(geometry.checkpointFont).toBeGreaterThanOrEqual(12);
     expect(geometry.overflow).toBe(false);
 

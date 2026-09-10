@@ -4554,7 +4554,6 @@ code,
   .brand-block .topbar-divider { display: none; }
   .repo-name { max-width: 128px; }
   .queue-heading { height: 48px; padding-inline: var(--space-4); }
-  .queue-list { grid-template-columns: repeat(3, 210px); }
   .workspace { padding: var(--space-6) var(--space-4) var(--space-10); }
   .review-signal { grid-template-columns: 24px minmax(0, 1fr); align-items: start; }
   .review-signal > span { grid-column: 2; }
