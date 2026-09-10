@@ -9,7 +9,7 @@ ChangePlane helps individual developers and teams work with coding agents in the
 
 **Open source · free for individual and commercial use · no ChangePlane account or model key required.**
 
-[Quickstart](#try-it-in-one-minute) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [Documentation](docs/community.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Quickstart](#try-it-in-one-minute) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## Choose how you work
 
@@ -29,7 +29,7 @@ Requires Git and Node.js 22.18+; Node 22 and 24 are tested.
 ```sh
 git clone https://github.com/LeChiffreVol2/changeplane.git
 cd changeplane
-node community/cli.js evaluate examples/community/satisfied.json
+node bin/changeplane.js evaluate examples/community/satisfied.json
 ```
 
 The command prints a JSON assessment with `decision: "EVIDENCE_SATISFIED"` and exits 0. Once cloned, the included examples run entirely offline, with no npm installation or model call.
@@ -37,8 +37,8 @@ The command prints a JSON assessment with `decision: "EVIDENCE_SATISFIED"` and e
 Try the failure cases:
 
 ```sh
-node community/cli.js evaluate examples/community/failed.json
-node community/cli.js evaluate examples/community/stale.json
+node bin/changeplane.js evaluate examples/community/failed.json
+node bin/changeplane.js evaluate examples/community/stale.json
 ```
 
 | Example | Decision | Exit code |
@@ -47,18 +47,22 @@ node community/cli.js evaluate examples/community/stale.json
 | `failed.json` | `REVIEW_REQUIRED` | 1 |
 | `stale.json` | `BLOCKED` | 1 |
 
-These are synthetic inputs for learning the report format. Exit 2 indicates invalid or unavailable input. Run `node community/cli.js --help` for all commands.
+These are synthetic inputs for learning the report format. Exit 2 indicates invalid or unavailable input. Run `node bin/changeplane.js --help` for all commands.
 
-Prefer an archive? Download the dependency-free bundle and verify its SHA-256 against `SHA256SUMS` from the same [release](https://github.com/LeChiffreVol2/changeplane/releases). The commands above work inside the extracted directory.
+Prefer a command on your PATH? Use a verified dependency-free [CI bundle and local installation](docs/community.md#install-the-command). New entrypoints are in current source and commit-addressed CI bundles; older [tagged assets](https://github.com/LeChiffreVol2/changeplane/releases) keep their original interface. No npm-registry package is required.
 
 ## Inspect a real pull request
 
-1. Choose an existing CI job that tests meaningful product behavior. Identify its exact job name, publisher and workflow path.
-2. Add a reviewed `.changeplane.json` to the repository's default branch using the [example policy](examples/community/policy.json). Replace `Behavior` and the workflow path with your job's values. Preserve any existing policy and protected paths.
-3. Let CI complete on a pull request targeting that default branch, then run:
+Start by discovering your CI jobs and preparing one reviewed configuration PR:
 
 ```sh
-node community/cli.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
+node bin/changeplane.js init YOUR_ACCOUNT/YOUR_REPOSITORY --dry-run --format text
+```
+
+Choose a job that tests meaningful behavior, then use the [setup generator](docs/community.md#prepare-setup-files) to stage policy and workflow files. It preserves existing policy and never writes to GitHub. Once the configuration PR is merged and your PR's CI has run:
+
+```sh
+node bin/changeplane.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123 --format text
 ```
 
 Replace the repository and PR number with yours. Public repositories can use unauthenticated GitHub API access within its rate limit. For private access, supply `GH_TOKEN` or `GITHUB_TOKEN` through your environment or secret manager with **Contents, Pull requests, Checks and Actions read** permissions. Keep tokens out of command arguments and source files; organization approval or SSO may apply.
@@ -67,18 +71,18 @@ The report includes the observed revision, findings and a next action. The reade
 
 ## Use it in your workflow
 
-**GitHub Actions:** add the release's pinned `changeplane-community.yml` through a configuration PR. It assesses PRs after your existing CI workflow completes, using read-only permissions and no repository checkout. [Action setup →](docs/community.md#run-in-github-actions)
+**GitHub Actions:** use `LeChiffreVol2/changeplane/community@FULL_REVIEWED_SHA` through a configuration PR. The root Action is the managed Guard; the public read-only Action requires the `/community` subpath. It assesses PRs after your existing CI workflow completes, using read-only permissions and no repository checkout. [Action setup →](docs/community.md#run-in-github-actions)
 
 **Parallel agents:** follow the [operator setup](docs/team-operator.md), then check configuration and current assigned work:
 
 ```sh
-node community/cli.js team doctor YOUR_ACCOUNT/YOUR_REPOSITORY
-node community/cli.js team next YOUR_ACCOUNT/YOUR_REPOSITORY
+node bin/changeplane.js team doctor YOUR_ACCOUNT/YOUR_REPOSITORY
+node bin/changeplane.js team next YOUR_ACCOUNT/YOUR_REPOSITORY
 ```
 
 Each task has a defined scope and its own worktree. Existing agents perform development and respond to findings; ChangePlane records coordination in the repository. Doctor reports setup problems without changing branches. A stopped agent still needs its existing runtime to resume it.
 
-**MCP clients:** the [stdio MCP server](docs/repository-team.md#cursor-and-other-mcp-clients) exposes the same task, worktree, diagnostic and feedback operations to compatible agents. Follow the operator credential-isolation requirements and [agent task loop](examples/changeplane-team-agent.md). One developer can use several agents through the same coordination engine as a team.
+**Agents:** use the [read-only MCP and consumer skill](docs/community.md#use-with-an-agent) to inspect a PR without configuring coordination writes. `changeplane_inspect` returns the revision, findings and next action. The [separate team MCP](docs/repository-team.md#cursor-and-other-mcp-clients) adds scoped tasks and workspaces after operator setup. [Agent instructions →](skills/changeplane/SKILL.md)
 
 ## How it works
 

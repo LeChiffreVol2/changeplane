@@ -120,3 +120,16 @@ jobs:
             exit 1
           fi
           grep -F 'id="root"' "$RUNNER_TEMP/changeplane-index.html"
+      - name: Package verified main source
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python3 scripts/package-community.py "$GITHUB_SHA" "$RUNNER_TEMP/changeplane-source"
+      - name: Upload commit-addressed public bundle
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # actions/upload-artifact v7, immutable reviewed source.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: changeplane-source-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/changeplane-source/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: false

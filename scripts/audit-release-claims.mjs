@@ -5,6 +5,9 @@ import { auditReleaseClaims } from "../src/lib/release-claims.js";
 const paths = [
   "ACCEPTABLE_USE.md",
   "README.md",
+  "community/README.md",
+  "docs/README.md",
+  "skills/changeplane/SKILL.md",
   "CONTRIBUTING.md",
   "docs/community.md",
   "docs/community-positioning.md",

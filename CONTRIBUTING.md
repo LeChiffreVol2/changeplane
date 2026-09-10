@@ -20,11 +20,13 @@ Chromium may need `npx playwright install chromium`. CI additionally exercises d
 
 | Path | Responsibility |
 | --- | --- |
+| `bin/`, `skills/` | Public command wrapper and consumer agent instructions |
 | `community/` | Public CLI, provider readers, opt-in repository coordination, MCP, Action and tests |
 | `src/lib/changeplane.js` | Shared deterministic evaluator |
 | `examples/changeplane-evidence-policy.js` | Shared protected-evidence rules |
 | `action/`, `server/`, `api/` | Hosted managed runtime and trusted controllers |
 | `src/App.jsx`, `src/styles.css` | Public product and synthetic replay |
+| `docs/README.md` | Task-based documentation index; distinguishes current guides and historical evidence |
 | `docs/`, `evidence/` | Contracts and bounded historical observations |
 
 For interface changes, follow the [shared UI roles and design QA](docs/ui-design.md). Reuse `src/tokens.css` and the existing controls and drawers, and check narrow layouts as well as desktop.

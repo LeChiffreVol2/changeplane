@@ -19,13 +19,79 @@ Before disabling existing coordination, stop participating writers and the obser
 Install Node.js 22.18+ (22 and 24 are tested). Clone the repository or unpack the Open Source release archive. No npm dependencies are required:
 
 ```sh
-node community/cli.js evaluate examples/community/satisfied.json
-node community/cli.js evaluate examples/community/failed.json
-node community/cli.js evaluate examples/community/stale.json
-node community/cli.js --help
+node bin/changeplane.js evaluate examples/community/satisfied.json
+node bin/changeplane.js evaluate examples/community/failed.json
+node bin/changeplane.js evaluate examples/community/stale.json
+node bin/changeplane.js --help
 ```
 
 These commands read local JSON only. The second and third intentionally exit 1. A caller-supplied snapshot is unauthenticated even when evidence is satisfied.
+
+## Install the command
+
+Current source includes the command wrapper, guided setup and read-only MCP. Previously tagged assets are immutable and may have the earlier interface. Check the README inside your download; `--version` alone does not identify routine updates. Current CI bundles include the exact commit in `SOURCE.json`.
+
+To get a tested bundle, open a successful **main** run in [CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) and download its `changeplane-source-COMMIT-attempt-N` artifact. GitHub requires sign-in for artifact downloads. Bundles expire after seven days; a source checkout at that exact commit remains usable with `node bin/changeplane.js`. The existing tagged releases remain available for their documented capabilities.
+
+Extract the artifact, check its archive and workflow files against `SHA256SUMS`, then extract the `.tar.gz`. Run from the extracted directory with `node bin/changeplane.js`, or install its dependency-free command into your existing writable npm prefix:
+
+```sh
+npm install --global --offline --ignore-scripts --no-audit --no-fund "/absolute/path/to/extracted/changeplane-community-0.4.1"
+changeplane --help
+```
+
+This installs a **local verified bundle**, not a registry package. Do not run this command on the full web-app source checkout. A global install needs a writable npm prefix; using `node bin/changeplane.js` needs no global write access. Uninstall the command with `npm uninstall --global changeplane-community`; preserve any reports and active worktrees you still need.
+
+## Prepare setup files
+
+From the ChangePlane runtime directory, discover job names on your repository's current default revision:
+
+```sh
+node bin/changeplane.js init OWNER/REPO --dry-run --format text
+```
+
+If your CI runs only on PRs, add `--pr NUMBER` for an open PR targeting the default branch. Discovery lists candidates; it does not select one or establish that a test checks meaningful behavior. Have the repository owner choose the exact behavioral job and its trusted workflow path, then prepare the files:
+
+```sh
+node bin/changeplane.js init OWNER/REPO --check "Behavior" --workflow .github/workflows/ci.yml --dry-run
+node bin/changeplane.js init OWNER/REPO --check "Behavior" --workflow .github/workflows/ci.yml --output ../changeplane-setup-review
+```
+
+Replace `Behavior` and the path with a discovered job. Use the same `--pr NUMBER` on subsequent commands when applicable. `--dry-run` is also the default; it writes nothing. `--output` requires a new directory with an existing parent and cannot be combined with `--dry-run`.
+
+The generator reads policy and workflow files from one exact default-branch commit, preserves existing requirements and protected paths, and appends the selected check if missing. Different existing ChangePlane workflows stop generation for manual review. Templates pin the runtime's exact source commit. The staging directory contains `.changeplane.json`, the reviewed public assessment workflow, and `changeplane-setup.json` recording the base and previous file digests. It contains no credential or installed operator.
+
+Review the selected CI behavior and file changes. Apply the listed configuration files on one feature branch based on the recorded `baseSha`, then open a setup PR with your existing GitHub tools. Keep the local plan manifest out of the consumer repository unless you intend to retain it. If default-branch state changes, regenerate and review before applying. The tool does not execute repository code, commit, push, open a PR or install anything remotely.
+
+For several agents or teammates, add `--coordination` and optionally `--max-active 2` (1–20). Existing capacity is preserved, or a new setup defaults to 3. This also stages the observer and review-relay workflows. Complete the separate [operator and credential-isolation setup](team-operator.md); generated files do not create that boundary. Omitting `--coordination` preserves any existing team policy and does not disable installed operators.
+
+Setup exits 0 for a prepared review plan, 1 when a CI selection is needed and 2 for invalid/unavailable input. This differs from assessment exit codes and never establishes evidence success. `init --help` lists all options. Permission failures, ambiguous jobs, missing trusted workflows and changing revisions require the reported next action before trying again.
+
+## Use with an agent
+
+The read-only stdio MCP exposes only `changeplane_inspect`. The operator fixes the repository; callers provide one PR number. It uses the same GitHub collector as the CLI, with structured results and advisory authority. It has no coordination or source-write tools.
+
+For clients using `mcpServers`, configure a trusted runtime path:
+
+```json
+{
+  "mcpServers": {
+    "changeplane-read": {
+      "command": "node",
+      "args": ["/absolute/path/to/changeplane/bin/changeplane.js", "mcp"],
+      "env": { "CHANGEPLANE_REPOSITORY": "OWNER/REPO" }
+    }
+  }
+}
+```
+
+For private access, supply a repository-scoped **read-only** `GH_TOKEN` or `GITHUB_TOKEN` through the operator environment or your client's secret mechanism. Do not embed credentials in shared JSON, prompts or committed files. Project MCP configuration is a client configuration surface, not credential isolation. Keep the credentialed process outside any untrusted coding sandbox.
+
+Install the whole [consumer skill folder](../skills/changeplane/SKILL.md) into a skill location supported by your client, such as `.agents/skills/changeplane/` for a compatible client. Review and preserve existing repository instructions. The skill is self-contained; it distinguishes read-only PR diagnosis from an already configured team operator. Root `AGENTS.md` is for contributing to ChangePlane itself.
+
+Ask the agent to inspect one PR, read the reported revision and next action, and reassess after any change. The complete JSON remains the default CLI output; `--format text` is a human summary and `--format compact` omits the repeated full handback while retaining findings, revision and advisory authority. Summaries cannot replace full evidence verification.
+
+For already configured coordination, use the [separate team MCP](repository-team.md#cursor-and-other-mcp-clients). Existing eight-tool clients retain their interface. The new read-only tool does not activate that operator. Protocol and fixture tests do not establish live Cursor installation, native Origin access or process-level credential isolation.
 
 ## Inspect your repository
 
@@ -34,7 +100,7 @@ These commands read local JSON only. The second and third intentionally exit 1. 
 3. Open a normal, same-repository PR targeting the default branch. Let its CI complete, then run:
 
 ```sh
-node community/cli.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
+node bin/changeplane.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
 ```
 
 Public GitHub API access works without a token within GitHub's rate limit. For private repositories or higher limits, supply `GH_TOKEN` or `GITHUB_TOKEN` through your process environment or a secret manager. Prefer a fine-grained token scoped to the selected repository with **Contents: read, Pull requests: read, Checks: read, Actions: read**, plus implicit Metadata read. Organization approval/SSO may apply. Never paste the token into commands, configuration, issues or screenshots.

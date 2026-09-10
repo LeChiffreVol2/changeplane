@@ -1,5 +1,7 @@
 # ChangePlane engineering policy
 
+These instructions govern development of ChangePlane. To use ChangePlane in another repository, start with [the public runtime](community/README.md) and [consumer skill](skills/changeplane/SKILL.md).
+
 ## Product boundary
 
 - ChangePlane is an open-source assurance and recovery layer for pull requests and merge requests, independent of the authoring agent. The accepted target covers GitHub, GitLab and Cursor Origin; the authoritative forge retains repository state and merge authority. Platform support is qualified per capability, not inferred from a common status name.
