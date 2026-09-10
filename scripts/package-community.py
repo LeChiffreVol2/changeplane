@@ -60,6 +60,8 @@ Keep GitHub. Let agents ship.
 Apache-2.0. Node.js 22.18+; no npm dependencies, model key or hosted account.
 Source commit: `{revision}`
 
+## Try it in one minute
+
 ```sh
 node bin/changeplane.js evaluate examples/community/satisfied.json
 node bin/changeplane.js evaluate examples/community/failed.json
@@ -102,7 +104,9 @@ for name, body in list(files.items()):
         if resolved in files:
             return match.group(0)
         return '](' + f'https://github.com/LeChiffreVol2/changeplane/blob/{revision}/' + quote(resolved) + (separator + anchor if separator else '') + ')'
-    files[name] = re.sub(r'\]\(([^)]+)\)', document_link, body.decode()).encode()
+    text = body.decode().replace('https://github.com/LeChiffreVol2/changeplane/blob/main/',
+                                 f'https://github.com/LeChiffreVol2/changeplane/blob/{revision}/')
+    files[name] = re.sub(r'\]\(([^)]+)\)', document_link, text).encode()
 files['SOURCE.json'] = (json.dumps({'repository': 'LeChiffreVol2/changeplane', 'commit': revision,
     'communityVersion': version, 'files': {name: hashlib.sha256(body).hexdigest() for name, body in files.items()}}, indent=2) + '\n').encode()
 raw = io.BytesIO()
