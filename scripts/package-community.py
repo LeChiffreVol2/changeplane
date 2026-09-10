@@ -4,6 +4,8 @@ import gzip
 import hashlib
 import io
 import json
+import posixpath
+from urllib.parse import quote
 from pathlib import Path
 import re
 import subprocess
@@ -25,6 +27,10 @@ version = version_match.group(1).decode()
 prefix = 'changeplane-community-' + version
 paths = [
     'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md',
+    'bin/changeplane.js', 'community/README.md', 'docs/README.md', 'docs/community.md',
+    'skills/changeplane/SKILL.md',
+    'community/setup.js', 'community/setup.test.js', 'community/output.js',
+    'community/mcp.js', 'community/mcp-transport.js', 'community/entrypoints.test.js',
     'community/core.js', 'community/github.js', 'community/cli.js',
     'community/action.js', 'community/action.yml', 'community/core.test.js',
     'community/gitlab.js', 'community/gitlab.test.js', 'community/observation.js', 'community/observation.test.js',
@@ -40,11 +46,13 @@ paths = [
     'examples/community/gitlab-policy.json',
     'docs/team-operator.md', 'docs/repository-team.md', 'docs/repository-team-qualification.md',
     'examples/changeplane-team-review-signal.yml', 'examples/changeplane-team.yml', 'examples/changeplane-team-agent.md',
+    'examples/changeplane-community.yml',
 ]
 files = {name: source(name) for name in paths}
 files['examples/changeplane-team.yml'] = files['examples/changeplane-team.yml'].replace(b'CHANGEPLANE_TEAM_RELEASE_SHA', revision.encode())
 files['package.json'] = (json.dumps({'name': 'changeplane-community', 'version': version,
-    'type': 'module', 'private': True, 'license': 'Apache-2.0', 'engines': {'node': '>=22.18'}}, indent=2) + '\n').encode()
+    'type': 'module', 'private': True, 'bin': {'changeplane': 'bin/changeplane.js'},
+    'license': 'Apache-2.0', 'engines': {'node': '>=22.18'}}, indent=2) + '\n').encode()
 files['README.md'] = f'''# ChangePlane Open Source {version}
 
 Keep GitHub. Let agents ship.
@@ -52,19 +60,25 @@ Keep GitHub. Let agents ship.
 Apache-2.0. Node.js 22.18+; no npm dependencies, model key or hosted account.
 Source commit: `{revision}`
 
+## Try it in one minute
+
 ```sh
-node community/cli.js evaluate examples/community/satisfied.json
-node community/cli.js evaluate examples/community/failed.json
-node community/cli.js evaluate examples/community/stale.json
+node bin/changeplane.js evaluate examples/community/satisfied.json
+node bin/changeplane.js evaluate examples/community/failed.json
+node bin/changeplane.js evaluate examples/community/stale.json
 node --test community/*.test.js
 ```
+
+Use [setup, local command installation and read-only MCP](docs/community.md),
+the [public runtime map](community/README.md), and the [consumer skill](skills/changeplane/SKILL.md).
+The root source Action is the managed Guard; use the public `/community` Action subpath.
 
 Expected exits: 0, 1, 1. Invalid input exits 2. Assessments are advisory;
 they do not publish a Guard, authorize repair or approve a merge.
 After merging a reviewed default-branch policy, inspect your own open PR:
 
 ```sh
-node community/cli.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
+node bin/changeplane.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
 ```
 
 Use GH_TOKEN or GITHUB_TOKEN via your environment for private GitHub read access.
@@ -76,6 +90,23 @@ tested subjects, CI include closure, merge enforcement or live installation qual
 [Individual PR assessment and settings](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)\n\n[Parallel setup for yourself or a team](docs/team-operator.md)\n\n[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
 [Security](https://github.com/LeChiffreVol2/changeplane/security/advisories/new)
 '''.encode()
+# Keep bundled operating guides usable offline; link unbundled reference material
+# to the same source commit, never mutable main or a missing relative file.
+for name, body in list(files.items()):
+    if not name.endswith('.md'):
+        continue
+    def document_link(match):
+        target = match.group(1)
+        if '://' in target or target.startswith('#'):
+            return match.group(0)
+        path, separator, anchor = target.partition('#')
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), path))
+        if resolved in files:
+            return match.group(0)
+        return '](' + f'https://github.com/LeChiffreVol2/changeplane/blob/{revision}/' + quote(resolved) + (separator + anchor if separator else '') + ')'
+    text = body.decode().replace('https://github.com/LeChiffreVol2/changeplane/blob/main/',
+                                 f'https://github.com/LeChiffreVol2/changeplane/blob/{revision}/')
+    files[name] = re.sub(r'\]\(([^)]+)\)', document_link, text).encode()
 files['SOURCE.json'] = (json.dumps({'repository': 'LeChiffreVol2/changeplane', 'commit': revision,
     'communityVersion': version, 'files': {name: hashlib.sha256(body).hexdigest() for name, body in files.items()}}, indent=2) + '\n').encode()
 raw = io.BytesIO()
@@ -83,7 +114,7 @@ with tarfile.open(fileobj=raw, mode='w', format=tarfile.USTAR_FORMAT) as archive
     for name, body in sorted(files.items()):
         entry = tarfile.TarInfo(prefix + '/' + name)
         entry.size = len(body)
-        entry.mode = 0o644
+        entry.mode = 0o755 if name == 'bin/changeplane.js' else 0o644
         entry.mtime = 0
         archive.addfile(entry, io.BytesIO(body))
 bundle = output / (prefix + '.tar.gz')

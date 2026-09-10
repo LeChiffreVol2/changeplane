@@ -24,6 +24,8 @@ If the target has no `.changeplane.json`, start from the [assessment setup guide
 
 This example uses the Teams default. A solo parallel setup can use `maxActive: 2`, or the capacity selected in Settings.
 
+The [setup generator](community.md#prepare-setup-files) can stage the policy, observer and review relay with `--coordination`, preserving existing policy. Review its exact base and runtime revision. It does not configure the credentialed operator described below.
+
 Open and review one setup PR. Include `changeplane-team.yml` and `changeplane-team-review-signal.yml` from the same release under the target repository's `.github/workflows/`. Keep the observer's runtime pinned to that release's full SHA. If using source templates, replace `CHANGEPLANE_TEAM_RELEASE_SHA` with the reviewed full commit SHA. Change the observer's watched `CI` name to your behavioral workflow's display name; retain `ChangePlane review signal`.
 
 The observer runs pinned runtime without contributor code. The separate review signal has no permissions, checkout or secrets. Its completion wakes the observer; its payload and artifacts are not evidence. General PR comments run the trusted observer directly. Reviews, inline comments and missed events are also discovered by the scheduled sweep. Never add `pull_request_review` directly to the credentialed observer: GitHub runs that event's workflow definition from the PR merge commit. [GitHub's event trust model](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target) explains this distinction.

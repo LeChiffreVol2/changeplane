@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -42,6 +44,26 @@ for name, digest in manifest['files'].items():
     assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, 'Source checksum mismatch.'
 package = json.loads((root / 'package.json').read_text())
 assert not package.get('dependencies') and not package.get('devDependencies')
+assert package.get('bin') == {'changeplane': 'bin/changeplane.js'}
+assert not package.get('scripts'), 'Consumer installation must not execute lifecycle scripts.'
+# Test the actual local-package installation without a registry or web-app dependencies.
+prefix = destination / 'command-prefix'
+npm = shutil.which('npm.cmd' if os.name == 'nt' else 'npm')
+assert npm, 'npm bundled with the tested Node runtime is required for installation verification.'
+subprocess.run([npm, 'install', '--global', '--prefix', str(prefix), '--offline', '--ignore-scripts',
+                '--no-audit', '--no-fund', str(root.resolve())], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+               env={**os.environ, 'npm_config_cache': str(destination / 'npm-cache')})
+command = prefix / ('changeplane.cmd' if os.name == 'nt' else 'bin/changeplane')
+result = subprocess.run([str(command.absolute()), 'evaluate', str((root / 'examples/community/satisfied.json').resolve())],
+                        cwd=destination, check=True, capture_output=True, text=True)
+assert json.loads(result.stdout)['decision'] == 'EVIDENCE_SATISFIED'
+assert json.loads(result.stdout)['authority']['guardPublished'] is False
+# The immutable runtime pin must work from an extracted bundle, without .git.
+result = subprocess.run(['node', '--input-type=module', '-e',
+                         "import { setupRuntime } from './community/setup.js'; console.log(setupRuntime().revision);"],
+                        cwd=root, check=True, capture_output=True, text=True)
+assert result.stdout.strip() == manifest['commit']
+
 for document in root.rglob('*.md'):
     for target in re.findall(r'\]\(([^)]+)\)', document.read_text(encoding='utf-8')):
         if '://' not in target and not target.startswith('#'):
