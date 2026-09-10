@@ -84,7 +84,7 @@ It cannot improve weak tests by itself. Start with one behavioral job that prote
 
 ## Project status and roadmap
 
-Source version **0.3.0** adds parallel task coordination and assigned recovery handoffs. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
+Source version **0.3.1** includes parallel task coordination and assigned recovery handoffs, fixes CLI target-checkout selection, and gates releases on Linux, macOS and Windows archive tests. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
 
 Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and organization controls are revenue hypotheses to validate with users; there is no paid offer in this release.
 

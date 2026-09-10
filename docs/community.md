@@ -2,7 +2,7 @@
 
 ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
-Source version 0.3.0 includes [parallel task coordination, worktrees and an MCP operator](repository-team.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+Source version 0.3.1 includes [parallel task coordination, worktrees and an MCP operator](repository-team.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
 
 ## Run locally
 
@@ -37,7 +37,7 @@ The live report records the trusted default-branch SHA as `baseSha`, the exact P
 
 Download `changeplane-community.yml` from the [Open Source release](https://github.com/LeChiffreVol2/changeplane/releases). It pins the reviewed Action to a full commit SHA. The [source template](../examples/changeplane-community.yml) also pins reviewed implementation bytes. Open a configuration PR adding it under `.github/workflows/`, together with the reviewed policy above. Replace the watched workflow name `CI` if your behavioral workflow uses another display name.
 
-The template runs after the selected workflow completes and supports manual dispatch with a PR number. It uses a fresh GitHub-hosted runner, **no checkout**, no artifacts from the source workflow, no caches and read-only permissions. A workflow event without one associated PR needs manual dispatch; a fork PR remains unsupported. Do not expand this job with untrusted scripts or treat its workflow check as a required security publisher.
+The template runs after the selected workflow completes and supports manual dispatch with a PR number. It uses a fresh GitHub-hosted runner, **no checkout**, no artifacts from the source workflow, no caches and read-only permissions. A workflow event without one associated PR needs manual dispatch. The reader can diagnose fork PRs from a trusted operator, but automatic fork event wiring remains separately unqualified. Do not expand this job with untrusted scripts or treat its workflow check as a required security publisher.
 
 Outputs:
 
@@ -77,6 +77,8 @@ CLI exit codes are 0 for satisfied evidence, 1 for findings and 2 for invalid/un
 Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. Assessment commands have no persistent state. Opt-in team commands maintain repository-owned Git metadata and offer bounded observation; the reviewed team template supplies GitHub scheduling.
 
 GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Team writes exclude forks. Fork reading and GitLab reading have their own [qualification boundaries](recovery-core.md). GHES, Merge Queue assessments, hosted Guard publication, automatic source repair and supported full-controller self-hosting remain outside this open-source release.
+
+See the [QA and DevOps audit](open-source-qa-audit.md) for the tested platform matrix, fixed setup issues and remaining operating limits.
 
 ## Uninstall and data
 

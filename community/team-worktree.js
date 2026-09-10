@@ -38,7 +38,8 @@ export function repositoryMap(cwd, revision) {
     limitation: 'Path inventory only. Agents must inspect relevant code and contracts; disjoint directories can still share behavior.' };
 }
 
-export async function prepareTeamWorktree({ api, taskId, owner = process.env.CHANGEPLANE_TEAM_MEMBER, cwd = process.cwd(), destination }) {
+export async function prepareTeamWorktree({ api, taskId, owner = process.env.CHANGEPLANE_TEAM_MEMBER,
+  cwd = process.env.CHANGEPLANE_TEAM_CHECKOUT ?? process.cwd(), destination }) {
   requireTeam(typeof destination === 'string' && destination.length > 0 && !destination.includes('\0'));
   const report = await operateTeam({ api, command: { action: 'status' } });
   const task = report.tasks.find(item => item.id === taskId);
