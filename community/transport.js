@@ -35,7 +35,7 @@ export function boundedReader({ provider, origin, prefix, headers = {}, fetchImp
   const started = now();
   let requests = 0;
   const fail = (code, status = null) => new CollectionError(code, { provider, status });
-  return async path => {
+  const read = async path => {
     if (typeof path !== 'string' || /[\\\r\n#]/u.test(path)) throw fail('INPUT_INVALID');
     const url = new URL(path, origin);
     if (url.origin !== origin || url.username || url.password || !url.pathname.startsWith(prefix)
@@ -83,4 +83,6 @@ export function boundedReader({ provider, origin, prefix, headers = {}, fetchImp
       }
     }
   };
+  read.budget = () => ({ requestsRemaining: Math.max(0, 200 - requests), millisecondsRemaining: Math.max(0, 60_000 - (now() - started)) });
+  return read;
 }

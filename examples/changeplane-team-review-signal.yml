@@ -1,0 +1,21 @@
+name: ChangePlane review signal
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+# Review events use the PR's workflow definition. This relay has no credentials,
+# checkout, action dependencies or event-text interpolation. Its completion only
+# wakes the separate trusted-default-branch observer, which rereads GitHub itself.
+permissions: {}
+concurrency:
+  group: changeplane-review-signal-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  signal:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Signal fresh observation
+        run: ':'

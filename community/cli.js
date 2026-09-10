@@ -28,7 +28,11 @@ try {
   if (!command || command === '--help' || command === '-h') process.stdout.write(help);
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
   else if (command === 'team') {
-    try { process.stdout.write(JSON.stringify(await runTeamCli(args), null, 2) + '\n'); }
+    try {
+      const result = await runTeamCli(args);
+      process.stdout.write(result.help ?? JSON.stringify(result, null, 2) + '\n');
+      if (result.status === 'blocked') process.exitCode = 2;
+    }
     catch (error) { process.stderr.write(JSON.stringify(teamFailure(error)) + '\n'); process.exitCode = 2; }
   } else {
     let report;

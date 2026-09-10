@@ -1,10 +1,13 @@
 name: ChangePlane team observation
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, closed, review_requested, review_request_removed]
+  issue_comment:
+    types: [created, edited, deleted]
   workflow_run:
     # Set this reviewed list to the names of the repository's behavioral workflows.
-    workflows: [CI]
+    # The review signal is an untrusted wake-up hint. Never read its artifacts.
+    workflows: [CI, ChangePlane review signal]
     types: [completed]
   schedule:
     - cron: '*/5 * * * *'
@@ -19,6 +22,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   reconcile:
+    # Ignore ordinary issues and fork review relays; team writes are same-repo only.
+    if: >-
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.name != 'ChangePlane review signal' ||
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -43,8 +51,9 @@ jobs:
             import { readFileSync, appendFileSync } from "node:fs";
             const report = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/changeplane-team.json", "utf8"));
             const unavailable = report.observations.filter(item => item.state === "unavailable");
+            const deferred = report.observations.filter(item => item.state === "deferred");
             const codes = [...new Set(unavailable.map(item => item.code))];
-            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Observer: ${report.observerStatus}. Tasks observed: ${report.observations.length}; unavailable: ${unavailable.length}. Codes: ${codes.join(", ") || report.code || "none"}. Deferred observations await the next sweep and grant no assurance.\n`);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Observer: ${report.observerStatus}. Task results: ${report.observations.length}; deferred: ${deferred.length}; unavailable: ${unavailable.length}. Codes: ${codes.join(", ") || report.code || "none"}. Partial or deferred observations await the next sweep and grant no assurance for deferred tasks.\n`);
             console.log(JSON.stringify({ observerStatus: report.observerStatus, codes, code: report.code }));
             if (report.observerStatus === "unavailable") process.exitCode = 1;
           '

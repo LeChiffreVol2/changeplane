@@ -11,7 +11,8 @@ test('MCP negotiates, exposes bounded tools and sanitizes operator failures', as
   assert.equal(initialized.result.protocolVersion, '2025-11-25');
   assert.equal(await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
   const list = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.equal(list.result.tools.length, 7);
+  assert.equal(list.result.tools.length, 8);
+  assert.equal(list.result.tools.find(tool => tool.name === 'changeplane_doctor').annotations.readOnlyHint, true);
   const failed = await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'changeplane_start', arguments: {} } });
   assert.equal(failed.result.isError, true);
   assert.equal(failed.result.structuredContent.code, 'TEAM_SCOPE_BUSY');

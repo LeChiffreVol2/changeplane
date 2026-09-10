@@ -18,7 +18,7 @@ for line in (assets / 'SHA256SUMS').read_text().splitlines():
     assert hashlib.sha256((assets / name).read_bytes()).hexdigest() == digest, 'Asset checksum mismatch.'
 archives = list(assets.glob('changeplane-community-*.tar.gz'))
 assert len(archives) == 1
-assert names == {archives[0].name, 'changeplane-community.yml', 'changeplane-team.yml'}
+assert names == {archives[0].name, 'changeplane-community.yml', 'changeplane-team.yml', 'changeplane-team-review-signal.yml'}
 assert {path.name for path in assets.iterdir()} == names | {'SHA256SUMS'}, 'Unexpected release asset.'
 with tarfile.open(archives[0]) as archive:
     members = archive.getmembers()

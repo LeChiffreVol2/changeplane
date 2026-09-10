@@ -30,14 +30,16 @@ paths = [
     'community/gitlab.js', 'community/gitlab.test.js', 'community/observation.js', 'community/observation.test.js',
     'community/transport.js', 'community/transport.test.js', 'community/action-output.test.js',
     'community/team.js', 'community/team.test.js', 'community/team-github.js', 'community/team-github.test.js',
+    'community/team-feedback.js', 'community/team-doctor.js', 'community/team-budget.test.js', 'community/team-lifecycle.test.js',
+    'community/team-cli.test.js', 'community/team-doctor.test.js', 'community/team-regression-review.test.js',
     'community/team-worktree.js', 'community/team-cli.js', 'community/team-mcp.js', 'community/team-mcp.test.js',
     'community/fixtures/observation.json', 'community/fixtures/recovery-cases.json',
     'src/lib/changeplane.js', 'src/lib/recovery.js', 'src/lib/harness.js', 'examples/changeplane-evidence-policy.js',
     'examples/community/satisfied.json', 'examples/community/failed.json',
     'examples/community/stale.json', 'examples/community/policy.json',
     'examples/community/gitlab-policy.json',
-    'docs/repository-team.md', 'docs/repository-team-qualification.md',
-    'examples/changeplane-team.yml', 'examples/changeplane-team-agent.md',
+    'docs/team-operator.md', 'docs/repository-team.md', 'docs/repository-team-qualification.md',
+    'examples/changeplane-team-review-signal.yml', 'examples/changeplane-team.yml', 'examples/changeplane-team-agent.md',
 ]
 files = {name: source(name) for name in paths}
 files['examples/changeplane-team.yml'] = files['examples/changeplane-team.yml'].replace(b'CHANGEPLANE_TEAM_RELEASE_SHA', revision.encode())
@@ -71,7 +73,7 @@ live readers use bounded fixed-origin GET requests. The GitLab reader candidate 
 `inspect-gitlab GROUP/PROJECT MR_NUMBER` and `GITLAB_TOKEN`; it does not claim verified
 tested subjects, CI include closure, merge enforcement or live installation qualification.
 
-[Parallel team setup](docs/repository-team.md)\n\n[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
+[Parallel team setup and recovery](docs/team-operator.md)\n\n[Setup, limits and uninstall](https://github.com/LeChiffreVol2/changeplane/blob/{revision}/docs/community.md)
 [Security](https://github.com/LeChiffreVol2/changeplane/security/advisories/new)
 '''.encode()
 files['SOURCE.json'] = (json.dumps({'repository': 'LeChiffreVol2/changeplane', 'commit': revision,
@@ -92,6 +94,8 @@ template = re.sub(r'(?<=changeplane/community@)(?:COMMUNITY_RELEASE_SHA|[a-f0-9]
 workflow.write_bytes(template.encode('utf-8'))
 team_workflow = output / 'changeplane-team.yml'
 team_workflow.write_bytes(source('examples/changeplane-team.yml').replace(b'CHANGEPLANE_TEAM_RELEASE_SHA', revision.encode()))
+review_workflow = output / 'changeplane-team-review-signal.yml'
+review_workflow.write_bytes(source('examples/changeplane-team-review-signal.yml'))
 manifest = output / 'SHA256SUMS'
-manifest.write_bytes(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in [bundle, workflow, team_workflow]).encode())
-print(json.dumps({'source': revision, 'version': version, 'assets': [str(bundle), str(workflow), str(team_workflow), str(manifest)]}))
+manifest.write_bytes(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in [bundle, workflow, team_workflow, review_workflow]).encode())
+print(json.dumps({'source': revision, 'version': version, 'assets': [str(bundle), str(workflow), str(team_workflow), str(review_workflow), str(manifest)]}))

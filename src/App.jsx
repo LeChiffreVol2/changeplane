@@ -350,9 +350,9 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <div className="auth-message">
-            <p className="auth-kicker"><span /> Open-source PR evidence assessment</p>
+            <p className="auth-kicker"><span /> Open-source coordination for agent teams</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Keep your coding agent and your tests. ChangePlane checks whether the evidence matches the exact change, then gives your agent a clear next step.</p>
+            <p>Work on separate features with the coding agents you already use. ChangePlane coordinates task scopes and dependencies, then returns PR, CI and review findings to the assigned writer.</p>
           </div>
 
           <div className="auth-signal" aria-label="Exact-revision assurance contract">
@@ -377,18 +377,18 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
         <div className="auth-access">
           <div className="auth-form">
             <p className="auth-eyebrow">{exampleOnly ? "Open Source · Apache-2.0" : "GitHub-native setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "Evidence you can inspect. Code you can run." : "Give agent PRs independent lifecycle assurance."}</h2>
+            <h2 id="sign-in-title">{exampleOnly ? "Give every agent a clear task and next step." : "Give agent PRs independent lifecycle assurance."}</h2>
             <p>{exampleOnly
-              ? "Start with the free CLI or GitHub Action. No model key or ChangePlane account. For individual developers and teams."
+              ? "Set up one repository, then develop in separate worktrees. Free for individuals and teams; use your existing agents and GitHub rules."
               : "Connect a repository, bind one real test, and merge one setup pull request. ChangePlane handles the normal path from then on."}</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
             {exampleOnly ? (
               <>
-                <a className="github-sign-in community-start" href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">
+                <a className="github-sign-in community-start" href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/team-operator.md" target="_blank" rel="noreferrer">
                   <GithubLogo size={21} weight="fill" aria-hidden="true" />
-                  <span>Get started with open source</span><ArrowRight size={18} aria-hidden="true" />
+                  <span>Set up parallel teamwork</span><ArrowRight size={18} aria-hidden="true" />
                 </a>
                 <button className="github-existing" type="button" onClick={onExplore} disabled={isSigningIn}>
                   {isSigningIn ? "Opening workspace…" : "Open RouteThai example workspace"}
@@ -459,6 +459,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <footer className="auth-footer">
             <span>Exact commit · trusted checks · clear receipt</span>
             <span className="auth-footer-links">
+              <a href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">Local quickstart</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>

@@ -59,9 +59,9 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "Evidence you can inspect. Code you can run." })).toBeVisible();
-  await expect(page.getByText("ChangePlane checks whether the evidence matches the exact change", { exact: false })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Get started with open source" })).toHaveAttribute("href", "https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute");
+  await expect(page.getByRole("heading", { name: "Give every agent a clear task and next step." })).toBeVisible();
+  await expect(page.getByText("ChangePlane coordinates task scopes and dependencies", { exact: false })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Set up parallel teamwork" })).toHaveAttribute("href", "https://github.com/LeChiffreVol2/changeplane/blob/main/docs/team-operator.md");
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
   await expect(page.getByText("RouteThai use case · synthetic contract reconstruction")).toHaveCount(1);
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });

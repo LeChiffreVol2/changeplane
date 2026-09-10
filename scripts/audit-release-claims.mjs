@@ -11,6 +11,7 @@ const paths = [
   "docs/community-roadmap.md",
   "docs/recovery-core.md",
   "docs/repository-team.md",
+  "docs/team-operator.md",
   "docs/repository-team-qualification.md",
   "docs/open-source-qa-audit.md",
   "docs/managed-product.md",
