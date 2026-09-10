@@ -36,6 +36,7 @@ const actions = {
   TEAM_WORKTREE_EXISTS: 'Choose a new empty destination; existing worktrees and branches are never overwritten.',
   TEAM_WORKSPACE_RESERVED: 'A workspace has already been reserved for this task. Continue with its owner; never start a second writer on the same branch.',
   TEAM_GIT_OPERATION_FAILED: 'Inspect local Git and authentication, then read worktree and branch state before retrying.',
+  TEAM_CONDITIONAL_GIT_CONFIG: 'Use a trusted operator checkout without conditional Git includes; the workspace was not reserved.',
   TEAM_PERMISSION_DENIED: 'Have the repository owner check the operator token permissions.',
   TEAM_HANDOFF_STALE: 'The task revision or evidence changed. Read your next handoff and continue from that evidence.',
   TEAM_WORKSPACE_MISMATCH: 'Only the assigned workspace may acknowledge this task. Do not start another writer.',

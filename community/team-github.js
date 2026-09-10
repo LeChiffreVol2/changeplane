@@ -143,7 +143,7 @@ async function observe(api, task, context) {
   const handoff = state === 'merged' ? null : {
     id: createHash('sha256').update(canonical({ repositoryId: context.repositoryId, task: task.id,
       generation: task.generation, owner: task.owner, headSha: pr.head.sha, baseSha: context.baseSha,
-      policy: context.policy, outcome, evidence: assessment?.inputDigest ?? null })).digest('hex'),
+      policy: context.policy, outcome, evidence: assessment?.handback.binding.observationDigest ?? null })).digest('hex'),
     headSha: pr.head.sha, baseSha: context.baseSha, outcome, status: 'pending',
   };
   return { state, outcome, headSha: pr.head.sha, assessment, handoff };

@@ -46,6 +46,13 @@ export async function prepareTeamWorktree({ api, taskId, owner = process.env.CHA
   requireTeam(task.workspaceId === null, 'TEAM_WORKSPACE_RESERVED');
   const top = localRepository(cwd, api.repository), path = resolve(destination);
   requireTeam(!existsSync(path) && path !== top && !path.startsWith(top + '/.git/'), 'TEAM_WORKTREE_EXISTS');
+  const config = git(top, ['config', '--name-only', '--list']).trim().split('\n');
+  // A branch/gitdir-conditional include could introduce an unseen filter when
+  // checkout enters the new worktree. Refuse before reserving any workspace.
+  requireTeam(!config.some(key => key.toLowerCase().startsWith('includeif.')), 'TEAM_CONDITIONAL_GIT_CONFIG');
+  const filters = config.filter(key => key.startsWith('filter.'));
+  const disabled = [...new Set(filters.map(key => key.slice(0, key.lastIndexOf('.'))))]
+    .flatMap(name => ['-c', `${name}.smudge=`, '-c', `${name}.clean=`, '-c', `${name}.process=`, '-c', `${name}.required=false`]);
   // Only fetch the trusted default branch from the already-validated origin.
   git(top, ['fetch', '--no-tags', 'origin', report.defaultBranch]);
   git(top, ['merge-base', '--is-ancestor', task.baseSha, 'FETCH_HEAD']);
@@ -62,9 +69,6 @@ export async function prepareTeamWorktree({ api, taskId, owner = process.env.CHA
   // clean, or reuse someone else's workspace after an uncertain invocation.
   // Attributes can select locally configured filters. Disable every configured
   // driver, including process filters, before any checkout reads those attributes.
-  const filters = git(top, ['config', '--name-only', '--list']).trim().split('\n').filter(key => key.startsWith('filter.'));
-  const disabled = [...new Set(filters.map(key => key.slice(0, key.lastIndexOf('.'))))]
-    .flatMap(name => ['-c', `${name}.smudge=`, '-c', `${name}.clean=`, '-c', `${name}.process=`, '-c', `${name}.required=false`]);
   git(top, [...disabled, 'worktree', 'add', '-b', task.branch, '--', path, task.baseSha]);
   return { kind: 'changeplane.team-worktree', repository: api.repository, task: { ...task, workspaceId }, path,
     codebase: repositoryMap(path, task.baseSha), requiredChecks: report.requiredChecks,

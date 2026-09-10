@@ -22,7 +22,7 @@ function fixture({ baseSha = base } = {}) {
   const pr = { id: 91, number: 9, state: 'open', merged: false, merge_commit_sha: null, changed_files: 1, draft: false, mergeable: true,
     head: { sha: head, ref: 'changeplane/work/api-1', repo: { id: 7, full_name: 'example/repo' } },
     base: { sha: base, ref: 'main', repo: { id: 7, full_name: 'example/repo' } } };
-  const f = { policy: structuredClone(policy), pr, fail: null, writes, files: [{ filename: 'src/api/a.js', status: 'modified' }], conclusion: 'success', comparison: 'ahead' };
+  const f = { policy: structuredClone(policy), pr, fail: null, writes, files: [{ filename: 'src/api/a.js', status: 'modified' }], conclusion: 'success', attempt: 1, comparison: 'ahead' };
   const api = { repository: 'example/repo', root: '/repos/example/repo', request: async (method, path, body) => {
     if (f.fail?.(method, path)) throw new TeamError('TEAM_WRITE_UNCERTAIN');
     const suffix = path.replace(api.root, '');
@@ -39,9 +39,9 @@ function fixture({ baseSha = base } = {}) {
       if (suffix.startsWith('/pulls?')) return suffix.includes(encodeURIComponent('example:changeplane/work/api-1')) ? [{ number: 9 }] : [];
       if (suffix.startsWith('/pulls/9/files?')) return f.files;
       if (suffix.startsWith('/actions/runs?')) return { total_count: 1, workflow_runs: [{ id: 11, workflow_id: 12, run_number: 1,
-        run_attempt: 1, head_sha: head, path: '.github/workflows/ci.yml', status: 'completed', conclusion: f.conclusion,
+        run_attempt: f.attempt, head_sha: head, path: '.github/workflows/ci.yml', status: 'completed', conclusion: f.conclusion,
         repository: { full_name: api.repository }, head_repository: { full_name: api.repository } }] };
-      if (suffix === '/actions/runs/11/attempts/1/jobs?per_page=100') return { total_count: 1, jobs: [{ id: 13, run_id: 11,
+      if (suffix === `/actions/runs/11/attempts/${f.attempt}/jobs?per_page=100`) return { total_count: 1, jobs: [{ id: 13, run_id: 11,
         head_sha: head, name: 'Behavior', status: 'completed', conclusion: f.conclusion }] };
       if (suffix.startsWith('/compare/')) return { status: f.comparison };
       throw new Error(`Unexpected read: ${suffix}`);
@@ -57,7 +57,7 @@ function fixture({ baseSha = base } = {}) {
     throw new Error(`Unexpected mutation: ${suffix}`);
   } };
   return { ...f, get policy() { return f.policy; }, pr, api, setFailure: failure => { f.fail = failure; },
-    setComparison: value => { f.comparison = value; }, setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
+    setAttempt: value => { f.attempt = value; }, setComparison: value => { f.comparison = value; }, setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
 }
 const run = (f, command) => operateTeam({ api: f.api, command });
 async function planned(f) {
@@ -150,6 +150,13 @@ test('real Git worktree creation leaves the developer checkout untouched and pre
     process.env.GIT_SSH_COMMAND = ssh; process.env.GIT_SSH_VARIANT = 'simple';
     writeFileSync(join(checkout, 'unrelated.txt'), 'Keep this draft');
     const f = fixture({ baseSha: revision }); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
+    const conditional = join(root, 'conditional.config');
+    writeFileSync(conditional, `[filter \"hidden\"]\n  smudge = ${filter}\n`);
+    git(checkout, ['config', 'includeIf.onbranch:changeplane/work/**.path', conditional]);
+    await assert.rejects(prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', cwd: checkout, destination }), /TEAM_CONDITIONAL_GIT_CONFIG/);
+    assert.equal((await run(f, { action: 'status' })).tasks[0].workspaceId, null);
+    assert.equal(existsSync(destination), false);
+    git(checkout, ['config', '--unset-all', 'includeIf.onbranch:changeplane/work/**.path']);
     const result = await prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', cwd: checkout, destination });
     assert.equal(result.codebase.revision, revision);
     assert.equal(existsSync(marker), false, 'checkout must not execute smudge filters');
@@ -189,6 +196,11 @@ test('handoffs repeat until workspace receipt, invalidate on new evidence and re
   await assert.rejects(run(f, { ...ack, workspaceId: '22222222-2222-2222-2222-222222222222' }), /TEAM_WORKSPACE_MISMATCH/);
   await run(f, ack);
   assert.equal((await inbox()).handoffs.length, 0);
+  f.setAttempt(2);
+  await assert.rejects(run(f, ack), /TEAM_HANDOFF_STALE/);
+  const rerun = (await inbox()).handoffs[0];
+  assert.notEqual(rerun.id, delivery.id, 'same-head same-outcome rerun is a new observation');
+  await run(f, { ...ack, handoff: rerun.id });
   f.setConclusion('success');
   await assert.rejects(run(f, ack), /TEAM_HANDOFF_STALE/);
   const ready = (await inbox()).handoffs[0];
