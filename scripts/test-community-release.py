@@ -54,7 +54,7 @@ subprocess.run([npm, 'install', '--global', '--prefix', str(prefix), '--offline'
                 '--no-audit', '--no-fund', str(root.resolve())], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                env={**os.environ, 'npm_config_cache': str(destination / 'npm-cache')})
 command = prefix / ('changeplane.cmd' if os.name == 'nt' else 'bin/changeplane')
-result = subprocess.run([str(command.resolve()), 'evaluate', str((root / 'examples/community/satisfied.json').resolve())],
+result = subprocess.run([str(command.absolute()), 'evaluate', str((root / 'examples/community/satisfied.json').resolve())],
                         cwd=destination, check=True, capture_output=True, text=True)
 assert json.loads(result.stdout)['decision'] == 'EVIDENCE_SATISFIED'
 assert json.loads(result.stdout)['authority']['guardPublished'] is False

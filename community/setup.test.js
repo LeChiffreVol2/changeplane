@@ -74,6 +74,8 @@ test('read-only setup leaves existing coordination settings unchanged and pins p
   f.data[`${root}/contents/.changeplane.json?ref=${base}`] = file(JSON.stringify(policy));
   const plan = await planSetup({ ...f.options, ...selected });
   assert.deepEqual(JSON.parse(plan.files[0].content), policy);
+  assert.equal(plan.files[0].change, 'unchanged');
+  assert.equal(plan.files[0].content, JSON.stringify(policy));
   assert.equal(plan.files.length, 2);
   assert.ok(plan.files[1].content.includes(`changeplane/community@${release}`));
   assert.ok(plan.files[1].content.includes('workflows: ["Behavior CI"]'));

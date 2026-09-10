@@ -147,7 +147,7 @@ export async function planSetup({ repository, number, check, workflow, coordinat
   const requirements = policy.evidence.requiredChecks;
   requireSetup(!requirements.some(item => item.name === check && item.appSlug === requirement.appSlug
     && item.workflowPath !== workflow), 'SETUP_CHECK_CONFLICT');
-  if (!requirements.some(item => canonical(item) === canonical(requirement))) requirements.push(requirement);
+  if (!requirements.some(item => item.name === check && item.appSlug === requirement.appSlug && item.workflowPath === workflow)) requirements.push(requirement);
   if (coordination) {
     const capacity = maxActive ?? policy.team?.maxActive ?? 3;
     requireSetup(positive(capacity) && capacity <= 20);
@@ -164,7 +164,8 @@ export async function planSetup({ repository, number, check, workflow, coordinat
   const { revision, templates } = runtime();
   requireSetup(sha.test(revision), 'SETUP_RUNTIME_INVALID');
   const sources = {
-    '.changeplane.json': JSON.stringify(policy, null, 2) + '\n',
+    '.changeplane.json': previousPolicy !== null && canonical(JSON.parse(previousPolicy)) === canonical(policy)
+      ? previousPolicy : JSON.stringify(policy, null, 2) + '\n',
     '.github/workflows/changeplane-community.yml': templates[templatePaths[0]]
       .replace(/workflows: \[CI\]/u, `workflows: ${JSON.stringify([...new Set(names)])}`)
       .replace(/changeplane\/community@(?:COMMUNITY_RELEASE_SHA|[a-f0-9]{40})/gu, `changeplane/community@${revision}`),
@@ -182,7 +183,7 @@ export async function planSetup({ repository, number, check, workflow, coordinat
     files.push({ path, change: previous === null ? 'create' : previous === content ? 'unchanged' : 'update',
       previousDigest: previous === null ? null : digest(previous), content });
   }
-  return finish({ decision: 'REVIEW_REQUIRED', runtimeRevision: revision, files,
+  return finish({ decision: 'REVIEW_REQUIRED', runtimeRevision: revision, selectedCheck: requirement, files,
     nextAction: 'Review these files and selected CI behavior, apply them on one feature branch based on baseSha, and open a configuration PR. Re-run setup if the default branch changes. No installation or assessment has occurred.' });
 }
 

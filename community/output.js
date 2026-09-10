@@ -5,7 +5,8 @@ export function formatReport(report, format = 'json') {
   if (format === 'text' && report.kind === 'changeplane.setup-plan') return [
     `ChangePlane setup: ${report.decision}`,
     `Default revision: ${report.baseSha ?? 'unavailable'}`,
-    ...(report.candidates ?? []).map(item => `Candidate: ${item.name} | ${item.workflowPath}`),
+    ...(report.decision === 'SELECTION_REQUIRED' ? report.candidates ?? [] : []).map(item => `Candidate: ${item.name} | ${item.workflowPath}`),
+    ...(report.selectedCheck ? [`Selected: ${report.selectedCheck.name} | ${report.selectedCheck.workflowPath}`] : []),
     ...(report.files ?? []).map(item => `${item.change}: ${item.path}`),
     `Next: ${report.nextAction}`,
     report.staged ? 'Files staged locally for review. No repository changes.' : 'Plan only. No files or repository changes.',
