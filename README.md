@@ -45,10 +45,13 @@ Use the [read-only GitHub Action](docs/community.md#run-in-github-actions) for c
 
 ```mermaid
 flowchart LR
-  A[Your coding agent opens a PR] --> B[Your existing behavioral CI]
-  B --> C[ChangePlane reads policy and exact-head evidence]
-  C --> D[Assessment and findings for your agent]
-  D --> E[Your existing GitHub review and merge policy]
+  A[Team members and coding agents] --> B[Scoped tasks and separate worktrees]
+  B --> C[Task PRs and existing behavioral CI]
+  C --> D[ChangePlane observes current evidence]
+  D --> E[Handoff to the assigned writer]
+  E --> C
+  C --> F[Native GitHub review and integration]
+  F --> G[Confirm merge and release dependent tasks]
 ```
 
 - **Shared deterministic evaluator.** The same scope, protected-path and evidence rules used by the hosted product; no model judges its own patch.

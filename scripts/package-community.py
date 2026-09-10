@@ -36,7 +36,7 @@ paths = [
     'examples/community/satisfied.json', 'examples/community/failed.json',
     'examples/community/stale.json', 'examples/community/policy.json',
     'examples/community/gitlab-policy.json',
-    'docs/repository-team.md',
+    'docs/repository-team.md', 'docs/repository-team-qualification.md',
     'examples/changeplane-team.yml', 'examples/changeplane-team-agent.md',
 ]
 files = {name: source(name) for name in paths}
