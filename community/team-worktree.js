@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { TeamError, requireTeam } from './team.js';
 import { operateTeam } from './team-github.js';
 
-function git(cwd, args) {
+export function git(cwd, args) {
   // Git is a separate operator subprocess. Do not hand provider/model secrets to
   // credential helpers, SSH or checkout filters through its environment.
   const env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SSH_AUTH_SOCK',
@@ -18,7 +18,7 @@ function git(cwd, args) {
         env });
   } catch { throw new TeamError('TEAM_GIT_OPERATION_FAILED'); }
 }
-function localRepository(cwd, repository) {
+export function localRepository(cwd, repository) {
   const top = realpathSync(git(cwd, ['rev-parse', '--show-toplevel']).trim());
   const remote = git(top, ['remote', 'get-url', 'origin']).trim();
   const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/u.exec(remote);

@@ -1,5 +1,15 @@
 # Changelog
 
+## Open Source 0.4.0
+
+- Return current review feedback and resumable unfinished work to the existing assigned agent, including after acknowledgment and restart.
+- Persist fair bounded observation sweeps and distinguish deferred tasks from fresh evidence.
+- Archive terminal tasks with immutable dependency receipts; recheck merge ancestry before dependent work starts.
+- Add explicit reviewed-policy adoption, actionable cancelled-dependency/input/provider errors and a read-only setup/recovery doctor.
+- Add a team setup guide and a permissions-free review signal that wakes the trusted observer without passing contributor code or artifacts.
+- Upgrade coordination state to schema 2. Stop and update all operators together; 0.3.x writers reject the new state. Source scope, Guard authority and native merge policy remain unchanged.
+- These changes are covered by deterministic regression tests. A live multi-person unattended trial and native Cursor/Origin qualification are still separate requirements.
+
 ## Unreleased
 
 - Use ChangePlane Open Source across the website, documentation, CLI and Action. Existing version tags, downloads, JSON identifiers and assurance boundaries stay compatible.

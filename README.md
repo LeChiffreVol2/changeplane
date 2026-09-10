@@ -4,7 +4,7 @@
 
 Open-source repository coordination for teams developing with coding agents. Give each task its own worktree, return PR and CI findings to its owner, and integrate through GitHub’s existing rules.
 
-Start with [parallel repository coordination](docs/repository-team.md): scoped task reservations, dependencies, isolated Git worktrees and revision-bound PR/CI handoffs, available through the CLI and an MCP server. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
+Start with [parallel repository setup and recovery](docs/team-operator.md): scoped task reservations, dependencies, isolated Git worktrees and revision-bound PR/CI handoffs, available through the CLI and an MCP server. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -84,7 +84,7 @@ It cannot improve weak tests by itself. Start with one behavioral job that prote
 
 ## Project status and roadmap
 
-Source version **0.3.1** includes parallel task coordination and assigned recovery handoffs, fixes CLI target-checkout selection, and gates releases on Linux, macOS and Windows archive tests. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
+Source version **0.4.0** adds review feedback, resumable unfinished work, fair bounded observation, terminal-task archives and setup diagnostics. Team boards upgrade to schema 2; update all operators together using the [upgrade guide](docs/team-operator.md#upgrade-existing-installations). Releases are tested from isolated archives on Linux, macOS and Windows. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
 
 Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and organization controls are revenue hypotheses to validate with users; there is no paid offer in this release.
 

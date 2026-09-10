@@ -4,7 +4,7 @@ import { validateRequiredChecks } from '../src/lib/harness.js';
 import { effectiveProtectedPaths } from '../examples/changeplane-evidence-policy.js';
 import { diagnoseEvidence, recoveryAction } from '../src/lib/recovery.js';
 
-export const COMMUNITY_VERSION = '0.3.1';
+export const COMMUNITY_VERSION = '0.4.0';
 const sha = /^[a-f0-9]{40}$/u;
 const text = (value, max = 300) => typeof value === 'string' && value.length > 0
   && value.length <= max && !/[\u0000-\u001f\u007f]/u.test(value);

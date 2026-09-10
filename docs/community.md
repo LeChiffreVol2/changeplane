@@ -2,7 +2,7 @@
 
 ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
-Source version 0.3.1 includes [parallel task coordination, worktrees and an MCP operator](repository-team.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+Source version 0.4.0 includes [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
 
 ## Run locally
 
