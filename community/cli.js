@@ -139,6 +139,6 @@ try {
 } catch (error) {
   // Never print filesystem paths, provider bodies, tokens or arbitrary exception text.
   const report = command === 'init' ? setupFailure(error) : unavailable(error);
-  process.stderr.write(formatReport(report, ['text', 'compact'].includes(format) && command !== 'init' ? format : 'json'));
+  process.stderr.write(formatReport(report, format === 'text' || (format === 'compact' && command !== 'init') ? format : 'json'));
   process.exitCode = 2;
 }
