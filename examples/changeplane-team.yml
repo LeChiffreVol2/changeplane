@@ -1,0 +1,50 @@
+name: ChangePlane team observation
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+  workflow_run:
+    # Set this reviewed list to the names of the repository's behavioral workflows.
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: read
+  actions: read
+  checks: read
+concurrency:
+  group: changeplane-team-observation
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Only pinned trusted runtime is checked out, never contributor code.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: LeChiffreVol2/changeplane
+          ref: CHANGEPLANE_TEAM_RELEASE_SHA
+          path: _changeplane
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22.18.0
+      - name: Refresh team task observations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGEPLANE_TEAM_WRITE: 'true'
+          CHANGEPLANE_TEAM_REPOSITORY: ${{ github.repository }}
+        run: |
+          node _changeplane/community/cli.js team observe "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/changeplane-team.json"
+          node --input-type=module -e '
+            import { readFileSync, appendFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/changeplane-team.json", "utf8"));
+            const unavailable = report.observations.filter(item => item.state === "unavailable");
+            const codes = [...new Set(unavailable.map(item => item.code))];
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Observer: ${report.observerStatus}. Tasks observed: ${report.observations.length}; unavailable: ${unavailable.length}. Codes: ${codes.join(", ") || report.code || "none"}. Deferred observations await the next sweep and grant no assurance.\n`);
+            console.log(JSON.stringify({ observerStatus: report.observerStatus, codes, code: report.code }));
+            if (report.observerStatus === "unavailable") process.exitCode = 1;
+          '

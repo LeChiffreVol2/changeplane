@@ -5,6 +5,7 @@ import { inspectPullRequest } from './github.js';
 import { inspectMergeRequest } from './gitlab.js';
 import { assessObservation } from './observation.js';
 import { unavailable } from './transport.js';
+import { runTeamCli, teamFailure, teamHelp } from './team-cli.js';
 
 const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
 Usage:
@@ -12,6 +13,8 @@ Usage:
   node community/cli.js inspect owner/repository PR_NUMBER
   node community/cli.js inspect-gitlab GROUP/PROJECT MR_NUMBER
   node community/cli.js --version
+
+${teamHelp}
 
 Zero dependencies. No model key. Provider readers use fixed-origin GET requests only.
 Set GH_TOKEN or GITHUB_TOKEN in your environment for private repositories or rate limits.
@@ -24,7 +27,10 @@ try {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === '--help' || command === '-h') process.stdout.write(help);
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
-  else {
+  else if (command === 'team') {
+    try { process.stdout.write(JSON.stringify(await runTeamCli(args), null, 2) + '\n'); }
+    catch (error) { process.stderr.write(JSON.stringify(teamFailure(error)) + '\n'); process.exitCode = 2; }
+  } else {
     let report;
     if (command === 'evaluate' && args.length === 1) {
       const stat = statSync(args[0]);

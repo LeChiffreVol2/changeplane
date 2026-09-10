@@ -20,7 +20,7 @@ Chromium may need `npx playwright install chromium`. CI additionally exercises d
 
 | Path | Responsibility |
 | --- | --- |
-| `community/` | Public CLI, read-only GitHub collector, Action and tests |
+| `community/` | Public CLI, provider readers, opt-in repository coordination, MCP, Action and tests |
 | `src/lib/changeplane.js` | Shared deterministic evaluator |
 | `examples/changeplane-evidence-policy.js` | Shared protected-evidence rules |
 | `action/`, `server/`, `api/` | Hosted managed runtime and trusted controllers |
