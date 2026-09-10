@@ -2,7 +2,7 @@
 
 ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
-Source version 0.2.0 adds structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+Source version 0.3.0 includes [parallel task coordination, worktrees and an MCP operator](repository-team.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
 
 ## Run locally
 
@@ -74,10 +74,12 @@ CLI exit codes are 0 for satisfied evidence, 1 for findings and 2 for invalid/un
 | API limit, permission or provider failure | No assessment | Restore access or wait for GitHub's rate-limit reset |
 | More than 100 runs/checks/jobs for a queried revision | No assessment | Narrow the workflow/evidence footprint; the reader does not silently truncate |
 
-Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. The CLI has no built-in scheduler or persistent state.
+Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. Assessment commands have no persistent state. Opt-in team commands maintain repository-owned Git metadata and offer bounded observation; the reviewed team template supplies GitHub scheduling.
 
-GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Fork PRs, GHES, Merge Queue assessments, hosted Guard publication, repair and supported full-controller self-hosting are outside the supported release.
+GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Team writes exclude forks. Fork reading and GitLab reading have their own [qualification boundaries](recovery-core.md). GHES, Merge Queue assessments, hosted Guard publication, automatic source repair and supported full-controller self-hosting remain outside this open-source release.
 
 ## Uninstall and data
 
 Remove the assessment workflow and its policy through your normal configuration review. Revoke any token created only for the CLI. Delete local reports if desired. There is no ChangePlane account, database enrollment, server-side assessment history or telemetry to remove. GitHub retains workflow metadata and logs according to your repository settings. The interactive website has a separate [hosted privacy draft](../PRIVACY.md).
+
+For team uninstall, stop participating writers and the observer first. Preserve any worktrees and active task branches. After the owner has confirmed no writers remain, archive the coordination history or remove `changeplane/team-state` through the repository’s normal maintenance process; remove operator credentials and configuration. Do not delete another developer’s worktree or active reservation as a cleanup shortcut.

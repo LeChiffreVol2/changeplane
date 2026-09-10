@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { TeamError, requireTeam } from './team.js';
-import { teamGitHub, operateTeam, nextTeamHandoffs } from './team-github.js';
+import { teamGitHub, operateTeam, observeTeam, nextTeamHandoffs } from './team-github.js';
 import { prepareTeamWorktree } from './team-worktree.js';
 
 export const teamHelp = `Repository teamwork (GitHub.com):
@@ -12,6 +12,7 @@ export const teamHelp = `Repository teamwork (GitHub.com):
   node community/cli.js team bind OWNER/REPO TASK PR_NUMBER
   node community/cli.js team cancel OWNER/REPO TASK
   node community/cli.js team reconcile OWNER/REPO
+  node community/cli.js team observe OWNER/REPO
   node community/cli.js team next OWNER/REPO
   node community/cli.js team acknowledge OWNER/REPO TASK WORKSPACE_ID HANDOFF_ID
   node community/cli.js team watch OWNER/REPO [SECONDS (30–3600)]
@@ -54,6 +55,7 @@ export function configuredTeam(repository, configuration = process.env) {
 export async function runTeamCli(args) {
   if (!args.length || args[0] === '--help') return { help: teamHelp };
   const [action, repository, ...rest] = args, api = configuredTeam(repository);
+  if (action === 'observe' && rest.length === 0) return observeTeam({ createApi: () => configuredTeam(repository) });
   if (action === 'next' && rest.length === 0) return nextTeamHandoffs({ api, owner: process.env.CHANGEPLANE_TEAM_MEMBER });
   if (action === 'worktree' && rest.length === 2) return prepareTeamWorktree({ api, taskId: rest[0], destination: rest[1] });
   if (action === 'watch' && rest.length <= 1) {

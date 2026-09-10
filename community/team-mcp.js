@@ -41,6 +41,7 @@ export async function callTeamTool(name, args, configuration = process.env) {
       && typeof configuration.CHANGEPLANE_WORKSPACE_ROOT === 'string' && configuration.CHANGEPLANE_WORKSPACE_ROOT.length > 0,
     'TEAM_WORKSPACE_NOT_CONFIGURED');
     return prepareTeamWorktree({ api, taskId: args.task, owner: configuration.CHANGEPLANE_TEAM_MEMBER,
+      cwd: configuration.CHANGEPLANE_TEAM_CHECKOUT ?? process.cwd(),
       destination: resolve(configuration.CHANGEPLANE_WORKSPACE_ROOT, args.task) });
   }
   const command = name === 'changeplane_acknowledge' ? { action: 'acknowledge', ...args, owner: configuration.CHANGEPLANE_TEAM_MEMBER }

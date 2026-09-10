@@ -2,9 +2,9 @@
 
 **Keep GitHub. Let agents ship.**
 
-Open-source evidence assessment for agent-authored pull requests. Catch stale checks, changed test policy, and mismatched evidence before you rely on a green result.
+Open-source repository coordination for teams developing with coding agents. Give each task its own worktree, return PR and CI findings to its owner, and integrate through GitHub’s existing rules.
 
-Current source also adds [parallel repository coordination](docs/repository-team.md): scoped task reservations, dependencies, isolated Git worktrees and shared PR/CI observations, available through the CLI and an MCP server. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
+Start with [parallel repository coordination](docs/repository-team.md): scoped task reservations, dependencies, isolated Git worktrees and revision-bound PR/CI handoffs, available through the CLI and an MCP server. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -55,7 +55,7 @@ flowchart LR
 - **Fresh evidence.** A later workflow run or attempt supersedes older success, even on the same commit. Head, trusted policy revision and evidence are checked again before a live report is returned.
 - **Protected evidence.** Tests, workflows, manifests and declared protected paths require human review, including renames out of protected directories.
 - **Agent-neutral handback.** JSON findings name one exact revision. Codex, Cursor, Claude Code, Copilot or another agent can consume them as data. No native agent integration is implied.
-- **Small operating footprint.** The CLI and Action use Node built-ins and the existing evaluator. Offline mode has no external requests; live mode uses bounded GitHub GET requests only.
+- **Small operating footprint.** The CLI, Action and team MCP server use Node built-ins and the existing evaluator. Offline assessment has no external requests. Assessment readers use bounded GET requests; opt-in teamwork writes only its repository coordination branch.
 
 An `EVIDENCE_SATISFIED` assessment means the declared inputs matched the checks at observation time. It does not prove the software has no defects. A snapshot supplied by a caller is unauthenticated. Neither an assessment nor a green assessment workflow is an App-owned `ChangePlane / guard`, Strict Head, or permission to merge.
 
@@ -67,10 +67,11 @@ An `EVIDENCE_SATISFIED` assessment means the declared inputs matched the checks 
 | Personal and organization repositories | Yes, with appropriate read access | Customer activation closed |
 | Model key / ChangePlane account | Neither required | Verify needs no model key |
 | App-owned Guard and Strict Head | No | Implemented; customer qualification incomplete |
-| Automatic repair / merge | Neither | Repair disabled; GitHub owns merge |
-| Operations | You run the CLI or GitHub Action | Provider recovery and scheduler gates remain open |
+| Parallel task coordination | CLI, worktrees, assigned handoffs and MCP | Use the open-source operator |
+| Automatic repair / merge | Existing agent handles recovery; GitHub controls merge | Repair disabled; GitHub owns merge |
+| Operations | You run the CLI, MCP operator or repository observer | Provider recovery and scheduler gates remain open |
 
-GitHub.com same-repository PRs targeting the default branch are supported. Enterprise Cloud remains subject to organization permissions. Fork PRs, GHES, Merge Queue assessments and a self-operated Guard controller are outside the supported release. See [limits and troubleshooting](docs/community.md#limits-and-troubleshooting).
+GitHub.com same-repository PRs targeting the default branch are supported. Enterprise Cloud remains subject to organization permissions. Team writes support same-repository GitHub PRs. Fork reading and GitLab reading remain separately bounded in the [recovery core](docs/recovery-core.md); GHES, Merge Queue assessments and a self-operated Guard controller are outside the supported release. See [limits and troubleshooting](docs/community.md#limits-and-troubleshooting).
 
 ## Where it fits
 
@@ -80,9 +81,9 @@ It cannot improve weak tests by itself. Start with one behavioral job that prote
 
 ## Project status and roadmap
 
-Version **0.1.0-alpha.1** is the first open-source release; interfaces may change before version 1.0. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
+Source version **0.3.0** adds parallel task coordination and assigned recovery handoffs. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
 
-Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and team features are revenue hypotheses to validate with users; there is no paid offer in this release.
+Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and organization controls are revenue hypotheses to validate with users; there is no paid offer in this release.
 
 [Roadmap](docs/community-roadmap.md) · [Architecture](docs/automated-sdlc-architecture.md) · [Hosted reference](docs/managed-product.md) · [Synthetic interactive example](https://changeplane.vercel.app/)
 

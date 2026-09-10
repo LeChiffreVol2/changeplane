@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { TeamError } from './team.js';
-import { operateTeam, teamGitHub, nextTeamHandoffs } from './team-github.js';
+import { operateTeam, teamGitHub, nextTeamHandoffs, observeTeam } from './team-github.js';
 import { CollectionError } from './transport.js';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -211,4 +211,24 @@ test('handoffs repeat until workspace receipt, invalidate on new evidence and re
   const unavailable = await inbox();
   assert.equal(unavailable.handoffs.length, 0);
   assert.deepEqual(unavailable.unavailable, ['api']);
+});
+
+test('observer re-reads definite contention once, defers moving state and never retries uncertain writes', async () => {
+  const f = fixture(); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
+  let calls = 0;
+  const transientApi = code => ({ ...f.api, request: async (method, path, body) => {
+    if (method === 'POST') throw new TeamError(code);
+    return f.api.request(method, path, body);
+  } });
+  const result = await observeTeam({ createApi: () => ++calls === 1 ? transientApi('TEAM_CONCURRENT_UPDATE') : f.api, sleep: async () => {} });
+  assert.equal(result.observerStatus, 'observed'); assert.equal(result.observerAttempts, 2);
+  f.setConclusion('failure'); calls = 0;
+  await assert.rejects(observeTeam({ createApi: () => { calls++; return transientApi('TEAM_WRITE_UNCERTAIN'); }, sleep: async () => {} }), /TEAM_WRITE_UNCERTAIN/);
+  assert.equal(calls, 1);
+  const deferred = await observeTeam({ createApi: () => transientApi('TEAM_CONCURRENT_UPDATE'), sleep: async () => {} });
+  assert.equal(deferred.observerStatus, 'deferred');
+  assert.deepEqual(deferred.observations, []);
+  f.setFailure((method, path) => path.includes('/actions/'));
+  const unavailable = await observeTeam({ createApi: () => f.api, sleep: async () => {} });
+  assert.equal(unavailable.observerStatus, 'unavailable'); assert.equal(unavailable.observerAttempts, 1);
 });

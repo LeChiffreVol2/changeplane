@@ -10,7 +10,7 @@ This is cooperative coordination for authorized repository operators, not a secu
 
 Task contracts contain a stable ID, title, allowed paths, dependencies and an optional GitHub issue number. They are immutable after registration. A claim captures the current default branch and trusted policy revision. Independent tasks can start together; overlapping active scopes and unfinished dependencies wait. Dependencies finish only after a bound GitHub PR is reported merged and its merge commit is still an ancestor of the current default branch.
 
-The shared `changeplane/team-state` branch contains only `team.json`, on an orphan Git history. Every update is a child of the exact observed coordination commit and uses a non-forced ref update. Competing updates cannot overwrite one another. Conflicts require a fresh read. Unknown write acknowledgements are never automatically retried. Do not merge this metadata branch into product source.
+The shared `changeplane/team-state` branch contains only `team.json`, on an orphan Git history. Every update is a child of the exact observed coordination commit and uses a non-forced ref update. Competing updates cannot overwrite one another. Conflicts require a fresh read. Unknown write acknowledgements are never automatically retried. The unattended observer makes at most one fresh read/recompute after a definite rejected update or revision drift; it does not replay a mutation. Do not merge this metadata branch into product source.
 
 Worktree creation makes a second remote reservation, so two machines cannot both use this command to start writers on the same task branch. Local intent is recorded under the checkout's Git directory before the reservation. The operator creates a unique `changeplane/work/<task>-<generation>` branch in a new path. Existing branches, worktrees and uncommitted files are never reset or deleted. Hooks, filesystem monitors and configured checkout filters are disabled. Git subprocesses receive an allowlist of operating-system/Git transport environment variables, excluding operator and model tokens. Git authentication must still be separately configured in the trusted operator environment. Conditional Git includes are refused before workspace reservation because they can introduce new checkout filters after switching branches. Use a trusted operator checkout without those includes. The coordinator does not run repository scripts.
 
@@ -46,7 +46,29 @@ Develop in the returned worktree using your existing agent and open its PR. Reco
 
 ## Cursor and other MCP clients
 
-Launch `node /absolute/path/to/changeplane/community/team-mcp.js` from a trusted checkout of the target repository. Pin the repository, member, write opt-in and workspace root in the operator's environment. The caller cannot select another repository, credential destination or arbitrary workspace root. Keep tokens in the operator environment or secret manager; never paste them into shared MCP configuration or rules.
+Launch `node /absolute/path/to/changeplane/community/team-mcp.js`. Pin the repository, member, trusted target checkout (`CHANGEPLANE_TEAM_CHECKOUT`), write opt-in and workspace root in the operator's environment. Without an explicit checkout it uses the operator process working directory. The caller cannot select another repository, credential destination or arbitrary workspace root. Keep tokens in the operator environment or secret manager; never paste them into shared MCP configuration or rules.
+
+A stdio MCP configuration for clients that accept `mcpServers` can use:
+
+```json
+{
+  "mcpServers": {
+    "changeplane": {
+      "command": "node",
+      "args": ["/absolute/path/to/changeplane/community/team-mcp.js"],
+      "env": {
+        "CHANGEPLANE_TEAM_REPOSITORY": "YOUR_ACCOUNT/YOUR_REPOSITORY",
+        "CHANGEPLANE_TEAM_MEMBER": "YOUR_MEMBER_LABEL",
+        "CHANGEPLANE_TEAM_CHECKOUT": "/absolute/path/to/trusted-target-checkout",
+        "CHANGEPLANE_WORKSPACE_ROOT": "/absolute/path/to/new-worktrees",
+        "CHANGEPLANE_TEAM_WRITE": "true"
+      }
+    }
+  }
+}
+```
+
+Supply the scoped GitHub token to the trusted operator process through your secret manager. The example intentionally contains no credentials. The client and coding sandbox must not gain access to the operator environment. Check `changeplane_status` after merging the team policy, then follow the task loop below.
 
 The stdio server supports the initialize-based MCP protocol family through `2025-11-25`; it exposes status, plan, start, worktree, reconcile, next and acknowledge tools. A newer stateless protocol is not claimed. It does not expose shell execution, model sampling, source patches, deployment, approvals or merge tools. MCP wire tests establish protocol behavior, not a completed live Cursor installation.
 
@@ -56,7 +78,7 @@ Suggested repository instructions for participating coding agents:
 
 ## Unattended observation and qualification
 
-The reviewed [reconciliation template](../examples/changeplane-team.yml) runs pinned ChangePlane code without checking out PR code. Events trigger a full reconciliation; scheduled sweeps repair missed triggers. GitHub may delay schedules and coalesce pending runs, so this is best-effort observation, not a latency SLA. It records task outcomes in the repository and does not start model jobs, rerun arbitrary CI or merge PRs.
+The reviewed [reconciliation template](../examples/changeplane-team.yml) runs pinned ChangePlane code without checking out PR code. Events trigger a full reconciliation; scheduled sweeps repair missed triggers. GitHub may delay schedules and coalesce pending runs, so this is best-effort observation, not a latency SLA. `team observe` records task outcomes and re-observes known contention once. A still-moving revision is explicitly deferred to the next trigger, with no current assessment and no workflow-failure alert. Other unavailable observations fail the observer job with redacted reason codes; uncertain mutations are never retried. A green observer job is operational status, never Guard or merge evidence. The observer does not start model jobs, rerun arbitrary CI or merge PRs.
 
 Current verification must cover: two competing clients, independent scopes, overlapping scopes, dependency cycles, immutable contracts, duplicate worktree creation across machines, preservation of a dirty developer checkout, automatic PR discovery, changed heads, changed policy, failed/unavailable evidence, closed-unmerged reservations, merge ancestry, ambiguous writes and MCP framing. Record live GitHub qualification separately before expanding support claims.
 

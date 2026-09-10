@@ -1,6 +1,7 @@
 import { canonical, validatePolicy } from './core.js';
 import { createHash } from 'node:crypto';
 import { githubReader, inspectPullRequest } from './github.js';
+import { unavailable } from './transport.js';
 import { TEAM_REF, TeamError, requireTeam, emptyTeam, validateTeam, transitionTeam, teamSummary } from './team.js';
 
 const SHA = /^[a-f0-9]{40}$/u;
@@ -184,7 +185,7 @@ export async function operateTeam({ api, command }) {
         observations.push({ task: task.id, ...observation });
       } catch (error) {
         if (task.pullRequest !== null) state = transitionTeam(state, { action: 'observe', task: task.id }, { state: 'blocked', outcome: 'REOBSERVE_UNAVAILABLE', headSha: task.headSha });
-        observations.push({ task: task.id, state: 'unavailable', code: error instanceof TeamError ? error.code : 'TEAM_PROVIDER_UNAVAILABLE' });
+        observations.push({ task: task.id, state: 'unavailable', code: error instanceof TeamError ? error.code : unavailable(error).code });
       }
     }
   } else if (command.action === 'start') {
@@ -218,6 +219,27 @@ export async function operateTeam({ api, command }) {
   return { ...teamSummary(state), repository: api.repository, revision, baseSha: context.baseSha,
     observations, ...(task ? { task } : {}),
     nextAction: ['claim', 'start'].includes(command.action) ? 'CREATE_ISOLATED_WORKTREE' : 'FOLLOW_TASK_OUTCOME' };
+}
+
+/** A fresh read/recompute after known contention; never replay an uncertain write. */
+export async function observeTeam({ createApi, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+  const moving = ['TEAM_CONCURRENT_UPDATE', 'TEAM_POLICY_CHANGED', 'TEAM_REVISION_CHANGED', 'EVIDENCE_CHANGED'];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const report = await operateTeam({ api: createApi(), command: { action: 'reconcile' } });
+      const failures = report.observations.filter(item => item.state === 'unavailable');
+      const transient = failures.length > 0 && failures.every(item => moving.includes(item.code));
+      if (transient && attempt === 0) { await sleep(1000); continue; }
+      return { ...report, observerStatus: !failures.length ? 'observed' : transient ? 'deferred' : 'unavailable',
+        observerAttempts: attempt + 1 };
+    } catch (error) {
+      if (!(error instanceof TeamError) || !moving.includes(error.code)) throw error;
+      if (attempt === 0) { await sleep(1000); continue; }
+      return { kind: 'changeplane.team-observer', observerStatus: 'deferred', observerAttempts: 2,
+        code: error.code, observations: [], nextAction: 'REOBSERVE_CURRENT_STATE',
+        message: 'Repository state is still moving. No current assessment was established; the next event or scheduled sweep will re-observe.' };
+    }
+  }
 }
 
 /** A client polls its own work. This never launches another writer or model. */
