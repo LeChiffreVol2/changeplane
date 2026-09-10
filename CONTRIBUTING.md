@@ -14,7 +14,7 @@ npm run verify
 npm run test:e2e
 ```
 
-Chromium may need `npx playwright install chromium`. CI additionally exercises disposable local PostgreSQL for journal, admission and TLS behavior. Never point tests at a production database. No live GitHub credentials or model key is required for the ordinary test suite.
+Chromium may need `npx playwright install chromium`. CI additionally exercises disposable local PostgreSQL for journal, admission and TLS behavior. Never point tests at a production database. No live GitHub credentials or model key is required for the ordinary test suite. The required CI check also gates on dependency-free release tests on Ubuntu 24.04, macOS 14 and Windows 2025, with Node 22.18.0 and 24.13.0. These exercise real local Git worktrees and MCP framing; they do not qualify every credential helper or IDE client.
 
 ## Find your way around
 
@@ -29,7 +29,7 @@ Chromium may need `npx playwright install chromium`. CI additionally exercises d
 
 ## Pull requests
 
-Forking this project to contribute is welcome under Apache-2.0. The product's unsupported **fork PR** scope concerns the repositories it assesses, not contributions to this project.
+Forking this project to contribute is welcome under Apache-2.0. Read-only fork assessment is a separate candidate capability; team writes to fork PRs remain unsupported. This does not restrict contributions to this project.
 
 Explain the user-visible problem, final behavior and validation. Add a regression test for substantive behavior changes. Keep changes to evidence, dependencies, managed runtime, policy and workflows explicit for human review. Never add a second evaluator or allow a model, report, comment or workflow job to grant Guard authority.
 

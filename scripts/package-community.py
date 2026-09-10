@@ -89,9 +89,9 @@ bundle.write_bytes(gzip.compress(raw.getvalue(), mtime=0))
 workflow = output / 'changeplane-community.yml'
 template = source('examples/changeplane-community.yml').decode()
 template = re.sub(r'(?<=changeplane/community@)(?:COMMUNITY_RELEASE_SHA|[a-f0-9]{40})', revision, template)
-workflow.write_text(template)
+workflow.write_bytes(template.encode('utf-8'))
 team_workflow = output / 'changeplane-team.yml'
-team_workflow.write_text(source('examples/changeplane-team.yml').decode().replace('CHANGEPLANE_TEAM_RELEASE_SHA', revision))
+team_workflow.write_bytes(source('examples/changeplane-team.yml').replace(b'CHANGEPLANE_TEAM_RELEASE_SHA', revision.encode()))
 manifest = output / 'SHA256SUMS'
-manifest.write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in [bundle, workflow, team_workflow]))
+manifest.write_bytes(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in [bundle, workflow, team_workflow]).encode())
 print(json.dumps({'source': revision, 'version': version, 'assets': [str(bundle), str(workflow), str(team_workflow), str(manifest)]}))

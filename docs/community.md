@@ -2,7 +2,7 @@
 
 ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
 
-Source version 0.3.0 includes [parallel task coordination, worktrees and an MCP operator](repository-team.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
+Source version 0.3.1 includes [parallel task coordination, worktrees and an MCP operator](repository-team.md), building on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts. Previously published immutable assets retain their original behavior.
 
 ## Run locally
 
@@ -37,7 +37,7 @@ The live report records the trusted default-branch SHA as `baseSha`, the exact P
 
 Download `changeplane-community.yml` from the [Open Source release](https://github.com/LeChiffreVol2/changeplane/releases). It pins the reviewed Action to a full commit SHA. The [source template](../examples/changeplane-community.yml) also pins reviewed implementation bytes. Open a configuration PR adding it under `.github/workflows/`, together with the reviewed policy above. Replace the watched workflow name `CI` if your behavioral workflow uses another display name.
 
-The template runs after the selected workflow completes and supports manual dispatch with a PR number. It uses a fresh GitHub-hosted runner, **no checkout**, no artifacts from the source workflow, no caches and read-only permissions. A workflow event without one associated PR needs manual dispatch; a fork PR remains unsupported. Do not expand this job with untrusted scripts or treat its workflow check as a required security publisher.
+The template runs after the selected workflow completes and supports manual dispatch with a PR number. It uses a fresh GitHub-hosted runner, **no checkout**, no artifacts from the source workflow, no caches and read-only permissions. A workflow event without one associated PR needs manual dispatch. The reader can diagnose fork PRs from a trusted operator, but automatic fork event wiring remains separately unqualified. Do not expand this job with untrusted scripts or treat its workflow check as a required security publisher.
 
 Outputs:
 

@@ -20,6 +20,7 @@ export const teamHelp = `Repository teamwork (GitHub.com):
 Merge a reviewed default-branch policy with team.enabled=true and team.maxActive first.
 Writes require CHANGEPLANE_TEAM_WRITE=true and CHANGEPLANE_TEAM_REPOSITORY=OWNER/REPO.
 Use a scoped GH_TOKEN/GITHUB_TOKEN in the trusted operator process, never in task JSON.
+Set CHANGEPLANE_TEAM_CHECKOUT to the trusted target checkout when running from the runtime bundle.
 The coordinator writes only its metadata branch. Your coding agent owns source changes;
 GitHub owns review and merge. Owner labels are attribution, not authentication.
 `;

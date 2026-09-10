@@ -28,7 +28,9 @@ Add this section to the existing reviewed default-branch `.changeplane.json` in 
 
 The schema currently allows 1–20 active tasks and at most 200 recorded tasks, with bounded provider collection and a 500 KB state limit. Large repositories or evidence sets may exhaust the reader budget and return unavailable. These are explicit current ceilings; no fleet-scale claim is made. Task text and reports stay in the repository and operator environment, subject to their access and retention settings. Never put secrets or private customer data in task descriptions.
 
-Configure the trusted operator's environment with `CHANGEPLANE_TEAM_REPOSITORY=OWNER/REPO`, `CHANGEPLANE_TEAM_WRITE=true`, `CHANGEPLANE_TEAM_MEMBER=YOUR_MEMBER_LABEL`, and a scoped `GH_TOKEN` or `GITHUB_TOKEN`. Configure Git authentication separately for the selected repository; no token is written to a remote URL or worktree by ChangePlane.
+Configure the trusted operator's environment with `CHANGEPLANE_TEAM_REPOSITORY=OWNER/REPO`, `CHANGEPLANE_TEAM_WRITE=true`, `CHANGEPLANE_TEAM_MEMBER=YOUR_MEMBER_LABEL`, `CHANGEPLANE_TEAM_CHECKOUT=/absolute/path/to/trusted-target-checkout`, and a scoped `GH_TOKEN` or `GITHUB_TOKEN`. The target checkout must be a clone of `OWNER/REPO`, with an `origin` using `https://github.com/OWNER/REPO.git` or `git@github.com:OWNER/REPO.git`. This is separate from the ChangePlane runtime checkout or unpacked bundle. Both CLI and MCP honor the configured target checkout; without it, the CLI uses its working directory. Configure Git authentication separately for the selected repository; no token is written to a remote URL or worktree by ChangePlane.
+
+Run the commands below from the ChangePlane runtime directory. Destination paths may contain spaces when quoted. The worktree command disables checkout filters, including Git LFS smudge; filtered assets may therefore remain pointers until you perform the repository's trusted setup separately. It does not install dependencies or run repository setup scripts.
 
 Create a contract such as:
 

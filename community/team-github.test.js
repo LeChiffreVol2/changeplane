@@ -125,10 +125,13 @@ test('start reserves a task atomically and reconciliation discovers its PR witho
   assert.equal(refreshed.tasks[0].outcome, 'AWAIT_GITHUB_REVIEW_AND_MERGE');
 });
 test('real Git worktree creation leaves the developer checkout untouched and prevents a second machine reservation', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'changeplane-team-worktree-'));
+  const root = mkdtempSync(join(tmpdir(), 'changeplane team worktree '));
   const checkout = join(root, 'checkout'), bare = join(root, 'remote.git'), destination = join(root, 'api');
   const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  const saved = { command: process.env.GIT_SSH_COMMAND, variant: process.env.GIT_SSH_VARIANT, token: process.env.GH_TOKEN };
+  // Git's transport/filter commands use its POSIX shell, including on Windows.
+  const shellPath = path => "'" + path.replaceAll('\\', '/').replaceAll("'", "'\\''") + "'";
+  const saved = { command: process.env.GIT_SSH_COMMAND, variant: process.env.GIT_SSH_VARIANT, token: process.env.GH_TOKEN,
+    checkout: process.env.CHANGEPLANE_TEAM_CHECKOUT };
   try {
     mkdirSync(checkout); git(checkout, ['init', '-b', 'main']);
     git(checkout, ['config', 'user.name', 'Synthetic Team']); git(checkout, ['config', 'user.email', 'team@example.invalid']);
@@ -136,8 +139,8 @@ test('real Git worktree creation leaves the developer checkout untouched and pre
     writeFileSync(join(checkout, '.gitattributes'), 'src/api/a.js filter=synthetic\n');
     const marker = join(root, 'filter-ran');
     const filter = join(root, 'filter.sh');
-    writeFileSync(filter, `#!/bin/sh\necho unsafe > '${marker}'\ncat\n`, { mode: 0o700 });
-    git(checkout, ['config', 'filter.synthetic.smudge', filter]);
+    writeFileSync(filter, `#!/bin/sh\necho unsafe > ${shellPath(marker)}\ncat\n`, { mode: 0o700 });
+    git(checkout, ['config', 'filter.synthetic.smudge', shellPath(filter)]);
     git(checkout, ['config', 'filter.synthetic.required', 'true']);
     git(checkout, ['config', 'filter.synthetic.clean', 'cat']);
     git(checkout, ['add', '.']); git(checkout, ['commit', '-m', 'Synthetic baseline']);
@@ -145,9 +148,9 @@ test('real Git worktree creation leaves the developer checkout untouched and pre
     git(root, ['clone', '--bare', checkout, bare]);
     git(checkout, ['remote', 'add', 'origin', 'git@github.com:example/repo.git']);
     const ssh = join(root, 'ssh');
-    writeFileSync(ssh, `#!/bin/sh\ntest -z \"$GH_TOKEN\" || exit 91\nexec git-upload-pack '${bare.replaceAll("'", "'\\''")}'\n`, { mode: 0o700 });
+    writeFileSync(ssh, `#!/bin/sh\ntest -z \"$GH_TOKEN\" || exit 91\nexec git-upload-pack ${shellPath(bare)}\n`, { mode: 0o700 });
     process.env.GH_TOKEN = 'synthetic-env-marker';
-    process.env.GIT_SSH_COMMAND = ssh; process.env.GIT_SSH_VARIANT = 'simple';
+    process.env.GIT_SSH_COMMAND = shellPath(ssh); process.env.GIT_SSH_VARIANT = 'simple';
     writeFileSync(join(checkout, 'unrelated.txt'), 'Keep this draft');
     const f = fixture({ baseSha: revision }); await planned(f); await run(f, { action: 'claim', task: 'api', owner: 'alice' });
     const conditional = join(root, 'conditional.config');
@@ -157,7 +160,9 @@ test('real Git worktree creation leaves the developer checkout untouched and pre
     assert.equal((await run(f, { action: 'status' })).tasks[0].workspaceId, null);
     assert.equal(existsSync(destination), false);
     git(checkout, ['config', '--unset-all', 'includeIf.onbranch:changeplane/work/**.path']);
-    const result = await prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', cwd: checkout, destination });
+    // The CLI is launched from the runtime bundle, not the target repository.
+    process.env.CHANGEPLANE_TEAM_CHECKOUT = checkout;
+    const result = await prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', destination });
     assert.equal(result.codebase.revision, revision);
     assert.equal(existsSync(marker), false, 'checkout must not execute smudge filters');
     assert.equal(git(destination, ['branch', '--show-current']), 'changeplane/work/api-1');
@@ -165,6 +170,7 @@ test('real Git worktree creation leaves the developer checkout untouched and pre
     assert.equal(readFileSync(join(checkout, 'unrelated.txt'), 'utf8'), 'Keep this draft');
     await assert.rejects(prepareTeamWorktree({ api: f.api, taskId: 'api', owner: 'alice', cwd: checkout, destination: join(root, 'second-machine') }), /TEAM_WORKSPACE_RESERVED/);
   } finally {
+    if (saved.checkout === undefined) delete process.env.CHANGEPLANE_TEAM_CHECKOUT; else process.env.CHANGEPLANE_TEAM_CHECKOUT = saved.checkout;
     if (saved.token === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = saved.token;
     if (saved.command === undefined) delete process.env.GIT_SSH_COMMAND; else process.env.GIT_SSH_COMMAND = saved.command;
     if (saved.variant === undefined) delete process.env.GIT_SSH_VARIANT; else process.env.GIT_SSH_VARIANT = saved.variant;
