@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, realpathSync, existsSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { TeamError, requireTeam } from './team.js';
 import { teamGitHub, operateTeam } from './team-github.js';
@@ -9,6 +9,17 @@ const taskIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 const repositoryPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u;
 const localCodes = new Set(['TEAM_NOT_ENABLED', 'TEAM_STATE_INVALID', 'TEAM_LOCAL_REPOSITORY_MISMATCH',
   'TEAM_GIT_OPERATION_FAILED', 'TEAM_CONDITIONAL_GIT_CONFIG', 'TEAM_TASK_MISSING', 'TEAM_RECOVERY_JOURNAL_INVALID']);
+
+function sameDirectory(left, right) {
+  try {
+    const a = statSync(left, { bigint: true }), b = statSync(right, { bigint: true });
+    if (!a.isDirectory() || !b.isDirectory()) return false;
+    // realpath can preserve input casing on case-insensitive filesystems. Compare
+    // filesystem identity without treating distinct case-sensitive paths as equal.
+    if (a.ino > 0n && b.ino > 0n) return a.dev === b.dev && a.ino === b.ino;
+    return realpathSync(left) === realpathSync(right);
+  } catch { return false; }
+}
 
 function recoveryReport(top, task) {
   const journal = resolve(top, git(top, ['rev-parse', '--git-common-dir']).trim(), 'changeplane-team', `${task.id}.json`);
@@ -28,8 +39,7 @@ function recoveryReport(top, task) {
     })));
   const branchWorktree = entries.find(entry => entry.branch === `refs/heads/${task.branch}`);
   const workspaceMatches = Boolean(intent && task.workspaceId === intent.workspaceId && branchWorktree
-    && existsSync(branchWorktree.worktree) && existsSync(intent.path)
-    && realpathSync(branchWorktree.worktree) === realpathSync(intent.path));
+    && sameDirectory(branchWorktree.worktree, intent.path));
   const reservationHeld = task.workspaceId !== null;
   const branchExists = Boolean(task.branch && git(top, ['branch', '--list', task.branch]).trim());
   const outcome = ['merged', 'cancelled'].includes(task.state) ? 'TERMINAL_TASK_REVIEW_CLEANUP'

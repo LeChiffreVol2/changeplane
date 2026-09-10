@@ -58,7 +58,7 @@ test('doctor inspects setup and matching workspace without Git/API writes or cre
     const requests = [], api = reader(base, state, requests);
     const report = await inspectTeamSetup({ repository: 'example/repo', configuration, taskId: 'api', api });
     assert.equal(report.status, 'checks_passed', JSON.stringify(report.checks)); assert.equal(report.readOnly, true);
-    assert.equal(report.recovery.workspaceMatches, true); assert.equal(report.recovery.outcome, 'VERIFY_AND_RESUME_EXISTING_WRITER');
+    assert.equal(report.recovery.workspaceMatches, true, JSON.stringify(report.recovery)); assert.equal(report.recovery.outcome, 'VERIFY_AND_RESUME_EXISTING_WRITER');
     assert.ok(requests.length > 4); assert.ok(requests.every(request => request.method === 'GET'));
     assert.equal(existsSync(join(checkout, '.git', 'FETCH_HEAD')), false);
     assert.equal(readFileSync(journal, 'utf8'), intent); assert.equal(readFileSync(join(checkout, 'draft.txt'), 'utf8'), 'Keep my draft');
@@ -66,6 +66,17 @@ test('doctor inspects setup and matching workspace without Git/API writes or cre
     const serialized = JSON.stringify(report);
     for (const privateValue of [root, checkout, workspace, 'synthetic-private-marker', 'Synthetic private title']) assert.equal(serialized.includes(privateValue), false);
     assert.ok(report.unverified.some(value => value.includes('isolation')));
+    // Git and the operator can spell one directory differently on a case-insensitive
+    // filesystem. On a case-sensitive filesystem the two spellings are distinct.
+    const caseAlias = join(root, 'WORK SPACE');
+    const sameDirectory = existsSync(caseAlias);
+    if (!sameDirectory) mkdirSync(caseAlias);
+    writeFileSync(journal, JSON.stringify({ task: 'api', path: caseAlias, workspaceId }));
+    const caseReport = await inspectTeamSetup({ repository: 'example/repo', configuration, taskId: 'api', api });
+    assert.equal(caseReport.recovery.workspaceMatches, sameDirectory, JSON.stringify(caseReport.recovery));
+    writeFileSync(journal, JSON.stringify({ task: 'api', path: checkout, workspaceId }));
+    const otherDirectory = await inspectTeamSetup({ repository: 'example/repo', configuration, taskId: 'api', api });
+    assert.equal(otherDirectory.recovery.workspaceMatches, false, 'another existing directory must not match the task workspace');
     writeFileSync(journal, JSON.stringify({ task: 'api', path: workspace, workspaceId: '22222222-2222-2222-2222-222222222222' }));
     const held = await inspectTeamSetup({ repository: 'example/repo', configuration, taskId: 'api', api });
     assert.equal(held.recovery.outcome, 'OWNER_RECOVERY_REQUIRED'); assert.equal(held.recovery.reservationHeld, true);
