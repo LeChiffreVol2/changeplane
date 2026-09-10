@@ -346,6 +346,15 @@ function UsageChoice({ usage, onChange }) {
   );
 }
 
+function SelectControl({ children, ...props }) {
+  return (
+    <span className="select-control">
+      <select {...props}>{children}</select>
+      <CaretDown size={16} aria-hidden="true" />
+    </span>
+  );
+}
+
 function Drawer({ title, titleId, eyebrow, description, className = '', closeLabel = 'Close', onClose, footer, children }) {
   const dialogRef = useDialogFocus(true, onClose);
   return (
@@ -396,9 +405,9 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
           <label className="settings-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => onDraft({ ...draft, enabled: event.target.checked })} /> Coordinate parallel work</label>
           <p>{usage === 'individual' ? 'Give each of your agents a separate scope and workspace.' : 'Coordinate tasks, dependencies and handbacks across your team.'}</p>
           <label className="settings-capacity">Maximum active tasks
-            <select value={draft.maxActive} disabled={!draft.enabled} onChange={(event) => onDraft({ ...draft, maxActive: Number(event.target.value) })}>
+            <SelectControl value={draft.maxActive} disabled={!draft.enabled} onChange={(event) => onDraft({ ...draft, maxActive: Number(event.target.value) })}>
               {Array.from({ length: 20 }, (_, index) => index + 1).map(value => <option key={value} value={value}>{value}</option>)}
-            </select>
+            </SelectControl>
           </label>
           <p>Each writer uses a separate workspace. GitHub controls push, approval and merge access.</p>
         </section>
@@ -901,7 +910,7 @@ function RuntimeFunding({
           <p>GPT-5.6 Luna is the default. Changing the model opens a configuration pull request.</p>
           <label className="byok-input">
             <span>OpenAI model</span>
-            <select
+            <SelectControl
               value={runtimeUpdate?.model || activeModel || DEFAULT_PROPOSAL_MODEL}
               onChange={(event) => onChangeModel(event.target.value)}
               disabled={!runtimeConfigurable || modelSaving}
@@ -909,7 +918,7 @@ function RuntimeFunding({
               {SUPPORTED_PROPOSAL_MODELS.map((model) => (
                 <option key={model} value={model}>{model === DEFAULT_PROPOSAL_MODEL ? `${model} · default` : model}</option>
               ))}
-            </select>
+            </SelectControl>
           </label>
           {!runtimeConfigurable && <p className="runtime-inline-note">Merge the setup pull request before choosing a model.</p>}
           {modelConfigured === false && runtimeConfigurable && <p className="runtime-inline-note">The next model change also updates this repository to the current OpenAI policy.</p>}
@@ -1327,7 +1336,7 @@ function GitHubSetup({
                             {evidenceOptions.length > 0 && (
                               <label className="evidence-detected">
                                 <span>{session.isPreview ? "Use the synthetic evidence fixture" : "Use a test from GitHub"}</span>
-                                <select
+                                <SelectControl
                                   value={evidenceOptionValue({ name: checkName, appSlug: checkPublisher, workflowPath: checkWorkflowPath })}
                                   onChange={(event) => {
                                     const [name, appSlug, workflowPath = ""] = event.target.value.split("\0");
@@ -1342,7 +1351,7 @@ function GitHubSetup({
                                       {option.name} · {option.appSlug}{option.workflowPath ? ` · ${option.workflowPath}` : ""}{option.suggested ? " (suggested)" : ""}
                                     </option>
                                   ))}
-                                </select>
+                                </SelectControl>
                               </label>
                             )}
                             {githubActionsEvidence && (

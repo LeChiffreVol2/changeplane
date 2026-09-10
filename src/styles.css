@@ -113,8 +113,36 @@ button {
 .settings-toggle { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-default); font-size: var(--text-body); cursor: pointer; }
 .settings-toggle input { accent-color: var(--accent); }
 .settings-capacity { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-4) 0; font-size: var(--text-body); }
-.settings-capacity select { min-width: 80px; min-height: var(--control-default); padding: var(--space-2) var(--space-3); border: 1px solid var(--line-dark); background: var(--paper); border-radius: var(--radius-control); font: inherit; }
-.settings-capacity select:focus-visible, .usage-options input:focus-visible, .settings-toggle input:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.settings-capacity .select-control { width: 96px; flex-shrink: 0; }
+.usage-options input:focus-visible, .settings-toggle input:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.select-control { position: relative; display: block; min-width: 0; width: 100%; }
+.select-control select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-default);
+  padding: var(--space-2) var(--space-10) var(--space-2) var(--space-3);
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius-control);
+  background: #fffefa;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-normal);
+  letter-spacing: normal;
+  text-transform: none;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(17, 47, 48, 0.04);
+  transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+.select-control > svg { position: absolute; top: 50%; right: var(--space-3); transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.select-control select:hover:not(:disabled) { border-color: var(--accent); background: var(--paper); }
+.select-control select:focus-visible { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 2px; }
+.select-control select:focus-visible + svg { color: var(--accent); }
+.select-control select:disabled { background: var(--paper-soft); border-color: var(--line); color: var(--muted); cursor: not-allowed; box-shadow: none; }
+.select-control select:disabled + svg { opacity: 0.45; }
 .settings-policy { border-top: 1px solid var(--line); padding: var(--space-4) 0; }
 .settings-policy summary { cursor: pointer; font-size: var(--text-body); font-weight: var(--weight-strong); }
 .settings-policy pre { overflow-x: auto; padding: var(--space-4); background: var(--paper-soft); font-size: var(--text-meta); line-height: var(--leading-relaxed); }
@@ -488,39 +516,46 @@ button {
 .auth-resources summary {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-3);
   min-height: var(--control-small);
   width: fit-content;
   margin-left: auto;
   list-style: none;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius-control);
+  background: #fffefa;
+  color: var(--ink);
+  font-weight: var(--weight-medium);
   cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease;
 }
 
 .auth-resources summary::-webkit-details-marker { display: none; }
-.auth-resources summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+.auth-resources summary:hover, .auth-resources[open] summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .auth-resources summary svg { transition: transform var(--motion-fast) ease; }
 .auth-resources[open] summary svg { transform: rotate(180deg); }
-.auth-resources-content { display: grid; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.auth-resources-content { display: grid; gap: var(--space-2); margin-top: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-control); background: #fffefa; }
 
 .auth-footer a {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: var(--control-small);
   gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-control);
   color: #5a625e;
   text-decoration: none;
 }
 
 .auth-footer-links {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-1) var(--space-4);
+  display: grid;
+  gap: 0;
 }
 
-.auth-footer a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.auth-footer-links + .auth-footer-links { padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.auth-footer a:hover { background: var(--accent-soft); color: var(--accent); }
 
 .setup-stage {
   min-height: 100dvh;
@@ -1307,7 +1342,7 @@ button {
   gap: var(--space-2);
 }
 
-.byok-input > span,
+.byok-input > span:not(.select-control),
 .byok-preview-copy > span {
   color: #4e5b56;
   font-size: var(--text-meta);
@@ -1316,8 +1351,7 @@ button {
   text-transform: uppercase;
 }
 
-.byok-input input,
-.byok-input select {
+.byok-input input {
   width: 100%;
   height: 39px;
   padding: 0 var(--space-3);
@@ -1329,12 +1363,7 @@ button {
   font-size: var(--text-meta);
 }
 
-.byok-input select {
-  appearance: auto;
-}
-
-.byok-input input:focus,
-.byok-input select:focus {
+.byok-input input:focus {
   border-color: var(--focus);
   box-shadow: 0 0 0 1px var(--focus);
 }
@@ -1741,8 +1770,7 @@ button {
   text-transform: uppercase;
 }
 
-.evidence-fields input,
-.evidence-fields select {
+.evidence-fields input {
   min-width: 0;
   height: 36px;
   padding: 0 var(--space-2);
@@ -1759,11 +1787,6 @@ button {
   grid-column: 1 / -1;
   color: #3f5750;
   font-size: var(--text-meta);
-}
-
-.evidence-fields select {
-  width: 100%;
-  cursor: pointer;
 }
 
 .evidence-fields details {
@@ -4626,7 +4649,7 @@ code,
   .drawer-header, .drawer-body { padding: var(--space-4) var(--space-6); }
   .drawer-footer { padding: var(--space-3) var(--space-6); }
   .drawer-actions { grid-template-columns: 1fr; gap: var(--space-2); }
-  .primary-action, .secondary-action, .settings-capacity select { min-height: var(--control-touch); }
+  .primary-action, .secondary-action, .select-control select, .auth-resources summary, .auth-footer .settings-link { min-height: var(--control-touch); }
   .dialog-close, .copy-button, .icon-button { width: var(--control-touch); height: var(--control-touch); }
   .handback-authority { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
