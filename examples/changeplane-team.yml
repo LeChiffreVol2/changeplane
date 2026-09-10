@@ -1,0 +1,36 @@
+name: ChangePlane team observation
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: read
+  actions: read
+  checks: read
+concurrency:
+  group: changeplane-team-observation
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Only pinned trusted runtime is checked out, never contributor code.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: LeChiffreVol2/changeplane
+          ref: CHANGEPLANE_TEAM_RELEASE_SHA
+          path: _changeplane
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22.18.0
+      - name: Refresh team task observations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGEPLANE_TEAM_WRITE: 'true'
+          CHANGEPLANE_TEAM_REPOSITORY: ${{ github.repository }}
+        run: node _changeplane/community/cli.js team reconcile "$GITHUB_REPOSITORY"

@@ -7,6 +7,7 @@
 - The product complements Codex, Cursor, Claude Code, Trae, Copilot, OpenSWE, and other coding agents. Do not turn it into an IDE, Git host, merge service, proprietary agent workspace, or general-purpose orchestrator.
 - Hosted onboarding retains its GitHub.com personal and organization scope, including Enterprise Cloud. The next open-source scope adds read-only fork diagnosis/handback and a GitLab.com reader; live qualification is recorded separately. GHES, self-managed GitLab and cross-repository repair need separate qualification. Native Origin remains unqualified without live access.
 - Keep the core operable locally or in the user's CI with hosted service optional. Diagnostic data stays with the operator by default; no automatic ChangePlane telemetry. Model egress requires explicit feature enablement and the user's key; incident sharing is opt-in. Current platform spending is USD 0; USD 100 is a later scaling ceiling.
+- Repository teamwork is the accepted product focus: coordinate scoped tasks and dependencies for people and agents, isolate participating writers, and follow PR/CI outcomes. Use native Git/GitHub state and the existing evaluator before adding infrastructure. Deployment-provider integrations are deferred. Cooperative task reservations never confer source-write, approval, Guard or merge authority; unknown writers are not fenced by expiry.
 
 ## Authority and evidence invariants
 

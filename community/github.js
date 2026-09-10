@@ -33,7 +33,7 @@ function target(pr, repo, defaultBranch) {
     sourceRepository: pr.head.repo.full_name, sourceRepositoryId: pr.head.repo.id, repositoryId: pr.base.repo.id, changeId: pr.id };
 }
 
-export async function inspectPullRequest({ repository, number, token, read = githubReader(token) }) {
+export async function inspectPullRequest({ repository, number, token, plannedPaths, read = githubReader(token) }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository)
     || !positive(number)) throw new Error('TARGET_INVALID: use owner/repository and a positive pull request number.');
   const root = `/repos/${repository}`;
@@ -125,7 +125,7 @@ export async function inspectPullRequest({ repository, number, token, read = git
     throw new Error('REVISION_CHANGED: the PR or trusted default branch changed; reassess.');
   }
   const report = assess({ schemaVersion: 1, baseSha: base.sha, headSha: initial.headSha,
-    currentHeadSha: finalPr.head.sha, policy, files, checks: second.checks });
+    currentHeadSha: finalPr.head.sha, policy, files, checks: second.checks, ...(plannedPaths ? { plannedPaths } : {}) });
   const identity = { forge: 'github', origin: 'https://github.com', repositoryId: String(repo.id),
     sourceRepositoryId: String(initial.sourceRepositoryId), changeId: String(initial.changeId) };
   const binding = { ...report.handback.binding, identity, policyRevision: base.sha, targetRevision: initial.baseSha,

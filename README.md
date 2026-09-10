@@ -4,6 +4,8 @@
 
 Open-source evidence assessment for agent-authored pull requests. Catch stale checks, changed test policy, and mismatched evidence before you rely on a green result.
 
+Current source also adds [parallel repository coordination](docs/repository-team.md): scoped task reservations, dependencies, isolated Git worktrees and shared PR/CI observations, available through the CLI and an MCP server. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
+
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
