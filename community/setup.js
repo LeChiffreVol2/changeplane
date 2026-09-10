@@ -171,7 +171,7 @@ export async function planSetup({ repository, number, check, workflow, coordinat
   };
   if (coordination) {
     sources['.github/workflows/changeplane-team.yml'] = templates[templatePaths[1]]
-      .replace('CHANGEPLANE_TEAM_RELEASE_SHA', revision)
+      .replace(/ref: (?:CHANGEPLANE_TEAM_RELEASE_SHA|[a-f0-9]{40})/u, `ref: ${revision}`)
       .replace('workflows: [CI, ChangePlane review signal]', `workflows: ${JSON.stringify([...new Set([...names, 'ChangePlane review signal'])])}`);
     sources['.github/workflows/changeplane-team-review-signal.yml'] = templates[templatePaths[2]];
   }

@@ -13,7 +13,7 @@ export function formatReport(report, format = 'json') {
   const summary = {
     schemaVersion: 1, kind: 'changeplane.assessment-summary', decision: report.decision,
     ...(report.code ? { code: report.code } : {}),
-    headSha: report.headSha ?? null, baseSha: report.baseSha ?? null,
+    headSha: report.headSha ?? null, currentHeadSha: report.currentHeadSha ?? null, baseSha: report.baseSha ?? null,
     subjectBinding: report.subjectBinding ?? null,
     observation: report.observation ?? null,
     findingCount: report.findings?.length ?? null,
@@ -26,11 +26,14 @@ export function formatReport(report, format = 'json') {
   if (format !== 'text') throw new Error('USAGE_INVALID');
   return [
     `ChangePlane: ${report.decision}`,
-    `Revision: ${report.headSha ?? 'unavailable'}`,
+    `Assessed revision: ${report.headSha ?? 'unavailable'}`,
+    `Current revision: ${report.currentHeadSha ?? 'unavailable'}`,
     `Evidence: ${report.observation?.source ?? 'unavailable'}; point-in-time advisory assessment`,
     ...(report.code ? [`Reason: ${report.code}`] : []),
     ...((report.findings ?? []).map(item => `Finding: ${item.code}`)),
-    `Next: ${report.message ?? report.nextAction}`,
+    `Next: ${report.nextActionCode === 'REOBSERVE_REVISION'
+      ? 'Read the current PR revision and workflow attempt, then reassess fresh evidence.'
+      : report.message ?? report.nextAction}`,
     'No Guard, repair or merge authority. Use --format json for complete evidence.',
   ].map(clean).join('\n') + '\n';
 }

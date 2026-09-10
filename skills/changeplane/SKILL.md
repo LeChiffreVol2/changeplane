@@ -9,6 +9,8 @@ Use the installed ChangePlane tools to obtain the current revision, findings and
 
 ## Assess a pull request
 
+For a supplied local snapshot, use `changeplane evaluate /path/to/snapshot.json --format compact`. This is offline evidence supplied by the caller; it does not establish current live GitHub state.
+
 Prefer `changeplane_inspect` when the read-only MCP server is configured for the requested repository. Pass only its PR number; the operator fixes repository scope. Otherwise use the installed CLI:
 
 ```sh

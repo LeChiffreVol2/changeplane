@@ -19,6 +19,7 @@ test('stable command preserves complete assessment JSON and exit codes; alternat
     const summary = JSON.parse(compact.stdout);
     assert.equal(compact.status, exit);
     assert.equal(summary.headSha, JSON.parse(result.stdout).headSha);
+    assert.equal(summary.currentHeadSha, JSON.parse(result.stdout).currentHeadSha);
     assert.equal(summary.authority.mergeAuthorized, false);
     assert.deepEqual(summary.findings, JSON.parse(result.stdout).findings);
     const text = run(['evaluate', `examples/community/${name}.json`, '--format', 'text']);

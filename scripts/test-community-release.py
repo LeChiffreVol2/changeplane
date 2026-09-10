@@ -51,7 +51,8 @@ prefix = destination / 'command-prefix'
 npm = shutil.which('npm.cmd' if os.name == 'nt' else 'npm')
 assert npm, 'npm bundled with the tested Node runtime is required for installation verification.'
 subprocess.run([npm, 'install', '--global', '--prefix', str(prefix), '--offline', '--ignore-scripts',
-                '--no-audit', '--no-fund', str(root.resolve())], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                '--no-audit', '--no-fund', str(root.resolve())], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+               env={**os.environ, 'npm_config_cache': str(destination / 'npm-cache')})
 command = prefix / ('changeplane.cmd' if os.name == 'nt' else 'bin/changeplane')
 result = subprocess.run([str(command.resolve()), 'evaluate', str((root / 'examples/community/satisfied.json').resolve())],
                         cwd=destination, check=True, capture_output=True, text=True)
