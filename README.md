@@ -2,116 +2,131 @@
 
 **Keep GitHub. Let agents ship.**
 
-Open-source PR and CI assurance for individual developers and teams using coding agents. Inspect current evidence, return findings to the writer, and coordinate parallel work through GitHub’s existing rules.
-
-Start with [Individual assessment](docs/community.md#inspect-your-repository) or [parallel setup for yourself or a team](docs/team-operator.md). Parallel work adds scoped tasks, dependencies, isolated worktrees and revision-bound handoffs through the CLI and MCP. Coding agents perform source work; GitHub controls integration. Deployment integrations are deferred.
+ChangePlane helps individual developers and teams work with coding agents in their existing GitHub repositories. It checks whether CI results apply to the current pull request revision and returns actionable findings to the writer. Optional coordination gives parallel tasks separate worktrees, tracks dependencies, and follows their review and CI outcomes.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Open Source · free for individuals and businesses · no model key · no ChangePlane account.**
+**Open source · free for individual and commercial use · no ChangePlane account or model key required.**
 
-[Get started](docs/community.md) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [How it works](#how-it-works) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Quickstart](#try-it-in-one-minute) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [Documentation](docs/community.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## Choose how you work
 
-| Settings choice | Starting behavior | Next step |
+| | Start here | Add when needed |
 | --- | --- | --- |
-| **Individual** | Read-only PR/CI assessment | [Inspect one PR](docs/community.md#inspect-your-repository) |
-| **Individual with parallel agents** | Optional coordination; default capacity 2 | [Set up isolated tasks](docs/team-operator.md) |
-| **Teams** | Coordination selected; default capacity 3 | [Set up the shared repository](docs/team-operator.md) |
+| **Individual** | [Inspect a pull request](#inspect-a-real-pull-request) with read-only access | [Coordinate multiple agents](docs/team-operator.md) working on your own features |
+| **Teams** | [Set up a shared repository](docs/team-operator.md) with scoped tasks and separate worktrees | Dependencies, assigned feedback and a scheduled observer |
 
-Both choices work with personal or organization repositories, subject to repository permissions. Open **Settings** on the website to prepare your setup; coordination capacity can be 1–20. Settings are a local draft. Copying coordination settings does not install anything: review only the `team` field in a configuration PR while preserving existing evidence and protected paths. See [changing settings safely](docs/community.md#settings-for-individual-and-teams).
+Both paths support personal and organization repositories, subject to repository permissions. Use your existing coding agents and GitHub review process.
+
+The [website](https://changeplane.vercel.app/) includes **Settings** for Individual and Teams. Individual starts with read-only assessment; parallel agents are optional. Settings prepare a local configuration draft for a reviewed pull request. They do not install or change a repository. See the [settings guide](docs/community.md#settings-for-individual-and-teams).
 
 ## Try it in one minute
 
-With Git and Node.js 22.18+:
+Requires Git and Node.js 22.18+; Node 22 and 24 are tested.
 
 ```sh
 git clone https://github.com/LeChiffreVol2/changeplane.git
 cd changeplane
 node community/cli.js evaluate examples/community/satisfied.json
+```
+
+The command prints a JSON assessment with `decision: "EVIDENCE_SATISFIED"` and exits 0. Once cloned, the included examples run entirely offline, with no npm installation or model call.
+
+Try the failure cases:
+
+```sh
 node community/cli.js evaluate examples/community/failed.json
 node community/cli.js evaluate examples/community/stale.json
 ```
 
-No `npm install`, database, model call, or network access is needed for these three synthetic assessments. Expect `EVIDENCE_SATISFIED` (exit 0), `REVIEW_REQUIRED` (exit 1), and `BLOCKED` (exit 1). Exit 2 means invalid or unavailable input.
+| Example | Decision | Exit code |
+| --- | --- | --- |
+| `satisfied.json` | `EVIDENCE_SATISFIED` | 0 |
+| `failed.json` | `REVIEW_REQUIRED` | 1 |
+| `stale.json` | `BLOCKED` | 1 |
 
-Prefer an archive? Download the dependency-free bundle and verify its SHA-256 from the [release assets](https://github.com/LeChiffreVol2/changeplane/releases). The same commands work inside it.
+These are synthetic inputs for learning the report format. Exit 2 indicates invalid or unavailable input. Run `node community/cli.js --help` for all commands.
+
+Prefer an archive? Download the dependency-free bundle and verify its SHA-256 against `SHA256SUMS` from the same [release](https://github.com/LeChiffreVol2/changeplane/releases). The commands above work inside the extracted directory.
 
 ## Inspect a real pull request
 
-First add a reviewed `.changeplane.json` policy to your repository's default branch using the [setup guide](docs/community.md#inspect-your-repository). Bind an existing behavioral CI job by its exact name, publisher and workflow path. Then:
+1. Choose an existing CI job that tests meaningful product behavior. Identify its exact job name, publisher and workflow path.
+2. Add a reviewed `.changeplane.json` to the repository's default branch using the [example policy](examples/community/policy.json). Replace `Behavior` and the workflow path with your job's values. Preserve any existing policy and protected paths.
+3. Let CI complete on a pull request targeting that default branch, then run:
 
 ```sh
 node community/cli.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
 ```
 
-For private repositories, set `GH_TOKEN` or `GITHUB_TOKEN` in your environment with read-only Contents, Pull requests, Checks and Actions access. Never pass a token on the command line. The CLI contacts only GitHub's API; it does not download source blobs, run PR code, publish Checks, write comments, or call ChangePlane.
+Replace the repository and PR number with yours. Public repositories can use unauthenticated GitHub API access within its rate limit. For private access, supply `GH_TOKEN` or `GITHUB_TOKEN` through your environment or secret manager with **Contents, Pull requests, Checks and Actions read** permissions. Keep tokens out of command arguments and source files; organization approval or SSO may apply.
 
-Use the [read-only GitHub Action](docs/community.md#run-in-github-actions) for continuous assessments after your existing CI completes. No checkout, model key or App installation is needed. Its machine-readable output carries the exact revision, findings and an advisory handback for your existing coding agent.
+The report includes the observed revision, findings and a next action. The reader uses GitHub API reads, executes no PR code and publishes no Checks or comments. See the [complete setup and troubleshooting guide](docs/community.md).
+
+## Use it in your workflow
+
+**GitHub Actions:** add the release's pinned `changeplane-community.yml` through a configuration PR. It assesses PRs after your existing CI workflow completes, using read-only permissions and no repository checkout. [Action setup →](docs/community.md#run-in-github-actions)
+
+**Parallel agents:** follow the [operator setup](docs/team-operator.md), then check configuration and current assigned work:
+
+```sh
+node community/cli.js team doctor YOUR_ACCOUNT/YOUR_REPOSITORY
+node community/cli.js team next YOUR_ACCOUNT/YOUR_REPOSITORY
+```
+
+Each task has a defined scope and its own worktree. Existing agents perform development and respond to findings; ChangePlane records coordination in the repository. Doctor reports setup problems without changing branches. A stopped agent still needs its existing runtime to resume it.
+
+**MCP clients:** the [stdio MCP server](docs/repository-team.md#cursor-and-other-mcp-clients) exposes the same task, worktree, diagnostic and feedback operations to compatible agents. Follow the operator credential-isolation requirements and [agent task loop](examples/changeplane-team-agent.md). One developer can use several agents through the same coordination engine as a team.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  A[Individual developers, teams and coding agents] --> C[PRs and existing behavioral CI]
-  A --> B[Optional scoped tasks and separate worktrees]
-  B --> C
-  C --> D[ChangePlane observes current evidence]
-  D --> E[Handoff to the assigned writer]
-  E --> C
-  C --> F[Native GitHub review and integration]
-  F --> G[Confirm merge and release dependent tasks]
+  A[Your coding agent] --> B[Pull request and existing CI]
+  B --> C[ChangePlane assessment]
+  C --> D[Findings for the assigned writer]
+  D --> A
+  B --> E[GitHub review and merge rules]
 ```
 
-- **Shared deterministic evaluator.** The same scope, protected-path and evidence rules used by the hosted product; no model judges its own patch.
-- **Fresh evidence.** A later workflow run or attempt supersedes older success, even on the same commit. Head, trusted policy revision and evidence are checked again before a live report is returned.
-- **Protected evidence.** Tests, workflows, manifests and declared protected paths require human review, including renames out of protected directories.
-- **Agent-neutral handback.** JSON findings name one exact revision. Codex, Cursor, Claude Code, Copilot or another agent can consume them as data. No native agent integration is implied.
-- **Small operating footprint.** The CLI, Action and team MCP server use Node built-ins and the existing evaluator. Offline assessment has no external requests. Assessment readers use bounded GET requests; opt-in teamwork writes only its repository coordination branch.
+ChangePlane reads policy from the trusted default branch and binds findings to the observed PR revision and CI execution. New commits or workflow attempts require fresh evidence. Changes to tests, workflows, manifests and protected paths remain subject to human review.
 
-An `EVIDENCE_SATISFIED` assessment means the declared inputs matched the checks at observation time. It does not prove the software has no defects. A snapshot supplied by a caller is unauthenticated. Neither an assessment nor a green assessment workflow is an App-owned `ChangePlane / guard`, Strict Head, or permission to merge.
+The evaluator is deterministic. Reports are advisory; they do not publish `ChangePlane / guard` or grant source-write, approval or merge authority. GitHub remains responsible for integration. Parallel path reservations coordinate participating writers; they cannot prove that separate features have no behavioral conflicts.
 
-## Choose the right surface
+The open-source CLI, Action and MCP server use Node built-ins. Reports stay in your environment or CI, and coordination history stays in your repository. There is no automatic ChangePlane telemetry, database requirement or managed model spend. Your CI and coding-agent providers retain their own usage costs and data policies.
 
-| | Open Source — available | Hosted service — controlled canary |
-| --- | --- | --- |
-| Local and read-only GitHub assessment | Yes | Shared evaluator |
-| Personal and organization repositories | Yes, with appropriate read access | Customer activation closed |
-| Model key / ChangePlane account | Neither required | Verify needs no model key |
-| App-owned Guard and Strict Head | No | Implemented; customer qualification incomplete |
-| Parallel task coordination | CLI, worktrees, assigned handoffs and MCP | Use the open-source operator |
-| Automatic repair / merge | Existing agent handles recovery; GitHub controls merge | Repair disabled; GitHub owns merge |
-| Operations | You run the CLI, MCP operator or repository observer | Provider recovery and scheduler gates remain open |
+[Architecture](docs/automated-sdlc-architecture.md) · [Coordination design](docs/repository-team.md) · [Data and uninstall](docs/community.md#uninstall-and-data)
 
-GitHub.com same-repository PRs targeting the default branch are supported. Enterprise Cloud remains subject to organization permissions. Team writes support same-repository GitHub PRs. Fork reading and GitLab reading remain separately bounded in the [recovery core](docs/recovery-core.md); GHES, Merge Queue assessments and a self-operated Guard controller are outside the supported release. See [limits and troubleshooting](docs/community.md#limits-and-troubleshooting).
+## Supported scope
 
-## Where it fits
+| Capability | Current scope |
+| --- | --- |
+| Offline assessment | Release archives tested on Linux, macOS and Windows with Node 22 and 24 |
+| GitHub assessment and coordination | GitHub.com personal and organization repositories; same-repository PRs targeting the default branch |
+| Fork PRs and GitLab.com | Read-only collectors with synthetic test coverage; live installation qualification is incomplete; no coordination writes |
+| MCP and Cursor | Stdio protocol tested; live Cursor installation and native Origin remain unqualified |
+| Guard publication and automatic source repair | Outside the supported open-source installation; GitHub owns merge |
 
-Use your existing tests, code review, SAST and dependency scanning. ChangePlane adds a reproducible answer to: **“Do these results apply to this revision, from the expected workflow, without changing the evidence controls?”**
+Enterprise Cloud access follows organization rules. GitHub Enterprise Server, self-managed GitLab and cross-repository repair require separate qualification. See [platform boundaries](docs/recovery-core.md), [operating limits](docs/community.md#limits-and-troubleshooting) and [QA evidence](docs/open-source-qa-audit.md).
 
-It cannot improve weak tests by itself. Start with one behavioral job that protects a real user outcome. See the [positioning and evaluation guide](docs/community-positioning.md) for concrete comparisons and reproducible cases; no production superiority benchmark is claimed.
+## Releases and upgrades
 
-## Project status and roadmap
-
-Source version **0.4.1** provides Individual and Teams setup settings alongside review feedback, resumable unfinished work, fair bounded observation, terminal-task archives and diagnostics. Team boards use schema 2; when upgrading from 0.3.x, update all operators together using the [upgrade guide](docs/team-operator.md#upgrade-existing-installations). Releases are tested from isolated archives on Linux, macOS and Windows. Interfaces may change before version 1.0; older immutable release assets keep their original behavior. The hosted technical baseline remains separate from this version. [Hosted canary evidence](docs/current-release.md) records successful and failed exercises honestly.
-
-Our next evidence gate is external adoption: five installations, three repeat users after four weeks, and concrete reports of useful decisions. These are targets, not traction. Managed operations and organization controls are revenue hypotheses to validate with users; there is no paid offer in this release.
-
-[Roadmap](docs/community-roadmap.md) · [Architecture](docs/automated-sdlc-architecture.md) · [Hosted reference](docs/managed-product.md) · [Synthetic interactive example](https://changeplane.vercel.app/)
+Use [tagged releases](https://github.com/LeChiffreVol2/changeplane/releases) for a reproducible installation. `main` may contain improvements made after the latest tagged release; published assets and pinned Actions remain immutable. Read the [upgrade guide](docs/team-operator.md#upgrade-existing-installations) before changing existing operators or workflow pins.
 
 ## Develop and contribute
 
+Full application development uses Node.js `>=22.18 <23`:
+
 ```sh
 npm ci
-npm test
 npm run verify
 npm run test:e2e
 ```
 
-Full product development uses Node.js `>=22.18 <23`; the CLI and Action are exercised on Node 22 and 24. See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory map, focused tests, contribution terms and security boundaries. Report ordinary defects through [GitHub Issues](https://github.com/LeChiffreVol2/changeplane/issues); use [private reporting](SECURITY.md) for vulnerabilities.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory map and focused tests. Report bugs with a redacted reproduction through [GitHub Issues](https://github.com/LeChiffreVol2/changeplane/issues); report vulnerabilities through [SECURITY.md](SECURITY.md). [Support details](SUPPORT.md).
 
 ## License
 
-[Apache License 2.0](LICENSE), for individual and commercial use. [Third-party notices](THIRD_PARTY_NOTICES.md) apply to dependencies. ChangePlane and RouteThai trademarks, hosted credentials and service access are not granted by the software license. Hosted legal documents remain drafts and do not restrict the Apache-2.0 license.
+[Apache License 2.0](LICENSE), for individual and commercial use. See [third-party notices](THIRD_PARTY_NOTICES.md). Software licensing does not grant hosted-service access or trademark rights.
