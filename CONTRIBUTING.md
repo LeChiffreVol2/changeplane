@@ -27,6 +27,8 @@ Chromium may need `npx playwright install chromium`. CI additionally exercises d
 | `src/App.jsx`, `src/styles.css` | Public product and synthetic replay |
 | `docs/`, `evidence/` | Contracts and bounded historical observations |
 
+For interface changes, follow the [shared UI roles and design QA](docs/ui-design.md). Reuse `src/tokens.css` and the existing controls and drawers, and check narrow layouts as well as desktop.
+
 ## Pull requests
 
 Forking this project to contribute is welcome under Apache-2.0. Read-only fork assessment is a separate candidate capability; team writes to fork PRs remain unsupported. This does not restrict contributions to this project.

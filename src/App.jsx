@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
+  ArrowUpRight,
   ArrowsClockwise,
   CalendarBlank,
   CaretDown,
@@ -345,8 +346,26 @@ function UsageChoice({ usage, onChange }) {
   );
 }
 
-function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
+function Drawer({ title, titleId, eyebrow, description, className = '', closeLabel = 'Close', onClose, footer, children }) {
   const dialogRef = useDialogFocus(true, onClose);
+  return (
+    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? `${titleId}-intro` : undefined}>
+      <button className="overlay-scrim" type="button" onClick={onClose} aria-label={`Dismiss ${title}`} tabIndex={-1} />
+      <section className={`guide-drawer ${className}`} ref={dialogRef} tabIndex={-1}>
+        <header className="drawer-header">
+          <button className="dialog-close" type="button" onClick={onClose} aria-label={closeLabel} data-dialog-initial><X size={18} /></button>
+          {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+          <h2 id={titleId}>{title}</h2>
+          {description && <p className="guide-intro" id={`${titleId}-intro`}>{description}</p>}
+        </header>
+        <div className="drawer-body">{children}</div>
+        {footer && <footer className="drawer-footer">{footer}</footer>}
+      </section>
+    </div>
+  );
+}
+
+function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
   const [copyStatus, setCopyStatus] = useState('');
   const policyFields = JSON.stringify({ team: draft }, null, 2);
   useEffect(() => { setCopyStatus(''); }, [policyFields, usage]);
@@ -359,28 +378,29 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
     }
   }
   return (
-    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Dismiss settings" />
-      <section className="guide-drawer settings-drawer" ref={dialogRef} tabIndex={-1}>
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close settings" data-dialog-initial><X size={18} /></button>
-        <p className="eyebrow">Open Source · local setup draft</p>
-        <h2 id="settings-title">Settings</h2>
-        <p className="guide-intro">Choose how you work. Both options support personal and organization repositories; GitHub permissions stay with the repository.</p>
+    <Drawer title="Settings" titleId="settings-title" eyebrow="Local draft" className="settings-drawer" closeLabel="Close settings" onClose={onClose}
+      description="Choose how you work. Both options support personal and organization repositories."
+      footer={<>
+        <p className="settings-draft-note">Draft only · resets on refresh. Nothing is installed or applied to a repository here.</p>
+        <a className="primary-action guide-primary" href={`https://github.com/LeChiffreVol2/changeplane/blob/main/docs/${draft.enabled ? 'team-operator' : 'community'}.md`} target="_blank" rel="noreferrer">
+          {draft.enabled ? 'Open parallel work guide' : 'Open PR assessment guide'} <ArrowUpRight size={17} />
+        </a>
+      </>}>
         <UsageChoice usage={usage} onChange={onUsage} />
         <section className="settings-section" aria-labelledby="assessment-settings-title">
           <h3 id="assessment-settings-title">PR and CI assessment</h3>
-          <p>Available to everyone. Bind your existing behavioral CI job and receive revision-specific findings for your coding agent. No model key or ChangePlane account is required.</p>
+          <p>Use your existing tests to assess each PR. No model key or ChangePlane account required.</p>
         </section>
         <section className="settings-section" aria-labelledby="coordination-settings-title">
           <h3 id="coordination-settings-title">Parallel work</h3>
           <label className="settings-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => onDraft({ ...draft, enabled: event.target.checked })} /> Coordinate parallel work</label>
-          <p>{usage === 'individual' ? 'Give your own agents separate scopes and worktrees. Leave this off for PR assessment without a task board.' : 'Coordinate scoped tasks, dependencies and handbacks for teammates and their agents.'}</p>
+          <p>{usage === 'individual' ? 'Give each of your agents a separate scope and workspace.' : 'Coordinate tasks, dependencies and handbacks across your team.'}</p>
           <label className="settings-capacity">Maximum active tasks
             <select value={draft.maxActive} disabled={!draft.enabled} onChange={(event) => onDraft({ ...draft, maxActive: Number(event.target.value) })}>
               {Array.from({ length: 20 }, (_, index) => index + 1).map(value => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
-          <p>Each participating writer needs a separate workspace. A task reservation never grants push, approval or merge access.</p>
+          <p>Each writer uses a separate workspace. GitHub controls push, approval and merge access.</p>
         </section>
         <details className="settings-policy">
           <summary>Review the repository settings</summary>
@@ -390,12 +410,7 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
           <button className="secondary-action" type="button" onClick={copySettings}><Copy size={16} /> Copy coordination settings</button>
           <p role="status">{copyStatus}</p>
         </details>
-        <p className="settings-draft-note">Draft only · stays in this page until refresh. Nothing is installed or applied to a repository here.</p>
-        <a className="primary-action guide-primary" href={`https://github.com/LeChiffreVol2/changeplane/blob/main/docs/${draft.enabled ? 'team-operator' : 'community'}.md`} target="_blank" rel="noreferrer">
-          {draft.enabled ? 'Continue to parallel work setup' : 'Continue to PR assessment setup'} <ArrowRight size={17} />
-        </a>
-      </section>
-    </div>
+    </Drawer>
   );
 }
 
@@ -423,7 +438,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <div className="auth-message">
             <p className="auth-kicker"><span /> Open source for individuals and teams</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Develop on your own or with a team using the coding agents you already use. ChangePlane follows PR and CI outcomes, with scoped parallel work when you need it.</p>
+            <p>Follow PR and CI outcomes across your coding agents. Work on your own or coordinate scoped tasks with your team.</p>
           </div>
 
           <div className="auth-signal" aria-label="Exact-revision assurance contract">
@@ -434,7 +449,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
             <div className="auth-signal-row">
               <div>
                 <strong>{exampleOnly
-                  ? "Inspect a reconstructed assurance contract without connecting a repository."
+                  ? "See how a failed check becomes a verified result."
                   : "Agent opens PR → ChangePlane verifies → GitHub decides"}</strong>
                 <span>{exampleOnly
                   ? "RouteThai use case · synthetic contract reconstruction"
@@ -502,7 +517,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
             )}
 
             <p className="auth-security"><LockKey size={15} /> {controlledCanary
-              ? "The example never accesses GitHub. Private rollout access can see only the pre-authorized canary repository."
+              ? "Synthetic example · no GitHub, model or production access."
               : privateAlpha
                 ? "Invite-only alpha access is enforced against an exact repository allowlist before any GitHub mutation."
               : exampleOnly
@@ -511,7 +526,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
                 ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
                 : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
             {controlledCanary ? (
-              <p className="auth-deployment-note">ChangePlane Open Source is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.</p>
+              <p className="auth-deployment-note">Open source is available now. Hosted Guard setup is closed while recovery and service readiness are qualified.</p>
             ) : privateAlpha ? (
               <p className="auth-deployment-note">Design Partner Alpha · only pre-approved repositories can complete setup.</p>
             ) : exampleOnly ? (
@@ -526,18 +541,21 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <footer className="auth-footer">
-            <span>Exact commit · trusted checks · clear receipt</span>
-            <span className="auth-footer-links">
+            <div className="auth-footer-status">
               <button className="settings-link" type="button" onClick={onSettings}>Settings</button>
+              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : privateAlpha ? "Invite-only alpha" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
+            </div>
+            <nav className="auth-footer-links" aria-label="Project resources">
               <a href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">Local quickstart</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
+              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
+            </nav>
+            <nav className="auth-footer-links" aria-label="Draft policies">
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Privacy draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/TERMS.md" target="_blank" rel="noreferrer">Terms draft</a>
               <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/ACCEPTABLE_USE.md" target="_blank" rel="noreferrer">AUP draft</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
-              <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SUPPORT.md" target="_blank" rel="noreferrer">Support</a>
-              <span>{checking ? "Checking connection" : controlledCanary ? "Private canary" : privateAlpha ? "Invite-only alpha" : configured ? authMode === "github_app" ? "GitHub App" : "GitHub OAuth" : exampleOnly ? "No repository access" : "GitHub not configured"}</span>
-            </span>
+            </nav>
           </footer>
         </div>
       </section>
@@ -1858,8 +1876,8 @@ function RevisionSdlcSpine({ change }) {
     <section className="revision-sdlc" aria-labelledby="revision-sdlc-title">
       <div className="revision-sdlc-heading">
         <div>
-          <p>Agentic SDLC assurance spine</p>
-          <h2 id="revision-sdlc-title">Every handoff stays on one exact revision.</h2>
+          <p>Current revision</p>
+          <h2 id="revision-sdlc-title">PR checkpoints</h2>
         </div>
         <span className="mono" title={view.target.headSha} aria-label={`Full revision ${view.target.headSha}`}>{change.head}</span>
       </div>
@@ -1914,7 +1932,7 @@ function Workspace({ change, isPreview, onInspect, onInspectHandback, onRun }) {
     <main className="workspace">
       <div className="workspace-title-row">
         <div>
-          <p className="workspace-kicker">{isPreview ? "RouteThai use case · synthetic contract reconstruction" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
+          <p className="workspace-kicker">{isPreview ? "RouteThai example · synthetic data" : `${change.changeId} · PR #${change.pr} · ${automationLabel}`}</p>
           <h1 id="workspace-main-title" tabIndex={-1}>{change.title}</h1>
         </div>
         <span className={`decision-pill pill-${state}`}>{label}</span>
@@ -1923,8 +1941,8 @@ function Workspace({ change, isPreview, onInspect, onInspectHandback, onRun }) {
       {(change.status === "ready" || RUNNING_STATES.has(change.status)) && (
         <section className="workspace-run-card" aria-label="Synthetic assurance action">
           <div>
-          <strong>{change.status === "ready" ? "Run the exact-head assurance reconstruction" : "Synthetic contract is reconstructing"}</strong>
-          <span>Synthetic failure → projected proposal → reconstructed fresh-head result. No live GitHub or model request.</span>
+          <strong>{change.status === "ready" ? "Check this example change" : "Reconstructing the result"}</strong>
+          <span>Synthetic failure, proposed fix and fresh-head recheck. No GitHub or model request.</span>
           </div>
           <button
             className="primary-action workspace-run-action"
@@ -1933,13 +1951,11 @@ function Workspace({ change, isPreview, onInspect, onInspectHandback, onRun }) {
             disabled={change.status !== "ready"}
           >
             {change.status === "ready"
-              ? <><Play size={17} weight="fill" /> Reconstruct exact-head assurance</>
-              : <><ArrowsClockwise className="spin" size={17} weight="bold" /> Reconstructing synthetic change</>}
+              ? <><Play size={17} weight="fill" /> Run example check</>
+              : <><ArrowsClockwise className="spin" size={17} weight="bold" /> Checking example…</>}
           </button>
         </section>
       )}
-
-      <RevisionSdlcSpine change={change} />
 
       <dl className="change-summary">
         <div>
@@ -1971,6 +1987,8 @@ function Workspace({ change, isPreview, onInspect, onInspectHandback, onRun }) {
           </>
         )}
       </dl>
+
+      <RevisionSdlcSpine change={change} />
 
       <dl className="change-facts" aria-label="Change contract comparison">
         <div><dt>Coding agent</dt><dd>{change.origin}</dd></div>
@@ -2230,11 +2248,12 @@ function AssuranceRail({ change, isPreview, onReplay, onCopy, onPreview, onBackb
       </div>
       <AssuranceNotice change={change} />
 
-      <section className="authority-map" aria-labelledby="authority-map-title">
+      <details className="authority-map">
+        <summary>Independent roles</summary>
         <div className="authority-map-heading">
           <div>
             <p>Assurance passport</p>
-            <h3 id="authority-map-title">Independent roles</h3>
+            <h3 id="authority-map-title">Who can do what</h3>
           </div>
           <span title={change.headSha} aria-label={`Exact head ${change.headSha}`}>{change.head}</span>
         </div>
@@ -2246,7 +2265,7 @@ function AssuranceRail({ change, isPreview, onReplay, onCopy, onPreview, onBackb
           <li><b>Merge</b><span><strong>GitHub</strong><small>Final authority stays with your repository</small></span></li>
         </ol>
         <p className="authority-integrity"><LockKey size={13} aria-hidden="true" /> Portable evidence, never portable authority.</p>
-      </section>
+      </details>
 
       <div className="assurance-proofs" aria-label="Agentic backbone and receipt evidence">
         <button className={`preview-proof preview-proof-${backbone.tone}`} type="button" onClick={onBackbone}>
@@ -2285,7 +2304,8 @@ function AssuranceRail({ change, isPreview, onReplay, onCopy, onPreview, onBackb
         </div>
       )}
 
-      <p className="pipeline-eyebrow">Repair execution · optional exception path</p>
+      <details className="repair-details" open={RUNNING_STATES.has(change.status)}>
+        <summary>Repair steps · optional</summary>
       <ol className="run-pipeline" aria-label="Repair execution">
         {PIPELINE.map(([key, label]) => {
           const stage = pipelineState(change.verified ? "passed" : change.status === "passed" ? "ready" : change.status, key);
@@ -2299,6 +2319,7 @@ function AssuranceRail({ change, isPreview, onReplay, onCopy, onPreview, onBackb
           );
         })}
       </ol>
+      </details>
 
       <details className="rail-section details-section technical-proof">
         <summary>Show technical proof</summary>
@@ -2318,7 +2339,6 @@ function AssuranceRail({ change, isPreview, onReplay, onCopy, onPreview, onBackb
 }
 
 function FileDialog({ file, onClose }) {
-  const dialogRef = useDialogFocus(Boolean(file), onClose);
   if (!file) return null;
   const explanation = file.evidenceRelevant
     ? "This allowed file is tied to the synthetic service-window failure. Luna may propose a diff, but a clean harness must validate it before a separate controller can apply it."
@@ -2326,36 +2346,23 @@ function FileDialog({ file, onClose }) {
         ? "Matched blocked path secrets/**. Automation stops and this path cannot be overridden."
         : "Matched the declared scope for this pull request.";
   return (
-    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="file-dialog-title">
-      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close file details" />
-      <section className="file-dialog" ref={dialogRef} tabIndex={-1}>
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
-        <FileCode size={26} weight="duotone" aria-hidden="true" />
-        <p className="eyebrow">Contract decision</p>
-        <h2 id="file-dialog-title">{file.path}</h2>
+    <Drawer title={file.path} titleId="file-dialog-title" eyebrow="File details" className="file-drawer" onClose={onClose}
+      footer={<button className="secondary-action guide-primary" type="button" onClick={onClose}>Back to change</button>}>
         <div className="file-dialog-stats">
           <span className="added">+{file.add}</span>
           <span className="removed">−{file.remove}</span>
           <span>{file.scope}</span>
         </div>
         <p>{explanation}</p>
-        <button className="secondary-action" type="button" onClick={onClose}>Back to change</button>
-      </section>
-    </div>
+    </Drawer>
   );
 }
 
-function GuideDrawer({ onClose, onStart }) {
-  const dialogRef = useDialogFocus(true, onClose);
+function GuideDrawer({ onClose }) {
   return (
-    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="guide-title">
-      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close assurance workflow" />
-      <section className="guide-drawer" ref={dialogRef} tabIndex={-1}>
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
-        <ShieldCheck size={28} weight="duotone" aria-hidden="true" />
-        <p className="eyebrow">Agentic SDLC assurance</p>
-        <h2 id="guide-title">No new SDLC workspace.</h2>
-        <p className="guide-intro">ChangePlane connects assurance handoffs across the delivery lifecycle. Developers remain in their coding agent and GitHub; existing CI, deployment, and operations systems keep their jobs.</p>
+    <Drawer title="Assurance workflow" titleId="guide-title" eyebrow="PR and CI assessment" onClose={onClose}
+      description="Keep working in your coding agent and GitHub. ChangePlane follows the evidence for each revision."
+      footer={<button className="secondary-action guide-primary" type="button" onClick={onClose}>Back to change</button>}>
         <ol className="guide-steps">
           <li><span>01</span><div><strong>Platform lead · once</strong><p>Bind one meaningful Check and merge the protected Verify Lite setup PR. BYOK is needed only if the team later chooses bounded Autonomous repair.</p></div></li>
           <li><span>02</span><div><strong>Intent + change</strong><p>The pull request declares one goal and allowed scope. Any coding agent may author the diff; the declaration itself is never treated as proof.</p></div></li>
@@ -2364,27 +2371,20 @@ function GuideDrawer({ onClose, onStart }) {
           <li><span>05</span><div><strong>Delivery + merge</strong><p>An existing deployment is shown only on an exact SHA match. GitHub Rulesets, branch protection, Merge Queue, and merge authority remain in GitHub.</p></div></li>
         </ol>
         <p className="guide-intro">Operate is intentionally marked not observed: ChangePlane does not replace deployment, observability, incident response, or rollback systems.</p>
-        <button className="primary-action guide-primary" type="button" onClick={onStart}>Inspect the exact-revision spine <ArrowRight size={17} /></button>
-      </section>
-    </div>
+    </Drawer>
   );
 }
 
 function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
-  const dialogRef = useDialogFocus(true, onClose);
   const preview = previewEvidenceFor(change);
   const headPreview = headPreviewFor(change);
-  const accepted = preview.receipt === "Included";
   return (
-    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-evidence-title">
-      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close preview evidence" />
-      <section className="guide-drawer preview-drawer" ref={dialogRef} tabIndex={-1}>
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
-        <GithubLogo size={28} weight="duotone" aria-hidden="true" />
-        <p className="eyebrow">Synthetic contract reconstruction</p>
-        <h2 id="preview-evidence-title">{accepted ? "Synthetic evidence reconstructed for" : "Synthetic reconstruction at"} {change.head}</h2>
-        <p className="guide-intro">ChangePlane is used with RouteThai in production, but this public workspace is only a synthetic contract reconstruction. It makes no model or GitHub request and does not display or replay a production run.</p>
-
+    <Drawer title={`Evidence for ${change.head}`} titleId="preview-evidence-title" eyebrow="Synthetic evidence" className="preview-drawer" onClose={onClose}
+      description="Reconstructed evidence only. No production run, private repository data, model or GitHub request."
+      footer={<div className="drawer-actions">
+        <button className="primary-action" type="button" onClick={() => onCopy(change.headSha)} aria-label="Copy full exact revision"><Copy size={16} /> Copy revision</button>
+        <button className="secondary-action" type="button" onClick={onClose}>Back to receipt</button>
+      </div>}>
         <dl className="preview-evidence-facts">
           <div><dt>Source</dt><dd>Synthetic contract fixture</dd></div>
           <div><dt>Model</dt><dd>gpt-5.6-luna</dd></div>
@@ -2405,12 +2405,7 @@ function PreviewEvidenceDrawer({ change, onClose, onCopy }) {
           <div><strong>{headPreview.label}</strong><p>In this synthetic scenario, the reconstructed receipt includes a GitHub Deployment only when its full commit SHA equals the current full revision. This public reconstruction does not open or create a live preview.</p></div>
         </div>
 
-        <div className="preview-drawer-actions">
-          <button className="secondary-action" type="button" onClick={() => onCopy(change.headSha)} aria-label="Copy full exact revision"><Copy size={16} /> Copy exact revision</button>
-          <button className="primary-action" type="button" onClick={onClose}>Back to receipt</button>
-        </div>
-      </section>
-    </div>
+    </Drawer>
   );
 }
 
@@ -2441,59 +2436,42 @@ function agentHandbackFor(change) {
 }
 
 function AgentHandbackDrawer({ change, onClose, onCopy }) {
-  const dialogRef = useDialogFocus(true, onClose);
   const handback = agentHandbackFor(change);
   const payload = JSON.stringify(handback, null, 2);
   return (
-    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="handback-title" aria-describedby="handback-intro">
-      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close agent handback" />
-      <section className="guide-drawer handback-drawer" ref={dialogRef} tabIndex={-1}>
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
-        <GitBranch size={28} weight="duotone" aria-hidden="true" />
-        <p className="eyebrow">Agent-neutral handback</p>
-        <h2 id="handback-title">Any coding agent can take the next turn.</h2>
-        <p className="guide-intro" id="handback-intro">This synthetic payload gives Cursor, Codex, Claude Code, or another agent the same bounded finding. It conveys work—not repository authority.</p>
-
+    <Drawer title="Agent handback" titleId="handback-title" eyebrow="Synthetic finding" className="handback-drawer" onClose={onClose}
+      description="Copy this finding to Cursor, Codex, Claude Code or another coding agent."
+      footer={<div className="drawer-actions">
+        <button className="primary-action" type="button" onClick={() => onCopy(payload)}><Copy size={16} /> Copy handback</button>
+        <button className="secondary-action" type="button" onClick={onClose}>Back to change</button>
+      </div>}>
+      <section className="handback-summary"><h3>Test finding</h3><p>{handback.finding.summary}</p></section>
         <dl className="handback-facts">
           <div><dt>Exact failed head</dt><dd className="mono" title={handback.subject.head} aria-label={`Full exact failed head ${handback.subject.head}`}>{handback.subject.head.slice(0, 7)}</dd></div>
           <div><dt>Allowed paths</dt><dd className="mono">{handback.scope.allowedPaths[0]}</dd></div>
-          <div><dt>Bounded finding</dt><dd>{handback.finding.code}</dd></div>
           <div><dt>Attempt</dt><dd>{handback.scope.attempt} of {handback.scope.maxAttempts}</dd></div>
         </dl>
 
+      <p className="guide-intro">This handback grants no push, Check, approval, merge or PASS authority.</p>
+      <details className="handback-payload">
+        <summary>Inspect machine-readable payload</summary>
         <div className="handback-authority" aria-label="Handback authority is false">
           {Object.entries(handback.authority).map(([name, allowed]) => (
             <span key={name}><b>{name}</b><strong>{String(allowed)}</strong></span>
           ))}
         </div>
-
-        <details className="handback-payload">
-          <summary>Inspect machine-readable payload</summary>
-          <pre>{payload}</pre>
-        </details>
-
-        <div className="preview-drawer-actions">
-          <button className="secondary-action" type="button" onClick={() => onCopy(payload)}><Copy size={16} /> Copy handback JSON</button>
-          <button className="primary-action" type="button" onClick={onClose}>Back to change</button>
-        </div>
-      </section>
-    </div>
+        <pre>{payload}</pre>
+      </details>
+    </Drawer>
   );
 }
 
 function BackboneDrawer({ change, onClose }) {
-  const dialogRef = useDialogFocus(true, onClose);
   const backbone = backboneStateFor(change);
   return (
-    <div className="file-overlay" role="dialog" aria-modal="true" aria-labelledby="backbone-title" aria-describedby="backbone-intro">
-      <button className="overlay-scrim" type="button" onClick={onClose} aria-label="Close agentic backbone" />
-      <section className="guide-drawer backbone-drawer" ref={dialogRef} tabIndex={-1}>
-        <button className="dialog-close" type="button" onClick={onClose} aria-label="Close" data-dialog-initial><X size={18} /></button>
-        <Robot size={28} weight="duotone" aria-hidden="true" />
-        <p className="eyebrow">Bounded repair adapter</p>
-        <h2 id="backbone-title">Agentic work, without agent authority.</h2>
-        <p className="guide-intro" id="backbone-intro">The bounded contract separates proposal, clean validation, trusted apply, and exact-head Check publication. This public reconstruction does not invoke a model, controller, or publisher.</p>
-
+    <Drawer title="Repair boundaries" titleId="backbone-title" eyebrow="Optional repair" className="backbone-drawer" onClose={onClose}
+      description="The model proposes, the harness validates and a separate controller applies. This reconstruction invokes none of them."
+      footer={<button className="secondary-action guide-primary" type="button" onClick={onClose}>Back to receipt</button>}>
         <div className={`backbone-status backbone-status-${backbone.tone}`}>
           {backbone.tone === "blocked" ? <WarningOctagon size={20} weight="fill" aria-hidden="true" /> : <ShieldCheck size={20} weight="fill" aria-hidden="true" />}
           <div><strong>{backbone.label}</strong><p>{backbone.summary}</p></div>
@@ -2525,9 +2503,7 @@ function BackboneDrawer({ change, onClose }) {
           <p>Your key stays in GitHub Actions. The model can change; the verification boundary does not.</p>
         </div>
 
-        <button className="primary-action backbone-close" type="button" onClick={onClose}>Back to receipt</button>
-      </section>
-    </div>
+    </Drawer>
   );
 }
 
@@ -3279,12 +3255,13 @@ export function App() {
           <div className="brand-block">
             <a className="brand" href="#top" aria-label="ChangePlane home">ChangePlane</a>
             <span className="topbar-divider" aria-hidden="true" />
-            <span className="repo-name">{change.repo}</span>
-            <span aria-hidden="true">·</span>
-            <span>{session.isPreview ? "Proposed change" : `PR #${change.pr}`}</span>
+            <span className="repository-context">
+              <span className="repo-name" title={change.repo}>{change.repo}</span>
+              <span className="change-reference">{session.isPreview ? "Proposed change" : `PR #${change.pr}`}</span>
+            </span>
           </div>
           <div className="topbar-actions">
-            <button className="settings-link" type="button" onClick={() => { setPolicyOpen(false); setAccountOpen(false); setSettingsOpen(true); }}><GearSix size={17} /> Settings</button>
+            <button className="settings-link" type="button" aria-label="Settings" onClick={() => { setPolicyOpen(false); setAccountOpen(false); setSettingsOpen(true); }}><GearSix size={18} aria-hidden="true" /><span className="settings-label">Settings</span></button>
             <div className="topbar-menu-wrap">
               <button className="policy-switcher" type="button" aria-expanded={policyOpen} onClick={() => { setPolicyOpen((open) => !open); setAccountOpen(false); }}>
                 <span>Policy</span><strong>Release Governance v3</strong><CaretDown size={15} />
@@ -3350,7 +3327,7 @@ export function App() {
 
       <FileDialog file={inspectedFile} onClose={() => setInspectedFile(null)} />
       {settingsDrawer}
-      {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} onStart={() => { setSelectedId("route"); setGuideOpen(false); }} />}
+      {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} />}
       {previewEvidenceOpen && <PreviewEvidenceDrawer change={change} onClose={() => setPreviewEvidenceOpen(false)} onCopy={copyHead} />}
       {backboneOpen && <BackboneDrawer change={change} onClose={() => setBackboneOpen(false)} />}
       {handbackOpen && <AgentHandbackDrawer change={change} onClose={() => setHandbackOpen(false)} onCopy={copyHandback} />}

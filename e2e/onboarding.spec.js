@@ -19,6 +19,77 @@ const PAYLOAD_PROFILES = Object.freeze({
   },
 });
 
+test("shared controls remain readable and separate at narrow widths and enlarged text", async ({ page }) => {
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    expect(url.searchParams.get("action")).toBe("session");
+    return json(route, { configured: true, authenticated: false, authMode: "github_app", rolloutMode: "controlled_canary" });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open RouteThai example workspace" }).click();
+  await expect(page.getByRole("heading", { name: "Keep every stop inside its service window" })).toBeVisible();
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1280, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    const geometry = await page.evaluate(() => {
+      const box = selector => document.querySelector(selector).getBoundingClientRect();
+      const brand = box('.brand');
+      const actions = box('.topbar-actions');
+      const context = box('.repository-context');
+      const status = box('.queue-meta .status-mark');
+      const time = box('.queue-meta time');
+      return {
+        headerGap: actions.left - brand.right,
+        contextSeparate: context.bottom <= actions.top || context.top >= actions.bottom || context.right <= actions.left,
+        queueSeparate: time.top >= status.bottom || time.left - status.right >= 8,
+        checkpointFont: parseFloat(getComputedStyle(document.querySelector('.revision-stage small')).fontSize),
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      };
+    });
+    expect(geometry.headerGap).toBeGreaterThanOrEqual(8);
+    expect(geometry.contextSeparate).toBe(true);
+    expect(geometry.queueSeparate).toBe(true);
+    expect(geometry.checkpointFont).toBeGreaterThanOrEqual(12);
+    expect(geometry.overflow).toBe(false);
+
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    const guide = settings.getByRole("link", { name: "Open PR assessment guide" });
+    const action = await guide.boundingBox();
+    expect(action.y).toBeGreaterThanOrEqual(0);
+    expect(action.y + action.height).toBeLessThanOrEqual(viewport.height);
+    const footer = settings.locator('.drawer-footer');
+    const body = settings.locator('.drawer-body');
+    expect((await body.boundingBox()).y + (await body.boundingBox()).height).toBeLessThanOrEqual((await footer.boundingBox()).y + 1);
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Inspect agent handback" }).click();
+    const handback = page.getByRole("dialog", { name: "Agent handback", exact: true });
+    const copy = handback.getByRole("button", { name: "Copy handback", exact: true });
+    await expect(copy).toHaveClass(/primary-action/);
+    await expect(handback.getByRole("button", { name: "Back to change" })).toHaveClass(/secondary-action/);
+    const label = await copy.evaluate(button => {
+      const text = Array.from(button.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+      const range = document.createRange(); range.selectNodeContents(text);
+      return { lines: range.getClientRects().length, fits: button.scrollWidth <= button.clientWidth };
+    });
+    expect(label.lines).toBe(1);
+    expect(label.fits).toBe(true);
+    await page.keyboard.press("Escape");
+  }
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+  await dialog.locator('.guide-drawer').evaluate(async panel => {
+    await Promise.all(panel.getAnimations().map(animation => animation.finished));
+  });
+  await expect(dialog.getByLabel("Maximum active tasks")).toBeDisabled();
+  const enlarged = await dialog.getByRole("link", { name: "Open PR assessment guide" }).boundingBox();
+  expect(enlarged.y + enlarged.height).toBeLessThanOrEqual(900);
+  expect(await dialog.evaluate(el => el.scrollWidth <= innerWidth)).toBe(true);
+  expect(await dialog.locator('.drawer-body').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(externalRequests).toEqual([]);
+});
+
 function json(route, payload, status = 200) {
   return route.fulfill({
     status,
@@ -69,7 +140,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
-  await expect(page.getByText("ChangePlane Open Source is available now. Hosted Guard installations remain closed while recovery and service readiness are qualified.")).toBeVisible();
+  await expect(page.getByText("Open source is available now. Hosted Guard setup is closed while recovery and service readiness are qualified.")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await exampleButton.focus();
@@ -77,14 +148,15 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Keep every stop inside its service window" })).toBeFocused();
   await expect(page.locator(".preview-boundary-banner")).toHaveText("RouteThai use case · synthetic contract reconstruction · no production systems accessed");
-  await expect(page.getByRole("heading", { name: "Independent roles" })).toBeVisible();
+  await page.locator(".authority-map > summary").click();
+  await expect(page.getByRole("heading", { name: "Who can do what" })).toBeVisible();
   await expect(page.locator(".authority-map")).toContainText("Coding agent");
   await expect(page.locator(".authority-map")).toContainText("Deterministic harness");
   await expect(page.locator(".authority-map")).toContainText("GitHub");
   await expect(page.locator(".authority-map")).toContainText("Portable evidence, never portable authority.");
   await expect(page.getByLabel(`Exact head ${INITIAL_HEAD_SHA}`)).toHaveText("71b04c2");
   await expect(page.locator(".decision-pill")).toHaveText("Ready to check");
-  await expect(page.getByRole("heading", { name: "Every handoff stays on one exact revision." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PR checkpoints" })).toBeVisible();
   await expect(page.getByLabel(`Full revision ${INITIAL_HEAD_SHA}`)).toHaveText("71b04c2");
   await expect(page.locator(".revision-stage")).toHaveCount(7);
   await expect(page.getByText("Scroll for all seven checkpoints")).toBeVisible();
@@ -97,7 +169,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   await page.getByRole("tab", { name: "Operate: Not observed" }).click();
   await expect(page.locator(".revision-stage-detail")).toContainText("Production health, incidents, SLOs, promotion, and rollback are outside this receipt.");
   await expect(page.getByRole("button", { name: /service-window\.test/u })).toHaveCount(0);
-  const verifyButton = page.getByRole("button", { name: "Reconstruct exact-head assurance" });
+  const verifyButton = page.getByRole("button", { name: "Run example check" });
   await expect(verifyButton).toBeVisible();
   let buttonBox = await verifyButton.boundingBox();
   expect(buttonBox).not.toBeNull();
@@ -113,7 +185,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   await page.evaluate(() => window.scrollTo(0, 0));
 
   await page.getByRole("button", { name: "Inspect agent handback" }).click();
-  await expect(page.getByRole("dialog", { name: "Any coding agent can take the next turn." })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Agent handback" })).toBeVisible();
   await expect(page.locator(".handback-facts")).toContainText("71b04c2");
   await expect(page.locator(".handback-facts")).toContainText("src/routing/**");
   await expect(page.locator(".handback-authority")).toContainText("pushfalse");
@@ -140,7 +212,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
   const headPreview = page.getByRole("button", { name: /Preview bound to exact head/u });
   await expect(headPreview).toBeVisible();
   await headPreview.click();
-  await expect(page.getByRole("dialog", { name: /Synthetic evidence reconstructed for 9fc82a1/u })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: /Evidence for 9fc82a1/u })).toBeVisible();
   await expect(page.locator(".preview-evidence-facts")).toContainText("Exact-head match");
   await expect(page.getByLabel(`Full exact head ${REPAIRED_HEAD_SHA}`)).toHaveText("9fc82a1");
   await expect(page.getByRole("button", { name: "Copy full exact revision" })).toBeVisible();
@@ -1657,7 +1729,7 @@ test("Individual and Teams settings remain separate drafts across setup and work
   await expect(settings.getByRole("button", { name: "Close settings", exact: true })).toBeFocused();
   await expect(settings.getByRole("checkbox", { name: "Coordinate parallel work" })).not.toBeChecked();
   await expect(settings.getByLabel("Maximum active tasks")).toBeDisabled();
-  await expect(settings.getByRole("link", { name: "Continue to PR assessment setup" })).toHaveAttribute("href", /\/docs\/community\.md$/);
+  await expect(settings.getByRole("link", { name: "Open PR assessment guide" })).toHaveAttribute("href", /\/docs\/community\.md$/);
   await settings.getByRole("checkbox", { name: "Coordinate parallel work" }).check();
   await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("2");
   await settings.getByLabel("Maximum active tasks").selectOption("4");
@@ -1714,7 +1786,7 @@ test("hosted setup exposes both usage settings without changing repository autho
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await settings.getByRole("radio", { name: "Teams", exact: true }).check();
-  await expect(settings.getByRole("link", { name: "Continue to parallel work setup" })).toHaveAttribute("href", /\/docs\/team-operator\.md$/);
+  await expect(settings.getByRole("link", { name: "Open parallel work guide" })).toHaveAttribute("href", /\/docs\/team-operator\.md$/);
   await settings.getByText("Review the repository settings", { exact: true }).click();
   await settings.getByRole("button", { name: "Copy coordination settings" }).click();
   await expect(settings.getByRole("status")).toContainText("Clipboard unavailable");
@@ -1750,7 +1822,7 @@ test("Settings keeps keyboard focus while a delayed authenticated session opens 
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   expect(await settings.evaluate(dialog => dialog.contains(document.activeElement))).toBe(true);
   await page.keyboard.press("Shift+Tab");
-  await expect(settings.getByRole("link", { name: "Continue to PR assessment setup" })).toBeFocused();
+  await expect(settings.getByRole("link", { name: "Open PR assessment guide" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(settings.getByRole("button", { name: "Close settings", exact: true })).toBeFocused();
 
