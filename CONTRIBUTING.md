@@ -49,4 +49,6 @@ Be respectful, discuss ideas and code rather than people, and welcome newcomers.
 
 ## Reporting
 
+For setup or usefulness feedback, use the optional [first-use form](https://github.com/LeChiffreVol2/changeplane/issues/new?template=adoption_feedback.yml). It asks what happened and how much work remained, without requiring private reports. Maintainers can measure aggregate adoption using the offline [experiment guide](docs/adoption-measurement.md).
+
 Use the issue templates for ordinary defects and proposals. Include a synthetic reproduction, release version, Node version, OS, redacted error code and expected behavior. Do not upload real private assessment JSON, source, tokens or screenshots containing repository secrets. Report vulnerabilities using [SECURITY.md](SECURITY.md).

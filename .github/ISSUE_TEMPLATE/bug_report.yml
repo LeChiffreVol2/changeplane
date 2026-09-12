@@ -8,7 +8,7 @@ body:
     id: version
     attributes:
       label: Release version, Node version and OS
-      placeholder: "0.1.0-alpha.1, Node 22.18, Linux"
+      placeholder: "0.4.1, source commit, Node 22.18, Linux"
     validations:
       required: true
   - type: textarea
