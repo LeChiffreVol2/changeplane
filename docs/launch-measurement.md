@@ -1,5 +1,7 @@
 # Measuring the founder-led pilot
 
+This is the hosted commercial experiment. For the current free open-source adoption and retention experiment, use [adoption measurement](adoption-measurement.md). A public advisory assessment is not a protected PR or a published Guard and must not be relabeled to satisfy this ledger.
+
 Run `npm run report:launch -- /absolute/private/path/launch-evidence.json` to calculate the nine existing 30-day commercial gates. With no argument it reads the empty public template and reports `not_started`. Exit code `0` means the operator-attested numerical gate is met, `2` means not started, collecting, unmet or missing evidence, and `1` means invalid input. No network call or repository mutation occurs.
 
 Keep the filled ledger and its supporting records outside the public repository. The output contains aggregate metrics only. The template in `examples/launch-evidence.template.json` contains no fabricated installations or customer results. All evidence is explicitly **operator-attested**; the report cannot verify an invoice, legal signature, GitHub export or customer interview. It never authorizes launch, accepts a payment or contributes to PASS.

@@ -1,0 +1,59 @@
+name: First-use feedback
+description: Tell us where setup stopped or whether a PR assessment helped.
+body:
+  - type: markdown
+    attributes:
+      value: "This issue is public and optional. Use synthetic examples and redacted error codes; do not include private repository names, source, assessment JSON, customer data or credentials. Report security issues privately through SECURITY.md."
+  - type: dropdown
+    id: use
+    attributes:
+      label: How are you using ChangePlane?
+      options:
+        - Individual PR assessment
+        - Individual with parallel agents
+        - Team with parallel agents
+        - Still evaluating
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Version or source commit, Node version and OS
+      placeholder: "0.4.1, source commit, Node 22.18, Linux"
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: How far did you get?
+      options:
+        - Only the offline example
+        - Setup stopped before a real assessment
+        - Assessed a real PR but found no useful result yet
+        - A finding or next action helped with a real PR
+        - Used it again on another PR
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: What happened, and what did you do next?
+      description: "Describe one task or setup obstacle. Include the redacted error code if relevant. Was a finding useful, incorrect or already obvious? Do not paste a private report."
+    validations:
+      required: true
+  - type: textarea
+    id: effort
+    attributes:
+      label: Did it change the work you had to do?
+      description: "Optional: approximate setup time and hands-on minutes spent diagnosing or recovering the PR, including time spent using ChangePlane. Say whether times were measured or estimated; more work is useful feedback too."
+  - type: dropdown
+    id: discovery
+    attributes:
+      label: Where did you discover it?
+      options:
+        - GitHub search or repository
+        - Coding agent or skill
+        - Developer community
+        - Personal introduction
+        - Referral from another user
+        - Prefer not to say

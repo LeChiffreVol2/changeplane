@@ -11,6 +11,7 @@ Start with one useful PR assessment. Add coordination when several people or age
 | Diagnose setup or an interrupted task | [Doctor and recovery](team-operator.md#recover-an-interruption) |
 | Understand supported platforms and authority | [Recovery contracts](recovery-core.md) and [coordination contract](repository-team.md) |
 | Contribute code | [Contributor guide](../CONTRIBUTING.md) |
+| Share setup feedback or measure repeat use | [First-use feedback](https://github.com/LeChiffreVol2/changeplane/issues/new?template=adoption_feedback.yml) and [adoption measurement](adoption-measurement.md) |
 | Report a vulnerability | [Security](../SECURITY.md) |
 
 ## Current operating guides
@@ -24,6 +25,8 @@ Public assessments are advisory. The root GitHub Action and managed controllers 
 [SDLC architecture](automated-sdlc-architecture.md), [recovery core](recovery-core.md), [repository coordination](repository-team.md), [architecture decisions](adr/0009-multi-forge-assurance-boundaries.md), [competitive repository research](competitive-repository-research.md).
 
 Research and roadmaps describe evaluated options or future work; they are not installation instructions or qualification results.
+
+[DevFlow and feedback-agent source research](agent-feedback-research.md) informs the [current product, PMF and distribution experiment](agentic-product-plan.md).
 
 ## Dated evidence and historical releases
 
