@@ -92,7 +92,8 @@ export function buildAdoptionScorecard(input, { now = new Date() } = {}) {
     first.set(row.installationId, Math.min(first.get(row.installationId) ?? Infinity, time));
   }
   const mature = cohort.filter(row => instant(row.startedAt) + 28 * DAY <= cutoff);
-  const retained = mature.filter(row => usable.some(event => event.installationId === row.id
+  const retained = mature.filter(row => first.get(row.id) < instant(row.startedAt) + 21 * DAY
+    && usable.some(event => event.installationId === row.id
     && instant(event.occurredAt) >= instant(row.startedAt) + 21 * DAY
     && instant(event.occurredAt) < instant(row.startedAt) + 28 * DAY));
   const coverageComplete = cutoff !== null && through !== null && through >= cutoff && input.coverage.complete;

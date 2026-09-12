@@ -100,6 +100,15 @@ test('week-four interval includes day 21 and excludes day 28', () => {
   assert.equal(result.adoption.week4Retained, 1);
   assert.equal(result.adoption.week4RetentionRate, 0.2);
 });
+test('first activation during week four is not retained use', () => {
+  const input = cohort();
+  input.assessments = input.assessments.filter(row => instantDay(row.occurredAt) >= 21);
+  const result = report(input);
+  assert.equal(result.adoption.activations, 5);
+  assert.equal(result.adoption.week4Eligible, 5);
+  assert.equal(result.adoption.week4Retained, 0);
+  assert.equal(result.adoption.week4RetentionRate, 0);
+});
 test('end-exclusive experiment boundary cannot inflate activation or retention', () => {
   const input = cohort(); input.installations[0].startedAt = at(30);
   input.assessments = input.assessments.filter(row => row.installationId !== id(1));

@@ -10,7 +10,7 @@ Start the 30-day window when an external operator begins setup. Include abandone
 
 Activation is the first **live GitHub API assessment, checked against the current revision and confirmed correct by the operator**, whose outcome is not `UNAVAILABLE`. A legitimate `BLOCKED` or `REVIEW_REQUIRED` can activate. Fixtures, clones, stars, website visits and errors cannot. Keep complete reports and exact revision/run/policy identities in private supporting evidence referenced by `evidenceId`.
 
-Week-four retention means another confirmed live assessment during days 21–28 after setup began, start inclusive and end exclusive. Only installations observed for all 28 days enter the denominator. Young installations remain in the setup cohort. Incomplete collection produces a `null` retention rate. Useful findings are counted separately; repeated use alone does not prove value.
+Week-four retention requires activation before day 21 and another confirmed live assessment during days 21–28 after setup began, start inclusive and end exclusive. A first activation in week four is not retained use. Only installations observed for all 28 days enter the denominator. Young installations remain in the setup cohort. Incomplete collection produces a `null` retention rate. Useful findings are counted separately; repeated use alone does not prove value.
 
 The window is 30 UTC days, start inclusive and end exclusive. Later events do not change it. `coverage.complete` and `coverage.through` attest reconciliation of **all attempts, assessments, errors and comparisons** through that instant. Review correctness independently of acceptance. An incorrect observed assessment immediately produces `review_required`; a rejected suggestion alone does not establish incorrectness.
 
