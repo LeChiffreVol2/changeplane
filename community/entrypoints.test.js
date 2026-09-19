@@ -99,6 +99,13 @@ test('CLI rejects unsafe URLs, conflicting setup options and unsupported output 
     ['init', 'owner/repo', '--max-active', '2'],
     ['evaluate', 'missing', '--format', 'bad'],
     ['mcp', '--format', 'json'],
+    ['doctor', 'owner/repo', '--format', 'compact'],
+    ['doctor', 'https://private@evil.test/owner/repo'],
+    ['inspect', 'owner/repo', '7', '--wait', '0'],
+    ['inspect', 'owner/repo', '7', '--wait', '61'],
+    ['inspect', 'owner/repo', '7', '--wait', '1.5'],
+    ['inspect', 'owner/repo', '7', '--wait'],
+    ['inspect', 'owner/repo', '7', '--wait', '1', '--wait', '2'],
   ]) {
     const result = run(args);
     assert.equal(result.status, 2, result.stdout);
@@ -112,23 +119,23 @@ test('read-only MCP fixes repository in operator configuration and rejects calle
   const calls = [];
   const configuration = { CHANGEPLANE_REPOSITORY: 'example/project', GH_TOKEN: 'operator-read-token', CHANGEPLANE_TEAM_WRITE: 'true' };
   const inspect = async args => { calls.push(args); return { decision: 'REVIEW_REQUIRED', headSha: 'a'.repeat(40) }; };
-  await callAssessmentTool('changeplane_inspect', { pullRequest: 7 }, configuration, inspect);
+  await callAssessmentTool('changeplane_inspect', { pullRequest: 7 }, configuration, { inspect });
   assert.deepEqual(calls, [{ repository: 'example/project', number: 7, token: 'operator-read-token' }]);
   for (const args of [{ pullRequest: 7, repository: 'other/repo' }, { pullRequest: 7, token: 'injected' }, { pullRequest: -1 }, {}, []]) {
-    await assert.rejects(callAssessmentTool('changeplane_inspect', args, configuration, inspect), { code: 'INPUT_INVALID' });
+    await assert.rejects(callAssessmentTool('changeplane_inspect', args, configuration, { inspect }), { code: 'INPUT_INVALID' });
   }
-  await assert.rejects(callAssessmentTool('changeplane_start', { pullRequest: 7 }, configuration, inspect));
-  await assert.rejects(callAssessmentTool('changeplane_inspect', { pullRequest: 7 }, {}, inspect));
+  await assert.rejects(callAssessmentTool('changeplane_start', { pullRequest: 7 }, configuration, { inspect }));
+  await assert.rejects(callAssessmentTool('changeplane_inspect', { pullRequest: 7 }, {}, { inspect }));
   assert.equal(calls.length, 1);
 });
 
-test('read-only MCP advertises only inspection, structured authority and redacted failures', async () => {
+test('read-only MCP advertises setup and inspection with structured authority and redacted failures', async () => {
   const rpc = assessmentRpc(async () => { throw new CollectionError('PERMISSION_DENIED', { provider: 'github', status: 403 }); });
   assert.equal((await rpc({ jsonrpc: '2.0', id: 0, method: 'tools/list' })).error.code, -32000);
   await init(rpc);
   const tools = (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).result.tools;
-  assert.deepEqual(tools.map(tool => tool.name), ['changeplane_inspect']);
-  assert.equal(tools[0].annotations.readOnlyHint, true);
+  assert.deepEqual(tools.map(tool => tool.name), ['changeplane_inspect', 'changeplane_check_setup', 'changeplane_setup']);
+  assert.ok(tools.every(tool => tool.annotations.readOnlyHint === true));
   assert.deepEqual(tools[0].outputSchema.required, ['decision', 'authority']);
   const result = (await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'changeplane_inspect', arguments: { pullRequest: 7 } } })).result;
   assert.equal(result.isError, true);
@@ -148,5 +155,19 @@ test('installed-command MCP entry emits protocol frames without banners or crede
   assert.equal(child.status, 0); assert.equal(child.stderr, '');
   const replies = child.stdout.trim().split('\n').map(JSON.parse);
   assert.deepEqual(replies.map(reply => reply.id), [1, 2]);
-  assert.equal(replies[1].result.tools.length, 1);
+  assert.equal(replies[1].result.tools.length, 3);
+});
+
+test('MCP validates bounded waiting and alternate output preserves the wait outcome', async () => {
+  const configuration = { CHANGEPLANE_REPOSITORY: 'example/project' }, calls = [];
+  const wait = async args => { calls.push(args); return { decision: 'REVIEW_REQUIRED', findings: [],
+    wait: { secondsRequested: args.waitSeconds, inspections: 1, outcome: 'action_required' } }; };
+  const result = await callAssessmentTool('changeplane_inspect', { pullRequest: 7, waitSeconds: 30 }, configuration, { wait });
+  assert.equal(calls[0].waitSeconds, 30); assert.equal(calls[0].repository, 'example/project');
+  assert.deepEqual(JSON.parse(formatReport(result, 'compact')).wait, result.wait);
+  assert.match(formatReport(result, 'text'), /Wait: action_required/);
+  for (const waitSeconds of [0, 61, 0.5, '30', null]) {
+    await assert.rejects(callAssessmentTool('changeplane_inspect', { pullRequest: 7, waitSeconds }, configuration, { wait }), { code: 'INPUT_INVALID' });
+  }
+  assert.equal(calls.length, 1);
 });

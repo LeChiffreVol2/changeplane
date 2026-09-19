@@ -5,8 +5,10 @@ Give your coding agent revision-bound PR findings through the CLI or read-only M
 | Task | Entry point |
 | --- | --- |
 | Try an offline assessment | `node bin/changeplane.js evaluate examples/community/satisfied.json --format text` from the runtime root |
+| Check read-only prerequisites | `node bin/changeplane.js doctor OWNER/REPO` (current source) |
 | Prepare one repository | `node bin/changeplane.js init OWNER/REPO --dry-run` |
 | Inspect a real PR | `node bin/changeplane.js inspect OWNER/REPO PR_NUMBER` |
+| Wait for pending CI | Add `--wait 30` to `inspect` (current source; bounded, no rerun) |
 | Give an agent read-only access | `node bin/changeplane.js mcp`, with `CHANGEPLANE_REPOSITORY` set by the operator |
 | Use the public GitHub Action | `LeChiffreVol2/changeplane/community@FULL_REVIEWED_SHA` |
 | Coordinate parallel agents | [Operator setup](../docs/team-operator.md); separate `team-mcp.js` entrypoint |

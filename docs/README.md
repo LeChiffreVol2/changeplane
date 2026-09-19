@@ -9,7 +9,9 @@ Start with your existing coding agent and obtain one useful PR assessment. You r
 | Install the command and inspect a repository | [Public setup guide](community.md) |
 | Use ChangePlane from an agent | [Read-only MCP and skill](community.md#use-with-an-agent) |
 | Coordinate my agents or a team | [Operator setup](team-operator.md) |
-| Diagnose setup or an interrupted task | [Doctor and recovery](team-operator.md#recover-an-interruption) |
+| Check read-only setup | [Doctor prerequisites](community.md#check-setup) |
+| Follow pending CI | [Bounded wait](community.md#wait-for-pending-ci) |
+| Diagnose coordination or an interrupted task | [Team doctor and recovery](team-operator.md#recover-an-interruption) |
 | Understand supported platforms and authority | [Recovery contracts](recovery-core.md) and [coordination contract](repository-team.md) |
 | Contribute code | [Contributor guide](../CONTRIBUTING.md) |
 | Share setup feedback or measure repeat use | [First-use feedback](https://github.com/LeChiffreVol2/changeplane/issues/new?template=adoption_feedback.yml) and [adoption measurement](adoption-measurement.md) |

@@ -1,17 +1,55 @@
 import { assess, canonical, validatePolicy } from './core.js';
 import { githubWorkflowFilePath } from '../src/lib/harness.js';
-import { boundedReader } from './transport.js';
+import { boundedReader, CollectionError } from './transport.js';
 import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const SHA = /^[a-f0-9]{40}$/u;
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 
 /** Fixed-origin, GET-only transport. Never follows redirects with credentials. */
-export function githubReader(token = '', fetchImpl = fetch) {
-  return boundedReader({ provider: 'github', origin: 'https://api.github.com', prefix: '/repos/', fetchImpl,
+export function githubReader(token = '', fetchImpl = fetch, signal) {
+  return boundedReader({ provider: 'github', origin: 'https://api.github.com', prefix: '/repos/', fetchImpl, signal,
     headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'changeplane-open-source', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+}
+
+/** Wait only on pending evidence, retaining one target and one collection budget. */
+export async function waitForPullRequest({ repository, number, token, plannedPaths, waitSeconds = 60, signal, read },
+  { now = Date.now, pause = (ms, signal) => delay(ms, undefined, { signal }) } = {}) {
+  if (!Number.isSafeInteger(waitSeconds) || waitSeconds < 1 || waitSeconds > 60) throw new CollectionError('INPUT_INVALID');
+  const deadline = now() + waitSeconds * 1000;
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), waitSeconds * 1000);
+  const stop = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
+  const checkStopped = () => {
+    if (signal?.aborted) throw new CollectionError('COLLECTION_CANCELLED');
+    if (timeout.signal.aborted || now() >= deadline) throw new CollectionError('WAIT_TIMEOUT');
+  };
+  // Reuse the reader across polls: neither the request nor retry budget resets.
+  const collect = read ?? githubReader(token, fetch, stop);
+  let binding, inspections = 0;
+  try {
+    for (;;) {
+      checkStopped();
+      const report = await inspectPullRequest({ repository, number, plannedPaths, read: collect });
+      checkStopped();
+      inspections++;
+      const current = canonical({ identity: report.handback.binding.identity, head: report.headSha,
+        policyRevision: report.handback.binding.policyRevision, policyDigest: report.policyDigest,
+        targetRevision: report.handback.binding.targetRevision });
+      if (binding !== undefined && binding !== current) throw new CollectionError('EVIDENCE_CHANGED');
+      binding = current;
+      const pending = report.findings.length > 0 && report.findings.every(item => item.code === 'EVIDENCE_PENDING');
+      if (!pending) return { ...report, wait: { secondsRequested: waitSeconds, inspections,
+        outcome: report.decision === 'EVIDENCE_SATISFIED' ? 'completed' : 'action_required' } };
+      await pause(Math.min(10_000, deadline - now()), stop);
+    }
+  } catch (error) {
+    checkStopped();
+    throw error;
+  } finally { clearTimeout(timer); timeout.abort(); }
 }
 
 function boundedList(response, key, max = 100) {

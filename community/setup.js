@@ -22,6 +22,7 @@ const messages = {
   SETUP_WORKFLOW_EXISTS: 'A target workflow already exists with different bytes. Review it manually; setup will not overwrite it.',
   SETUP_WORKFLOW_INVALID: 'Review the selected workflow on the default branch. Setup requires an active, unambiguous workflow identity and a plain workflow name.',
   SETUP_RUNTIME_INVALID: 'Use a verified release bundle or a committed ChangePlane checkout with unchanged workflow templates.',
+  SETUP_NODE_UNQUALIFIED: 'Use a tested Node.js 22.18+ or 24 runtime, then run doctor again.',
   SETUP_OUTPUT_EXISTS: 'Choose a new output directory with an existing parent. Existing files and directories are never overwritten.',
   SETUP_OUTPUT_FAILED: 'Could not finish the new staging directory. Inspect any partial files and retry with a new directory; no repository was changed.',
 };
@@ -77,6 +78,57 @@ async function fileAt(read, root, path, revision, optional = false) {
     throw new CollectionError('RESPONSE_INVALID');
   }
   return Buffer.from(file.content, 'base64').toString('utf8');
+}
+
+/** Check assessment prerequisites only. No setup files, assessment or write grant. */
+export async function inspectSetup({ repository, read = githubReader(), runtime = setupRuntime,
+  nodeVersion = process.versions.node } = {}) {
+  requireSetup(typeof repository === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository));
+  const [major, minor] = String(nodeVersion).split('.').map(Number);
+  requireSetup(major === 22 && minor >= 18 || major === 24, 'SETUP_NODE_UNQUALIFIED');
+  const { revision } = runtime();
+  requireSetup(sha.test(revision), 'SETUP_RUNTIME_INVALID');
+  const root = `/repos/${repository}`;
+  const repo = await read(root);
+  requireSetup(positive(repo?.id) && repo.full_name?.toLowerCase() === repository.toLowerCase()
+    && typeof repo.default_branch === 'string' && repo.default_branch.length > 0);
+  const base = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
+  requireSetup(sha.test(base?.sha));
+  const policyText = await fileAt(read, root, '.changeplane.json', base.sha, true);
+  let policy = null;
+  if (policyText !== null) {
+    try { policy = validatePolicy(JSON.parse(policyText)); }
+    catch { throw new CollectionError('POLICY_INVALID'); }
+  }
+  const pulls = await read(`${root}/pulls?state=open&per_page=1`);
+  const runs = await read(`${root}/actions/runs?per_page=1`);
+  const checks = await read(`${root}/commits/${base.sha}/check-runs?per_page=1`);
+  if (!Array.isArray(pulls) || !Array.isArray(runs?.workflow_runs) || !Array.isArray(checks?.check_runs)) {
+    throw new CollectionError('RESPONSE_INVALID');
+  }
+  const requiredChecks = policy?.evidence.requiredChecks ?? [];
+  if (requiredChecks.some(item => item.appSlug === 'github-actions')) {
+    const workflows = list(await read(`${root}/actions/workflows?per_page=100`), 'workflows');
+    for (const requirement of requiredChecks.filter(item => item.appSlug === 'github-actions')) {
+      requireSetup(workflows.filter(item => item.state === 'active' && positive(item.id)
+        && githubWorkflowFilePath(item.path) === requirement.workflowPath).length === 1, 'SETUP_WORKFLOW_INVALID');
+      await fileAt(read, root, requirement.workflowPath, base.sha);
+    }
+  }
+  const finalRepo = await read(root);
+  const finalBase = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
+  if (finalRepo.id !== repo.id || finalRepo.default_branch !== repo.default_branch || finalBase.sha !== base.sha) {
+    throw new CollectionError('EVIDENCE_CHANGED');
+  }
+  return { schemaVersion: 1, kind: 'changeplane.setup-check', decision: policy ? 'CHECKS_PASSED' : 'SETUP_REQUIRED',
+    repository, baseSha: base.sha, runtimeRevision: revision, requiredChecks,
+    checks: [{ id: 'node_runtime', status: 'passed' }, { id: 'runtime_templates', status: 'passed' },
+      { id: 'repository_read_access', status: 'passed' }, { id: 'trusted_policy', status: policy ? 'passed' : 'missing' },
+      ...(policy ? [{ id: 'trusted_workflows', status: requiredChecks.some(item => item.appSlug === 'github-actions') ? 'passed' : 'not_applicable' }] : [])],
+    nextAction: policy ? 'Run inspect on a current PR after its behavioral CI runs. These prerequisites are not an assessment.'
+      : 'Run init --dry-run (with --pr for PR-only CI), choose a meaningful behavioral job and prepare one reviewed configuration PR.',
+    unverified: ['Behavioral test coverage and results for a current PR.',
+      'Repository write access, agent-client installation and process credential isolation.'], authority };
 }
 
 /** Read current GitHub state and prepare reviewable files. Never checks out or executes target code. */

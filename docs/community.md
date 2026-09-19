@@ -6,6 +6,8 @@ Choose **Individual** for read-only PR/CI assessment. If you run several agents 
 
 Version 0.4.1 includes the CLI, setup generator, read-only MCP, agent skill, Individual and Teams settings, and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md). It builds on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts.
 
+Current source adds read-only prerequisite checks, setup planning through MCP and bounded CI waiting. These routine updates retain version 0.4.1; use a reviewed source commit or its verified CI archive, and check `--help` or MCP `tools/list`. Published release assets remain immutable and may expose fewer capabilities.
+
 ## Start with your agent
 
 From the website, choose **Set up with your agent**, copy the prompt and paste it into your coding agent with the target repository open. The [README prompt](../README.md#start-with-your-agent) works too. An agent with repository/tool access follows the [consumer skill](../skills/changeplane/SKILL.md) using your installed CLI or a trusted runtime checkout. MCP is optional.
@@ -67,6 +69,18 @@ changeplane --help
 
 This installs a **local verified bundle**, not a registry package. Do not run this command on the full web-app source checkout. A global install needs a writable npm prefix; using `node bin/changeplane.js` needs no global write access. Uninstall the command with `npm uninstall --global changeplane-community`; preserve any reports and active worktrees you still need.
 
+## Check setup
+
+From your trusted runtime, check the selected repository before inspecting a PR:
+
+```sh
+node bin/changeplane.js doctor OWNER/REPO --format text
+```
+
+Doctor checks the tested Node runtime (22.18+ within 22.x, or 24.x), trusted workflow templates, repository read access, and policy/workflow availability on one default-branch revision. It makes no local or repository changes. Supply the same read-only permissions listed under [Inspect your repository](#inspect-your-repository).
+
+`CHECKS_PASSED` (exit 0) means those prerequisites were checked; inspect a current PR next. `SETUP_REQUIRED` (exit 1) means policy is missing; follow the setup generator below. `UNAVAILABLE` (exit 2) includes a specific next action for access, runtime or policy problems. Doctor does not verify behavioral coverage, client installation, credential isolation, write permissions or current PR evidence. For coordination diagnostics, use the separate `team doctor` command.
+
 ## Prepare setup files
 
 From the ChangePlane runtime directory, discover job names on your repository's current default revision:
@@ -94,7 +108,16 @@ Setup exits 0 for a prepared review plan, 1 when a CI selection is needed and 2 
 
 ## Use with an agent
 
-The read-only stdio MCP exposes only `changeplane_inspect`. The operator fixes the repository; callers provide one PR number. It uses the same GitHub collector as the CLI, with structured results and advisory authority. It has no coordination or source-write tools.
+The read-only stdio MCP fixes the repository in operator configuration and shares the CLI's setup and assessment logic. Current source exposes:
+
+| Tool | Input | Result and next step |
+| --- | --- | --- |
+| `changeplane_check_setup` | `{}` | Check prerequisites; inspect a PR or prepare missing setup |
+| `changeplane_setup` | `{}` or `{"pullRequest":123}` for PR-only CI | Discover candidate behavioral jobs for the owner to select |
+| `changeplane_setup` | `{"check":"Behavior","workflow":".github/workflows/ci.yml"}` (retain `pullRequest` if used) | File contents and revision binding for one human-reviewed configuration PR |
+| `changeplane_inspect` | `{"pullRequest":123}`; optionally `"waitSeconds":30` | Current revision, findings and next action; optionally wait for pending CI |
+
+Setup tools neither write files nor open a PR. The existing authorized coding environment applies a reviewed plan against its recorded base revision; regenerate it after policy or target drift. Repository scope, credentials, output directories and coordination enablement cannot be supplied as tool arguments. No tool grants source-write, Guard, approval or merge authority. Setup checks use a different name from the separate team MCP's `changeplane_doctor`.
 
 For clients using `mcpServers`, configure a trusted runtime path:
 
@@ -116,7 +139,7 @@ Install the whole [consumer skill folder](../skills/changeplane/SKILL.md) into a
 
 Ask the agent to inspect one PR, read the reported revision and next action, and reassess after any change. The complete JSON remains the default CLI output; `--format text` is a human summary and `--format compact` omits the repeated full handback while retaining findings, revision and advisory authority. Summaries cannot replace full evidence verification.
 
-For already configured coordination, use the [separate team MCP](repository-team.md#cursor-and-other-mcp-clients). Existing eight-tool clients retain their interface. The new read-only tool does not activate that operator. Protocol and fixture tests do not establish live Cursor installation, native Origin access or process-level credential isolation.
+For already configured coordination, use the [separate team MCP](repository-team.md#cursor-and-other-mcp-clients). Existing eight-tool clients retain their interface. These read-only tools do not activate that operator. Protocol and fixture tests do not establish live Cursor installation, native Origin access or process-level credential isolation.
 
 ## Inspect your repository
 
@@ -133,6 +156,18 @@ Public GitHub API access works without a token within GitHub's rate limit. For p
 The collector reads repository/PR metadata, changed filenames, one default-branch policy file, workflow runs and current-attempt job states. It makes GET requests only to `api.github.com`, refuses redirects, never executes PR code and never sends data to ChangePlane. GitHub API responses may include diff data; that data is discarded and is not included in the assessment. No source-code context is forwarded to an agent or model.
 
 The live report records the trusted default-branch SHA as `baseSha`, the exact PR `headSha`, policy/input digests and run/attempt identifiers. It double-reads evidence and rechecks the PR and default branch; drift returns unavailable. State can still change after the last read. Keep your existing GitHub merge controls.
+
+### Wait for pending CI
+
+```sh
+node bin/changeplane.js inspect OWNER/REPO 123 --wait 30 --format compact
+```
+
+`--wait` accepts 1–60 seconds. When pending CI is the only finding, the reader reassesses about every ten seconds within one shared sixty-second/200-request budget. Completed evidence returns a fresh assessment. Failed, missing, ambiguous or protected evidence returns immediately with its next action; waiting does not rerun CI or repair code. A changed PR identity, head, policy or target revision ends the call without carrying success across revisions.
+
+The `wait` field records inspections and either `completed` or `action_required`; it confers no authority. Deadline expiry returns `UNAVAILABLE` / `WAIT_TIMEOUT` (exit 2), even if an earlier snapshot existed. Ctrl-C cancels CLI waiting and returns `COLLECTION_CANCELLED`; in-flight reads and retry backoff are aborted. Provider failures and long rate limits also stop the call with their specific next action.
+
+MCP uses the same bounded wait through `waitSeconds`. Choose a wait shorter than your client's request timeout (for example, 30 seconds). MCP calls are processed serially; protocol cancellation notifications do not interrupt a running call. The deadline bounds it, and terminating the server process stops it. Your existing agent runtime decides whether and when to inspect again after timeout, restart or new commits; ChangePlane does not launch or wake agents.
 
 ## Run in GitHub Actions
 
@@ -173,6 +208,7 @@ CLI exit codes are 0 for satisfied evidence, 1 for findings and 2 for invalid/un
 | Duplicate matching evidence/jobs | Assessment blocked or unavailable | Give the behavioral job one unambiguous identity |
 | Head, base or workflow changed during collection | No assessment | Rerun against the current revision |
 | API limit, permission or provider failure | No assessment | Restore access or wait for GitHub's rate-limit reset |
+| `WAIT_TIMEOUT` / `COLLECTION_CANCELLED` | No settled assessment | Inspect current state when CI progresses or the operator resumes |
 | More than 100 runs/checks/jobs for a queried revision | No assessment | Narrow the workflow/evidence footprint; the reader does not silently truncate |
 
 Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. Assessment commands have no persistent state. Opt-in team commands maintain repository-owned Git metadata and offer bounded observation; the reviewed team template supplies GitHub scheduling.

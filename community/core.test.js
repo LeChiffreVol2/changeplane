@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { assess } from './core.js';
-import { githubReader, inspectPullRequest } from './github.js';
+import { githubReader, inspectPullRequest, waitForPullRequest } from './github.js';
+import { CollectionError } from './transport.js';
 
 const head = 'a'.repeat(40), base = 'b'.repeat(40);
 const policy = { protectedPaths: { requireApproval: ['infra/**'], block: ['secrets/**'] },
@@ -77,6 +78,94 @@ function fixture(overrides = {}) {
   } };
 }
 const inspect = read => inspectPullRequest({ repository: 'example/project', number: 7, read });
+const waitFor = (f, clock = {}, extra = {}) => waitForPullRequest({ repository: 'example/project', number: 7,
+  read: f.read, waitSeconds: 30, ...extra }, clock);
+test('bounded wait observes pending CI then returns a fresh assessment for the same target', async () => {
+  const f = fixture(); f.run.status = 'queued'; f.run.conclusion = null;
+  let time = 0, pauses = 0;
+  const result = await waitFor(f, { now: () => time, pause: async ms => {
+    time += ms; pauses++; f.run.status = 'completed'; f.run.conclusion = 'success';
+  } });
+  assert.equal(pauses, 1); assert.equal(result.decision, 'EVIDENCE_SATISFIED');
+  assert.equal(result.headSha, head); assert.equal(result.authority.guardPublished, false);
+  assert.deepEqual(result.wait, { secondsRequested: 30, inspections: 2, outcome: 'completed' });
+});
+test('bounded wait returns protected, failed or missing evidence immediately for action', async () => {
+  for (const mode of ['protected', 'failed', 'missing']) {
+    const f = fixture();
+    if (mode === 'protected') {
+      f.run.status = 'queued'; f.run.conclusion = null;
+      f.payloads['/repos/example/project/pulls/7/files?per_page=100&page=1'][0].filename = 'package.json';
+    } else if (mode === 'failed') f.run.conclusion = 'failure';
+    else f.payloads[`/repos/example/project/actions/runs?head_sha=${head}&per_page=100`] = { total_count: 0, workflow_runs: [] };
+    const result = await waitFor(f, { pause: async () => assert.fail('Actionable findings must not wait') });
+    assert.equal(result.decision, 'REVIEW_REQUIRED');
+    assert.equal(result.wait.outcome, 'action_required'); assert.equal(result.wait.inspections, 1);
+  }
+});
+test('bounded wait never follows a changed head, policy, target or PR identity into success', async () => {
+  for (const mode of ['head', 'policy', 'target', 'identity']) {
+    const f = fixture(); f.run.status = 'queued'; f.run.conclusion = null;
+    const changed = 'c'.repeat(40); let time = 0;
+    await assert.rejects(waitFor(f, { now: () => time, pause: async ms => {
+      time += ms; f.run.status = 'completed'; f.run.conclusion = 'success';
+      if (mode === 'head') {
+        f.pr.head.sha = changed; f.run.head_sha = changed;
+        f.payloads[`/repos/example/project/actions/runs?head_sha=${changed}&per_page=100`] = f.payloads[`/repos/example/project/actions/runs?head_sha=${head}&per_page=100`];
+        f.payloads['/repos/example/project/actions/runs/12/attempts/2/jobs?per_page=100'].jobs[0].head_sha = changed;
+      } else if (mode === 'policy') {
+        f.payloads['/repos/example/project/commits/main'].sha = changed;
+        f.payloads[`/repos/example/project/contents/.changeplane.json?ref=${changed}`] = f.payloads[`/repos/example/project/contents/.changeplane.json?ref=${base}`];
+      } else if (mode === 'target') f.pr.base.sha = changed;
+      else f.pr.id++;
+    } }), { code: 'EVIDENCE_CHANGED' });
+  }
+});
+test('bounded wait exhausts its deadline, honours cancellation and stops on provider limits', async () => {
+  const f = fixture(); f.run.status = 'queued'; f.run.conclusion = null;
+  let time = 0;
+  await assert.rejects(waitFor(f, { now: () => time, pause: async ms => { time += ms; } }), { code: 'WAIT_TIMEOUT' });
+  const controller = new AbortController(); controller.abort('synthetic-secret');
+  const before = f.requests.length;
+  await assert.rejects(waitFor(f, {}, { signal: controller.signal }), { code: 'COLLECTION_CANCELLED' });
+  assert.equal(f.requests.length, before);
+  const duringWait = new AbortController();
+  await assert.rejects(waitFor(f, { pause: async () => duringWait.abort() }, { signal: duringWait.signal }), { code: 'COLLECTION_CANCELLED' });
+  for (const waitSeconds of [0, 61, 1.5, '30']) await assert.rejects(waitFor(f, {}, { waitSeconds }), { code: 'INPUT_INVALID' });
+  let reads = 0;
+  await assert.rejects(waitFor(f, {}, { read: async () => { reads++; throw new CollectionError('RATE_LIMITED'); } }), { code: 'RATE_LIMITED' });
+  assert.equal(reads, 1);
+});
+test('wait deadline aborts an in-flight provider request without retrying or issuing an assessment', async t => {
+  let reads = 0, aborted = false;
+  t.mock.method(globalThis, 'fetch', async (_url, { signal }) => {
+    reads++;
+    return new Promise((resolve, reject) => signal.addEventListener('abort', () => {
+      aborted = true; reject(new Error('synthetic-provider-secret'));
+    }, { once: true }));
+  });
+  await assert.rejects(waitForPullRequest({ repository: 'example/project', number: 7, waitSeconds: 1 }), { code: 'WAIT_TIMEOUT' });
+  assert.equal(aborted, true); assert.equal(reads, 1);
+});
+test('installed CLI wait returns settled evidence and a structured timeout with the documented exits', () => {
+  const f = fixture();
+  const run = () => spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const data = ${JSON.stringify(f.payloads)};
+    globalThis.fetch = async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.origin !== 'https://api.github.com' || options.method !== 'GET') throw new Error('unexpected access');
+      return Response.json(data[parsed.pathname + parsed.search]);
+    };
+    process.argv = [process.execPath, 'bin/changeplane.js', 'inspect', 'https://github.com/example/project/pull/7', '--wait', '1'];
+    await import(${JSON.stringify(new URL('./cli.js', import.meta.url).href)});
+  `], { encoding: 'utf8' });
+  const ready = run(); assert.equal(ready.status, 0, ready.stderr);
+  assert.equal(JSON.parse(ready.stdout).wait.outcome, 'completed');
+  f.run.status = 'queued'; f.run.conclusion = null;
+  const timedOut = run(); assert.equal(timedOut.status, 2); assert.equal(timedOut.stdout, '');
+  assert.equal(JSON.parse(timedOut.stderr).code, 'WAIT_TIMEOUT');
+  assert.equal(JSON.parse(timedOut.stderr).authority.guardPublished, false);
+});
 test('GitHub reader binds default-branch policy and the latest workflow attempt twice', async () => {
   const f = fixture(); const result = await inspect(f.read);
   assert.equal(result.decision, 'EVIDENCE_SATISFIED');
