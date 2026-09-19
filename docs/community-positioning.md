@@ -23,4 +23,12 @@ The useful customer experiment is one existing behavioral job on one active repo
 
 ## Launch message
 
-ChangePlane Open Source is an Apache-2.0 CLI and GitHub Action for evidence assessment on agent-authored PRs. It reads trusted default-branch policy, checks the latest observed workflow attempt on the exact head, flags changes to tests and evidence controls, and returns JSON findings to your existing agent. No model key, ChangePlane account, or hosted database is needed. GitHub keeps merge authority. Try the three local examples, then connect one behavioral CI job.
+Give your coding agent current PR evidence and a clear next action. ChangePlane Open Source is an Apache-2.0 CLI, read-only MCP and GitHub Action for evidence assessment on agent-authored PRs. It reads trusted default-branch policy, checks the latest observed workflow attempt on the exact head, flags changes to tests and evidence controls, and returns JSON findings to your existing agent. No model key, ChangePlane account, or hosted database is needed. GitHub keeps merge authority. Start with the [agent setup prompt](../README.md#start-with-your-agent), then obtain one real assessment. The agent consumes findings; the repository owner reviews policy and permissions.
+
+## Agent-first distribution, human-controlled authority
+
+The primary entry is the user's existing coding agent, with CLI or MCP returning structured findings. The website helps the person hand off setup and inspect exceptions; hosted onboarding remains optional. Individual and Teams are configuration choices after the entry point, not competing first actions.
+
+This is a distribution and usability hypothesis, not evidence of a global advantage. GitHub already provides [agents that author PRs](https://docs.github.com/en/copilot/responsible-use/agents), and Cursor provides [review-triggered autofix](https://cursor.com/changelog/02-26-26). Their capabilities support the workflow direction while making generic review/autofix positioning less distinctive. These references do not establish that either product lacks independent checks or policy controls. Source review: 2026-09-20.
+
+Evaluate ChangePlane by whether an existing agent can reach its first current-PR assessment, how much operator intervention setup needs, whether findings change a real decision, and whether operators return. Use the existing [adoption and effort report](adoption-measurement.md) with opt-in operator evidence; prompt copies and opened drawers are not activations. No automatic telemetry is added.

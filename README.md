@@ -2,25 +2,31 @@
 
 **Keep GitHub. Let agents ship.**
 
-ChangePlane helps individual developers and teams work with coding agents in their existing GitHub repositories. It checks whether CI results apply to the current pull request revision and returns actionable findings to the writer. Optional coordination gives parallel tasks separate worktrees, tracks dependencies, and follows their review and CI outcomes.
+ChangePlane gives your coding agent current PR evidence and a clear next action. Run it through the CLI, read-only MCP or GitHub Actions in the repository you already use. It checks whether CI results apply to the current revision and returns findings to the writer. You choose the policy and permissions; GitHub keeps review and merge control.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Open source · free for individual and commercial use · no ChangePlane account or model key required.**
 
-[Quickstart](#try-it-in-one-minute) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Start with your agent](#start-with-your-agent) · [CLI quickstart](#try-it-in-one-minute) · [Releases](https://github.com/LeChiffreVol2/changeplane/releases) · [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-## Choose how you work
+## Start with your agent
 
-| | Start here | Add when needed |
-| --- | --- | --- |
-| **Individual** | [Inspect a pull request](#inspect-a-real-pull-request) with read-only access | [Coordinate multiple agents](docs/team-operator.md) working on your own features |
-| **Teams** | [Set up a shared repository](docs/team-operator.md) with scoped tasks and separate worktrees | Dependencies, assigned feedback and a scheduled observer |
+Open your repository in your existing coding agent and paste:
 
-Both paths support personal and organization repositories, subject to repository permissions. Use your existing coding agents and GitHub review process.
+```text
+Set up ChangePlane for this repository.
+Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
+Start with read-only PR/CI assessment. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review.
+Return the assessed revision, findings and next action. Keep credentials in my existing environment, never in this chat.
+```
 
-The [website](https://changeplane.vercel.app/) includes **Settings** for Individual and Teams. Individual starts with read-only assessment; parallel agents are optional. Settings prepare a local configuration draft for a reviewed pull request. They do not install or change a repository. See the [settings guide](docs/community.md#settings-for-individual-and-teams).
+The [consumer skill](skills/changeplane/SKILL.md) tells the agent how to find a trusted runtime, inspect existing policy and CI, and return an assessment or a specific setup blocker. CLI use needs repository/tool access in your agent's environment; the [MCP guide](docs/community.md#use-with-an-agent) covers clients with stdio support. Client integration is qualified separately; a skill link does not install tools or grant access.
+
+**First useful result:** an assessment of your current PR with its revision and next action. If policy is missing, the first result is a configuration PR for review; assess the PR after that policy is merged and CI has run. Opening a workspace or copying a prompt is not activation.
+
+Prefer to start yourself? Use the [CLI quickstart](#try-it-in-one-minute) below. The [website](https://changeplane.vercel.app/) provides an agent setup prompt and an optional browser setup path when hosted access is available.
 
 ## Try it in one minute
 
@@ -83,6 +89,17 @@ node bin/changeplane.js team next YOUR_ACCOUNT/YOUR_REPOSITORY
 Each task has a defined scope and its own worktree. Existing agents perform development and respond to findings; ChangePlane records coordination in the repository. Doctor reports setup problems without changing branches. A stopped agent still needs its existing runtime to resume it.
 
 **Agents:** use the [read-only MCP and consumer skill](docs/community.md#use-with-an-agent) to inspect a PR without configuring coordination writes. `changeplane_inspect` returns the revision, findings and next action. The [separate team MCP](docs/repository-team.md#cursor-and-other-mcp-clients) adds scoped tasks and workspaces after operator setup. [Agent instructions →](skills/changeplane/SKILL.md)
+
+## Choose how you work
+
+| | Start here | Add when needed |
+| --- | --- | --- |
+| **Individual** | [Inspect a pull request](#inspect-a-real-pull-request) with read-only access | [Coordinate multiple agents](docs/team-operator.md) working on your own features |
+| **Teams** | [Set up a shared repository](docs/team-operator.md) with scoped tasks and separate worktrees | Dependencies, assigned feedback and a scheduled observer |
+
+Both paths support personal and organization repositories, subject to repository permissions. Use your existing coding agents and GitHub review process.
+
+The website includes **Settings** for Individual and Teams. Individual starts with read-only assessment; parallel agents are optional. Settings prepare a local configuration draft for a reviewed pull request. They do not install or change a repository. See the [settings guide](docs/community.md#settings-for-individual-and-teams).
 
 ## How it works
 

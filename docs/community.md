@@ -1,10 +1,18 @@
 # Open Source quickstart
 
-ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
+ChangePlane gives your coding agent the current PR revision, evidence findings and a next action. It runs locally or in your own GitHub Actions, without a ChangePlane account or Guard publication. Start with your agent, or use the local commands below.
 
 Choose **Individual** for read-only PR/CI assessment. If you run several agents yourself, enable optional parallel coordination; **Teams** starts with coordination selected. Both use the same repository engine and support personal and organization repositories with appropriate permissions. The usage choice does not identify the repository owner or grant access.
 
 Version 0.4.1 includes the CLI, setup generator, read-only MCP, agent skill, Individual and Teams settings, and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md). It builds on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts.
+
+## Start with your agent
+
+From the website, choose **Set up with your agent**, copy the prompt and paste it into your coding agent with the target repository open. The [README prompt](../README.md#start-with-your-agent) works too. An agent with repository/tool access follows the [consumer skill](../skills/changeplane/SKILL.md) using your installed CLI or a trusted runtime checkout. MCP is optional.
+
+The agent first identifies your repository, existing policy and CI. If policy exists, it can inspect a current PR with read-only access. If setup is needed, it discovers candidate jobs and prepares one configuration PR after you identify the meaningful behavioral check. Review protected changes before merging. Credentials stay in your operator environment, not in the setup prompt or chat.
+
+Setup is useful when the agent returns a real assessment with the observed revision, findings and next action. A missing policy, unavailable evidence or incomplete permission is a reported blocker, not a successful assessment. After a commit or CI rerun, request fresh evidence. Parallel coordination is a separate opt-in through [operator setup](team-operator.md).
 
 ## Settings for Individual and Teams
 

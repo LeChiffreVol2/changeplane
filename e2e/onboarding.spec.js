@@ -134,13 +134,12 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "Set up your way of working." })).toBeVisible();
-  await expect(page.getByRole("radio", { name: "Individual", exact: true })).toBeChecked();
-  await expect(page.getByRole("radio", { name: "Teams", exact: true })).not.toBeChecked();
-  await expect(page.getByRole("button", { name: "Set up Individual" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Give your agent a clear next step." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Set up with your agent" })).toBeVisible();
+  await expect(page.getByRole("radio")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /synthetic Origin|Origin boundary proof/u })).toHaveCount(0);
   await expect(page.getByRole("alert")).toContainText("GitHub authorization was cancelled");
-  await expect(page.getByText("RouteThai use case · synthetic contract reconstruction")).toHaveCount(1);
+  await expect(page.getByText("RouteThai workspace uses synthetic data. Opening it connects no repository.")).toBeVisible();
   const exampleButton = page.getByRole("button", { name: "Open RouteThai example workspace" });
   await expect(exampleButton).toBeVisible();
   await expect(page.getByRole("button", { name: /Install ChangePlane|Canary owner sign in/u })).toHaveCount(0);
@@ -1728,7 +1727,7 @@ test("Individual and Teams settings remain separate drafts across setup and work
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text) => { window.settingsCopied = text; } } });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Set up Individual" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await expect(settings.getByRole("button", { name: "Close settings", exact: true })).toBeFocused();
   await expect(settings.getByRole("checkbox", { name: "Coordinate parallel work" })).not.toBeChecked();
@@ -1748,7 +1747,7 @@ test("Individual and Teams settings remain separate drafts across setup and work
   await expect(settings).toContainText("Preserve evidence checks, protected paths and other settings.");
   await page.keyboard.press("Escape");
   await expect(settings).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Set up Teams" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(settings.getByLabel("Maximum active tasks")).toHaveValue("20");
   await settings.getByRole("radio", { name: "Individual", exact: true }).check();
@@ -1770,7 +1769,7 @@ test("Individual and Teams settings remain separate drafts across setup and work
   expect(mutations).toEqual([]);
   expect(externalRequests).toEqual([]);
   await page.reload();
-  await page.getByRole("button", { name: "Set up Individual" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(settings.getByRole("checkbox", { name: "Coordinate parallel work" })).not.toBeChecked();
 });
 
@@ -1834,6 +1833,95 @@ test("Settings keeps keyboard focus while a delayed authenticated session opens 
   await expect(settings).toHaveCount(0);
   await expect(page.locator("#setup-main-title")).toBeFocused();
   expect(requests.every(({ method }) => method === "GET")).toBe(true);
+  expect(externalRequests).toEqual([]);
+});
+
+test("agent setup is the first action and copies a reviewable prompt without account or repository access", async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const calls = [];
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    calls.push(url.searchParams.get("action"));
+    expect(route.request().method()).toBe("GET");
+    expect(url.searchParams.get("action")).toBe("session");
+    return json(route, { configured: false, authenticated: false, rolloutMode: "controlled_canary" });
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async text => { window.agentSetupCopied = text; } } });
+  });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    const start = page.getByRole("button", { name: "Set up with your agent", exact: true });
+    await expect(start).toBeEnabled();
+    await expect(page.getByRole("button").first()).toHaveAccessibleName("Set up with your agent");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator('.auth-form').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
+    const startBox = await start.boundingBox();
+    expect(startBox.y + startBox.height).toBeLessThanOrEqual(viewport.height);
+    if (viewport.width !== 320) await page.screenshot({ path: testInfo.outputPath(`agent-start-${viewport.width}.png`), fullPage: true, animations: "disabled" });
+    await start.click();
+    const drawer = page.getByRole("dialog", { name: "Set up with your agent", exact: true });
+    await expect(drawer.getByRole("button", { name: "Close agent setup" })).toBeFocused();
+    const prompt = drawer.getByLabel("Prompt for your agent");
+    await expect(prompt).toHaveAttribute("readonly", "");
+    await drawer.getByRole("button", { name: "Copy setup prompt" }).click();
+    const copied = await page.evaluate(() => window.agentSetupCopied);
+    expect(copied).toBe(await prompt.inputValue());
+    expect(copied).toContain("/main/skills/changeplane/SKILL.md");
+    expect(copied).toContain("read-only PR and CI assessment");
+    expect(copied).toContain("let me review protected policy/workflow changes");
+    expect(copied).toContain("Keep credentials in my existing environment");
+    await expect(drawer.getByRole("status")).toContainText("Copied. Paste it into your agent");
+    const copyBox = await drawer.getByRole("button", { name: "Copy setup prompt" }).boundingBox();
+    expect(copyBox.y + copyBox.height).toBeLessThanOrEqual(viewport.height);
+    expect(await drawer.locator('.drawer-body').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    if (viewport.width === 390) await page.screenshot({ path: testInfo.outputPath("agent-prompt-mobile.png") });
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
+    await expect(start).toBeFocused();
+  }
+  expect(calls).toEqual(["session", "session", "session"]);
+  expect(externalRequests).toEqual([]);
+});
+
+test("agent setup keeps its prompt selectable when clipboard access is unavailable", async ({ page }) => {
+  const externalRequests = await mockLocalApi(page, route => json(route, { configured: false, authenticated: false }));
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async () => { throw new Error("clipboard denied"); } } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Set up with your agent", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Set up with your agent", exact: true });
+  await drawer.getByRole("button", { name: "Copy setup prompt" }).click();
+  await expect(drawer.getByRole("status")).toHaveText("Clipboard unavailable. Select and copy the prompt above.");
+  const prompt = drawer.getByLabel("Prompt for your agent");
+  await prompt.evaluate(el => el.select());
+  expect(await prompt.evaluate(el => el.selectionEnd - el.selectionStart)).toBe((await prompt.inputValue()).length);
+  expect(externalRequests).toEqual([]);
+});
+
+test("agent setup survives a delayed authenticated session without losing dialog focus", async ({ page }) => {
+  let pendingSession;
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    const action = url.searchParams.get("action");
+    if (action === "session") { pendingSession = route; return; }
+    if (action === "repos") return json(route, { repositories: [] });
+    throw new Error(`Unexpected agent setup request: ${action}`);
+  });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => Boolean(pendingSession)).toBe(true);
+  await page.getByRole("button", { name: "Set up with your agent", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Set up with your agent", exact: true });
+  await json(pendingSession, { configured: true, authenticated: true, login: "agent-operator",
+    csrf: "fixture-csrf", authMode: "github_app", rolloutMode: "controlled_canary" });
+  await expect(page.locator("#setup-main-title")).toBeAttached();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await drawer.evaluate(dialog => dialog.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(page.locator("#setup-main-title")).toBeFocused();
   expect(externalRequests).toEqual([]);
 });
 
@@ -1964,7 +2052,7 @@ test("sign-out invalidates an in-flight installation before the server acknowled
   await expect(page.getByRole("button", { name: "Creating installation pull request…" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toHaveCount(0);
   await settleBrowserResponse(page, logout, { authenticated: false });
-  await expect(page.getByRole("heading", { name: "Give agent PRs independent lifecycle assurance." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Give your agent a clear next step." })).toBeVisible();
   await expect(page.getByRole("radio", { name: /acme\/first/u })).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
