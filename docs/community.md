@@ -6,7 +6,7 @@ Choose **Individual** for read-only PR/CI assessment. If you run several agents 
 
 Version 0.4.1 includes the CLI, setup generator, read-only MCP, agent skill, Individual and Teams settings, and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md). It builds on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts.
 
-Current source adds read-only prerequisite checks, setup planning through MCP and bounded CI waiting. These routine updates retain version 0.4.1; use a reviewed source commit or its verified CI archive, and check `--help` or MCP `tools/list`. Published release assets remain immutable and may expose fewer capabilities.
+Current source adds read-only prerequisite checks, setup planning through MCP, bounded CI waiting and the optional [OpenCodeReview pipeline](opencode-review.md). These routine updates retain version 0.4.1; use a reviewed source commit or its verified CI archive, and check `--help` or MCP `tools/list`. Published release assets remain immutable and may expose fewer capabilities.
 
 ## Start with your agent
 
@@ -116,6 +116,7 @@ The read-only stdio MCP fixes the repository in operator configuration and share
 | `changeplane_setup` | `{}` or `{"pullRequest":123}` for PR-only CI | Discover candidate behavioral jobs for the owner to select |
 | `changeplane_setup` | `{"check":"Behavior","workflow":".github/workflows/ci.yml"}` (retain `pullRequest` if used) | File contents and revision binding for one human-reviewed configuration PR |
 | `changeplane_inspect` | `{"pullRequest":123}`; optionally `"waitSeconds":30` | Current revision, findings and next action; optionally wait for pending CI |
+| `changeplane_pipeline` | `{"pullRequest":123}`; then OCR JSON as `review` with `requestId` | Exact-range review request or combined advisory review/CI and next action; [engine setup and continuation](opencode-review.md) |
 
 Setup tools neither write files nor open a PR. The existing authorized coding environment applies a reviewed plan against its recorded base revision; regenerate it after policy or target drift. Repository scope, credentials, output directories and coordination enablement cannot be supplied as tool arguments. No tool grants source-write, Guard, approval or merge authority. Setup checks use a different name from the separate team MCP's `changeplane_doctor`.
 

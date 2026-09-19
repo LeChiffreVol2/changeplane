@@ -17,7 +17,7 @@ export function githubReader(token = '', fetchImpl = fetch, signal) {
 
 /** Wait only on pending evidence, retaining one target and one collection budget. */
 export async function waitForPullRequest({ repository, number, token, plannedPaths, waitSeconds = 60, signal, read },
-  { now = Date.now, pause = (ms, signal) => delay(ms, undefined, { signal }) } = {}) {
+  { now = Date.now, pause = (ms, signal) => delay(ms, undefined, { signal }), inspect = inspectPullRequest } = {}) {
   if (!Number.isSafeInteger(waitSeconds) || waitSeconds < 1 || waitSeconds > 60) throw new CollectionError('INPUT_INVALID');
   const deadline = now() + waitSeconds * 1000;
   const timeout = new AbortController();
@@ -33,7 +33,7 @@ export async function waitForPullRequest({ repository, number, token, plannedPat
   try {
     for (;;) {
       checkStopped();
-      const report = await inspectPullRequest({ repository, number, plannedPaths, read: collect });
+      const report = await inspect({ repository, number, plannedPaths, read: collect });
       checkStopped();
       inspections++;
       const current = canonical({ identity: report.handback.binding.identity, head: report.headSha,
@@ -71,7 +71,7 @@ function target(pr, repo, defaultBranch) {
     sourceRepository: pr.head.repo.full_name, sourceRepositoryId: pr.head.repo.id, repositoryId: pr.base.repo.id, changeId: pr.id };
 }
 
-export async function inspectPullRequest({ repository, number, token, plannedPaths, read = githubReader(token) }) {
+export async function inspectPullRequest({ repository, number, token, plannedPaths, signal, includeReviewContext = false, read = githubReader(token, fetch, signal) }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository)
     || !positive(number)) throw new Error('TARGET_INVALID: use owner/repository and a positive pull request number.');
   const root = `/repos/${repository}`;
@@ -92,10 +92,15 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
   try { policy = JSON.parse(Buffer.from(contents.content, 'base64').toString('utf8')); }
   catch { throw new Error('POLICY_INVALID: default-branch .changeplane.json must contain JSON.'); }
   validatePolicy(policy);
-  const files = [];
+  const files = [], reviewFiles = [];
   for (let page = 1; files.length < initial.files; page++) {
     const batch = await read(`${root}/pulls/${number}/files?per_page=100&page=${page}`);
     if (!Array.isArray(batch) || batch.length < 1 || batch.length > 100) throw new Error('FILES_INCOMPLETE');
+    if (includeReviewContext) reviewFiles.push(...batch.map(file => ({ path: file.filename,
+      previousPath: file.previous_filename ?? null, status: file.status,
+      // Only line ranges leave the collector, never source snippets from GitHub.
+      ranges: typeof file.patch === 'string' ? [...file.patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gmu)]
+        .map(match => ({ start: Number(match[1]), count: Number(match[2] ?? 1) })) : [] })));
     files.push(...batch.map(file => {
       if (file.status === 'renamed' && !file.previous_filename) throw new Error('RENAME_INCOMPLETE');
       return { path: file.filename, ...(file.previous_filename ? { previousPath: file.previous_filename } : {}) };
@@ -155,6 +160,12 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
   const first = await collect();
   const second = await collect();
   if (canonical(first) !== canonical(second)) throw new Error('EVIDENCE_CHANGED: a workflow changed during inspection; rerun the assessment.');
+  let mergeBase;
+  if (includeReviewContext) {
+    const comparison = await read(`${root}/compare/${initial.baseSha}...${initial.headSha}?per_page=1`);
+    if (!SHA.test(comparison.merge_base_commit?.sha) || comparison.base_commit?.sha !== initial.baseSha) throw new CollectionError('COLLECTION_INCOMPLETE');
+    mergeBase = comparison.merge_base_commit.sha;
+  }
   const finalRepo = await read(root);
   const finalBase = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
   const finalPr = await read(`${root}/pulls/${number}`);
@@ -169,7 +180,8 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
   const binding = { ...report.handback.binding, identity, policyRevision: base.sha, targetRevision: initial.baseSha,
     observationDigest: createHash('sha256').update(canonical({ identity, initial, policyDigest: report.policyDigest,
       inputDigest: report.inputDigest, executions: second.identities })).digest('hex') };
-  return { ...report, handback: { ...report.handback, binding, executions: second.identities },
+  return { ...report, ...(includeReviewContext ? { reviewContext: { mergeBase, files: reviewFiles } } : {}),
+    handback: { ...report.handback, binding, executions: second.identities },
     observation: { source: 'github-api', identity, repository, pullRequest: number,
     observedAt: new Date().toISOString(), workflowIdentities: second.identities,
     limitation: 'Point-in-time read-only assessment. GitHub may change immediately afterward; this is not a Guard or merge approval.' } };

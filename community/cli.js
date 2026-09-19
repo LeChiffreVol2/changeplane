@@ -2,6 +2,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { assess, COMMUNITY_VERSION } from './core.js';
 import { inspectPullRequest, waitForPullRequest } from './github.js';
+import { inspectPipeline, REVIEW_BYTES } from './pipeline.js';
 import { inspectMergeRequest } from './gitlab.js';
 import { assessObservation } from './observation.js';
 import { unavailable } from './transport.js';
@@ -16,6 +17,7 @@ Usage:
   changeplane doctor OWNER/REPO [--format json|text]
   changeplane inspect OWNER/REPO PR_NUMBER [--wait SECONDS] [--format json|text|compact]
   changeplane inspect https://github.com/OWNER/REPO/pull/123
+  changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait SECONDS]
   changeplane init OWNER/REPO --dry-run
   changeplane mcp
   changeplane team --help
@@ -31,7 +33,9 @@ revision changes, timeout or provider failure. Ctrl-C cancels without an assessm
 MCP uses CHANGEPLANE_REPOSITORY for read-only setup checks, plans and PR assessment.
 Team coordination is opt-in; team --help documents its separate operator.
 
-Zero dependencies. No model key. GitHub readers use fixed-origin GET requests only.
+The core has zero dependencies and needs no model key. Optional pipeline review is
+run separately with the operator's enabled OpenCodeReview engine and model access.
+GitHub readers use fixed-origin GET requests only. See pipeline --help.
 Set GH_TOKEN or GITHUB_TOKEN in the process environment for private read access.
 The GitLab reader is a candidate; live qualification and enforcement are separate.
 Assessment JSON is the default. Exit 0: advisory evidence satisfied; 1: findings;
@@ -97,6 +101,8 @@ try {
       const { serveAssessment } = await import('./mcp.js');
       await serveAssessment();
     }
+  } else if (command === 'pipeline' && args.length === 1 && args[0] === '--help') {
+    process.stdout.write('changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait 1–60] [--format json|text|compact]\nFirst call returns an exact-range review request. Run its pinned OpenCodeReview engine separately with trusted configuration and no GitHub/controller credentials, then return its JSON and the request ID. Reports are bounded to 256 KB and remain unauthenticated advisory data. Review findings return to your existing agent; CI, protected paths and repository merge policy retain authority. See docs/opencode-review.md.\n');
   } else if (command === 'doctor') {
     if (args.length === 1 && args[0] === '--help') process.stdout.write('changeplane doctor OWNER/REPO [--format json|text]\nRead-only Node, template, access and trusted policy checks. CHECKS_PASSED is prerequisites only; inspect a current PR next. Exit 0: prerequisites checked; 1: setup required; 2: unavailable.\n');
     else {
@@ -133,7 +139,25 @@ try {
       catch { throw new Error('INPUT_INVALID'); }
       report = { ...(snapshot.schemaVersion === 2 ? assessObservation(snapshot) : assess(snapshot)),
         observation: { source: 'provided-snapshot', authenticated: false } };
-    } else if (command === 'inspect') {
+    } else if (command === 'inspect' || command === 'pipeline') {
+      let review, requestId;
+      if (command === 'pipeline') {
+        const take = flag => {
+          const i = args.indexOf(flag);
+          if (i === -1) return undefined;
+          const value = args[i + 1]; args.splice(i, 2);
+          if (!value || value.startsWith('--') || args.includes(flag)) throw new Error('USAGE_INVALID');
+          return value;
+        };
+        const path = take('--review'); requestId = take('--request-id');
+        if (Boolean(path) !== Boolean(requestId)) throw new Error('USAGE_INVALID');
+        if (path) {
+          if (!/^[a-f0-9]{64}$/u.test(requestId)) throw new Error('USAGE_INVALID');
+          const stat = statSync(path);
+          if (!stat.isFile() || stat.size > REVIEW_BYTES) throw new Error('INPUT_LIMIT');
+          review = JSON.parse(readFileSync(path, 'utf8'));
+        }
+      }
       const waitIndex = args.indexOf('--wait');
       let waitSeconds;
       if (waitIndex !== -1) {
@@ -150,19 +174,22 @@ try {
       } else if (args.length !== 2) throw new Error('USAGE_INVALID');
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
       const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };
-      if (waitSeconds === undefined) report = await inspectPullRequest(options);
+      if (command === 'pipeline') Object.assign(options, { review, requestId });
+      const inspect = command === 'pipeline' ? inspectPipeline : inspectPullRequest;
+      const wait = command === 'pipeline' ? inspectPipeline : waitForPullRequest;
+      if (waitSeconds === undefined) report = await inspect(options);
       else {
         const controller = new AbortController();
         const cancel = () => controller.abort();
         process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
-        try { report = await waitForPullRequest({ ...options, waitSeconds, signal: controller.signal }); }
+        try { report = await wait({ ...options, waitSeconds, signal: controller.signal }); }
         finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
       }
     } else if (command === 'inspect-gitlab' && args.length === 2 && /^[1-9][0-9]*$/u.test(args[1])) {
       report = await inspectMergeRequest({ project: args[0], number: Number(args[1]), token: process.env.GITLAB_TOKEN });
     } else throw new Error('USAGE_INVALID');
     process.stdout.write(formatReport(report, format));
-    process.exitCode = ['EVIDENCE_SATISFIED', 'OBSERVED_SUCCESS'].includes(report.decision) ? 0 : 1;
+    process.exitCode = report.decision === 'UNAVAILABLE' ? 2 : ['EVIDENCE_SATISFIED', 'OBSERVED_SUCCESS'].includes(report.decision) ? 0 : 1;
   }
 } catch (error) {
   // Never print filesystem paths, provider bodies, tokens or arbitrary exception text.

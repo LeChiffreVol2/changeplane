@@ -10,6 +10,7 @@ const paths = [
   "skills/changeplane/SKILL.md",
   "CONTRIBUTING.md",
   "docs/community.md",
+  "docs/opencode-review.md",
   "docs/community-positioning.md",
   "docs/community-roadmap.md",
   "docs/recovery-core.md",

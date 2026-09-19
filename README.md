@@ -4,6 +4,8 @@
 
 ChangePlane gives your coding agent current PR evidence and a clear next action. Run it through the CLI, read-only MCP or GitHub Actions in the repository you already use. It checks whether CI results apply to the current revision and returns findings to the writer. You choose the policy and permissions; GitHub keeps review and merge control.
 
+Add the optional [OpenCodeReview pipeline](docs/opencode-review.md) to carry review findings through your existing agent's fix → CI → reassessment cycle. One report combines review coverage, current CI and the next action; a new commit starts a fresh review request. The review engine runs separately with operator-enabled model access.
+
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -76,6 +78,8 @@ Replace the repository and PR number with yours. Public repositories can use una
 The report includes the observed revision, findings and a next action. The reader uses GitHub API reads, executes no PR code and publishes no Checks or comments. See the [complete setup and troubleshooting guide](docs/community.md).
 
 ## Use it in your workflow
+
+**Review and follow the PR:** `changeplane pipeline OWNER/REPO PR_NUMBER` returns a request for a separately enabled OpenCodeReview job. Return its JSON with `--review FILE --request-id ID` to combine findings and CI. Your agent investigates and fixes within its existing task; protected changes retain human review. [Complete cycle and MCP →](docs/opencode-review.md)
 
 **GitHub Actions:** use `LeChiffreVol2/changeplane/community@FULL_REVIEWED_SHA` through a configuration PR. The root Action is the managed Guard; the public read-only Action requires the `/community` subpath. It assesses PRs after your existing CI workflow completes, using read-only permissions and no repository checkout. [Action setup →](docs/community.md#run-in-github-actions)
 
