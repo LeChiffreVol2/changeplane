@@ -32,6 +32,7 @@ paths = [
     'community/setup.js', 'community/setup.test.js', 'community/output.js',
     'community/mcp.js', 'community/mcp-transport.js', 'community/entrypoints.test.js',
     'community/core.js', 'community/github.js', 'community/cli.js',
+    'community/pipeline.js', 'community/pipeline.test.js', 'docs/opencode-review.md',
     'community/action.js', 'community/action.yml', 'community/core.test.js',
     'community/gitlab.js', 'community/gitlab.test.js', 'community/observation.js', 'community/observation.test.js',
     'community/transport.js', 'community/transport.test.js', 'community/action-output.test.js',
@@ -65,6 +66,8 @@ Source commit: `{revision}`
 Open your target repository in your coding agent and give it the absolute path to this verified bundle and its [consumer skill](skills/changeplane/SKILL.md). Ask it to follow the setup path, start with read-only PR/CI assessment and return the revision, findings and next action. Review protected configuration changes before merging; keep credentials in your existing environment.
 
 The CLI works directly from this bundle. MCP is optional; follow the [agent setup guide](docs/community.md#use-with-an-agent). A skill does not install tools or grant repository permissions.
+
+The optional [OpenCodeReview pipeline](docs/opencode-review.md) combines review coverage, findings and current CI for your existing agent. Install and enable that model-backed engine separately; the core does not execute it or require a model key.
 
 ## Try it in one minute
 

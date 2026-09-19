@@ -1,5 +1,7 @@
 # Data handling
 
+The optional public [OpenCodeReview pipeline](opencode-review.md) imports operator-supplied review JSON locally and joins it with read-only GitHub observations. Its handback retains bounded finding text and locations, coverage, revision bindings and digests; provider warnings, reasoning and code-suggestion fields are discarded. It never sends that report to ChangePlane or invokes the engine. A separately enabled OCR job can send source context to the operator's model provider and retain its own local sessions, so its credentials, source scope, telemetry settings and retention need separate operator configuration. Public `inspect` remains usable without model access.
+
 This document describes the implemented technical boundary. It is not a claim of regulatory certification or a substitute for customer-specific legal terms.
 
 ## Signed-out public example

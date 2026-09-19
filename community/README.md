@@ -8,6 +8,7 @@ Give your coding agent revision-bound PR findings through the CLI or read-only M
 | Check read-only prerequisites | `node bin/changeplane.js doctor OWNER/REPO` (current source) |
 | Prepare one repository | `node bin/changeplane.js init OWNER/REPO --dry-run` |
 | Inspect a real PR | `node bin/changeplane.js inspect OWNER/REPO PR_NUMBER` |
+| Follow review, agent fixes and CI | `node bin/changeplane.js pipeline OWNER/REPO PR_NUMBER`; [optional OpenCodeReview setup](../docs/opencode-review.md) |
 | Wait for pending CI | Add `--wait 30` to `inspect` (current source; bounded, no rerun) |
 | Give an agent read-only access | `node bin/changeplane.js mcp`, with `CHANGEPLANE_REPOSITORY` set by the operator |
 | Use the public GitHub Action | `LeChiffreVol2/changeplane/community@FULL_REVIEWED_SHA` |
@@ -19,4 +20,4 @@ The repository-root Action is the managed Guard, not this public read-only Actio
 
 These entrypoints are available in current source and commit-addressed CI bundles. Older tagged assets stay immutable; check the bundled README and `SOURCE.json` before using a newer command. There is no published npm-registry installation route.
 
-For contributors: `core.js` adapts the shared evaluator; `github.js` and `gitlab.js` collect bounded observations; `setup.js` prepares reviewed configuration; `team*.js` implement cooperative task/workspace state. CLI and MCP are adapters over those modules. Run `node --test community/*.test.js` from the runtime root.
+For contributors: `core.js` adapts the shared evaluator; `github.js` and `gitlab.js` collect bounded observations; `pipeline.js` joins optional review coverage with the current GitHub assessment; `setup.js` prepares reviewed configuration; `team*.js` implement cooperative task/workspace state. CLI and MCP are adapters over those modules. Run `node --test community/*.test.js` from the runtime root.
