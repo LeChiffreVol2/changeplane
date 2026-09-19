@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { assess, COMMUNITY_VERSION } from './core.js';
-import { inspectPullRequest } from './github.js';
+import { inspectPullRequest, waitForPullRequest } from './github.js';
 import { inspectMergeRequest } from './gitlab.js';
 import { assessObservation } from './observation.js';
 import { unavailable } from './transport.js';
 import { githubReader } from './github.js';
 import { formatReport } from './output.js';
-import { planSetup, setupFailure, SetupError, writeSetupPlan } from './setup.js';
+import { inspectSetup, planSetup, setupFailure, SetupError, writeSetupPlan } from './setup.js';
 import { runTeamCli, teamFailure } from './team-cli.js';
 
 const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
 Usage:
   changeplane evaluate snapshot.json [--format json|text|compact]
-  changeplane inspect OWNER/REPO PR_NUMBER [--format json|text|compact]
+  changeplane doctor OWNER/REPO [--format json|text]
+  changeplane inspect OWNER/REPO PR_NUMBER [--wait SECONDS] [--format json|text|compact]
   changeplane inspect https://github.com/OWNER/REPO/pull/123
   changeplane init OWNER/REPO --dry-run
   changeplane mcp
@@ -23,8 +24,11 @@ Usage:
 
 From a source checkout: node bin/changeplane.js COMMAND
 Existing node community/cli.js commands remain supported.
-Start with evaluate, then init --help to prepare one reviewed configuration PR.
-MCP uses CHANGEPLANE_REPOSITORY and exposes read-only PR assessment only.
+Start with doctor, then init --help to prepare one reviewed configuration PR.
+Doctor checks prerequisites, not current PR evidence. Exit 1 means setup is needed.
+Inspect --wait accepts 1–60 seconds, waits only for pending CI and stops on findings,
+revision changes, timeout or provider failure. Ctrl-C cancels without an assessment.
+MCP uses CHANGEPLANE_REPOSITORY for read-only setup checks, plans and PR assessment.
 Team coordination is opt-in; team --help documents its separate operator.
 
 Zero dependencies. No model key. GitHub readers use fixed-origin GET requests only.
@@ -87,11 +91,19 @@ try {
   if (!command || command === '--help' || command === '-h') process.stdout.write(help);
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
   else if (command === 'mcp') {
-    if (args[0] === '--help' && args.length === 1) process.stdout.write('Set CHANGEPLANE_REPOSITORY=OWNER/REPO in the operator environment, then run changeplane mcp. Read-only GitHub assessment; use a read-only credential for private access.\n');
+    if (args[0] === '--help' && args.length === 1) process.stdout.write('Set CHANGEPLANE_REPOSITORY=OWNER/REPO in the operator environment, then run changeplane mcp. Read-only GitHub setup checks, plans and assessment; use a read-only credential for private access.\n');
     else {
       if (args.length || index !== -1) throw new Error('USAGE_INVALID');
       const { serveAssessment } = await import('./mcp.js');
       await serveAssessment();
+    }
+  } else if (command === 'doctor') {
+    if (args.length === 1 && args[0] === '--help') process.stdout.write('changeplane doctor OWNER/REPO [--format json|text]\nRead-only Node, template, access and trusted policy checks. CHECKS_PASSED is prerequisites only; inspect a current PR next. Exit 0: prerequisites checked; 1: setup required; 2: unavailable.\n');
+    else {
+      if (args.length !== 1 || format === 'compact') throw new SetupError('SETUP_INPUT_INVALID');
+      const report = await inspectSetup({ repository: args[0], read: githubReader(process.env.GH_TOKEN || process.env.GITHUB_TOKEN) });
+      process.stdout.write(formatReport(report, format));
+      process.exitCode = report.decision === 'CHECKS_PASSED' ? 0 : 1;
     }
   } else if (command === 'init') {
     if (args.length === 1 && args[0] === '--help') process.stdout.write(setupHelp);
@@ -122,6 +134,14 @@ try {
       report = { ...(snapshot.schemaVersion === 2 ? assessObservation(snapshot) : assess(snapshot)),
         observation: { source: 'provided-snapshot', authenticated: false } };
     } else if (command === 'inspect') {
+      const waitIndex = args.indexOf('--wait');
+      let waitSeconds;
+      if (waitIndex !== -1) {
+        const value = args[waitIndex + 1];
+        if (!/^[1-9][0-9]*$/u.test(value) || Number(value) > 60) throw new Error('USAGE_INVALID');
+        waitSeconds = Number(value); args.splice(waitIndex, 2);
+        if (args.includes('--wait')) throw new Error('USAGE_INVALID');
+      }
       let [repository, number] = args;
       if (args.length === 1) {
         const match = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)\/?$/u.exec(repository);
@@ -129,7 +149,15 @@ try {
         [, repository, number] = match;
       } else if (args.length !== 2) throw new Error('USAGE_INVALID');
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
-      report = await inspectPullRequest({ repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+      const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };
+      if (waitSeconds === undefined) report = await inspectPullRequest(options);
+      else {
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+        try { report = await waitForPullRequest({ ...options, waitSeconds, signal: controller.signal }); }
+        finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
+      }
     } else if (command === 'inspect-gitlab' && args.length === 2 && /^[1-9][0-9]*$/u.test(args[1])) {
       report = await inspectMergeRequest({ project: args[0], number: Number(args[1]), token: process.env.GITLAB_TOKEN });
     } else throw new Error('USAGE_INVALID');
@@ -138,7 +166,8 @@ try {
   }
 } catch (error) {
   // Never print filesystem paths, provider bodies, tokens or arbitrary exception text.
-  const report = command === 'init' ? setupFailure(error) : unavailable(error);
-  process.stderr.write(formatReport(report, format === 'text' || (format === 'compact' && command !== 'init') ? format : 'json'));
+  const setup = ['init', 'doctor'].includes(command);
+  const report = setup ? setupFailure(error) : unavailable(error);
+  process.stderr.write(formatReport(report, format === 'text' || (format === 'compact' && !setup) ? format : 'json'));
   process.exitCode = 2;
 }

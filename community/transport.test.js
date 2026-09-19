@@ -59,3 +59,25 @@ test('arbitrary exception strings cannot enter machine outcomes', () => {
   assert.equal(JSON.stringify(report).includes('private context'), false);
   assert.equal(unavailable(new CollectionError('NOT_FOUND')).authority.guardPublished, false);
 });
+
+test('cancellation stops an in-flight GET and never retries or emits the abort reason', async () => {
+  const controller = new AbortController(); let calls = 0;
+  const read = reader(async (_url, { signal }) => {
+    calls++;
+    const pending = new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    controller.abort('synthetic-secret'); return pending;
+  }, { signal: controller.signal });
+  await assert.rejects(read('/repos/example/repo'), error => {
+    assert.equal(unavailable(error).code, 'COLLECTION_CANCELLED');
+    assert.equal(JSON.stringify(unavailable(error)).includes('synthetic-secret'), false); return true;
+  });
+  await assert.rejects(read('/repos/example/repo'), { code: 'COLLECTION_CANCELLED' });
+  assert.equal(calls, 1);
+});
+test('cancellation during retry backoff stops before the next network attempt', async () => {
+  const controller = new AbortController(); let calls = 0;
+  const read = reader(async () => { calls++; return new Response('', { status: 503 }); },
+    { signal: controller.signal, sleep: async () => { controller.abort('synthetic-secret'); } });
+  await assert.rejects(read('/repos/example/repo'), { code: 'COLLECTION_CANCELLED' });
+  assert.equal(calls, 1);
+});

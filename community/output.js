@@ -2,6 +2,14 @@
 export function formatReport(report, format = 'json') {
   if (format === 'json') return JSON.stringify(report, null, 2) + '\n';
   const clean = value => String(value).replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ');
+  if (format === 'text' && report.kind === 'changeplane.setup-check') return [
+    `ChangePlane prerequisites: ${report.decision}`,
+    `Policy revision: ${report.baseSha}`,
+    ...(report.checks ?? []).map(check => `${check.id}: ${check.status}`),
+    `Next: ${report.nextAction}`,
+    ...(report.unverified ?? []).map(item => `Not verified: ${item}`),
+    'Prerequisites only. No PR assessment, Guard, repair or merge authority.',
+  ].map(clean).join('\n') + '\n';
   if (format === 'text' && report.kind === 'changeplane.setup-plan') return [
     `ChangePlane setup: ${report.decision}`,
     `Default revision: ${report.baseSha ?? 'unavailable'}`,
@@ -26,6 +34,7 @@ export function formatReport(report, format = 'json') {
     claim: report.claim ?? null,
     capabilities: report.capabilities ?? null,
     observation: report.observation ?? null,
+    ...(report.wait ? { wait: report.wait } : {}),
     findingCount: report.findings?.length ?? null,
     findings: report.findings ?? [], diagnoses: report.diagnoses ?? [],
     nextAction: report.nextAction, nextActionCode: report.nextActionCode ?? (revisions ? report.nextAction : null),
@@ -54,6 +63,7 @@ export function formatReport(report, format = 'json') {
     ...(summary.capabilities ? [`Capabilities: ${JSON.stringify(summary.capabilities)}`] : []),
     `Evidence: ${report.observation?.source ?? 'unavailable'}; point-in-time advisory assessment`,
     ...(report.code ? [`Reason: ${report.code}`] : []),
+    ...(report.wait ? [`Wait: ${report.wait.outcome}; ${report.wait.inspections} inspections within ${report.wait.secondsRequested} seconds requested`] : []),
     ...((report.findings ?? []).map(item => `Finding: ${item.code}`)),
     `Next: ${summary.nextActionCode === 'REOBSERVE_REVISION'
       ? 'Read the current PR revision and workflow attempt, then reassess fresh evidence.'

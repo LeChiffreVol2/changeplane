@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
 const messages = Object.freeze({
   PERMISSION_DENIED: ['CHECK_READ_PERMISSIONS', 'Check read access to the selected repository.'],
   NOT_FOUND: ['CHECK_TARGET_AND_POLICY', 'Check the target and its trusted default-branch policy.'],
@@ -9,6 +11,8 @@ const messages = Object.freeze({
   POLICY_INVALID: ['REVIEW_TRUSTED_POLICY', 'Review the configuration on the trusted default branch.'],
   COLLECTION_INCOMPLETE: ['REOBSERVE_REVISION', 'Some required evidence or target metadata is missing or ambiguous. Reassess after it is available.'],
   EVIDENCE_CHANGED: ['REOBSERVE_REVISION', 'The revision, policy or execution changed during collection. Reassess current state.'],
+  WAIT_TIMEOUT: ['REASSESS_CURRENT_PR', 'The bounded wait ended without a settled assessment. Inspect the current PR again when CI progresses.'],
+  COLLECTION_CANCELLED: ['REASSESS_WHEN_READY', 'Inspection was cancelled. No assessment was issued; inspect again when ready.'],
 });
 export class CollectionError extends Error {
   constructor(code, { provider = null, status = null } = {}) {
@@ -31,25 +35,35 @@ export function unavailable(error) {
 
 /** Fixed-origin GETs only; retries never imply a CI rerun or mutation permission. */
 export function boundedReader({ provider, origin, prefix, headers = {}, fetchImpl = fetch,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now }) {
+  signal, sleep = ms => delay(ms, undefined, { signal }), now = Date.now }) {
   const started = now();
   let requests = 0;
   const fail = (code, status = null) => new CollectionError(code, { provider, status });
+  const checkCancelled = () => { if (signal?.aborted) throw fail('COLLECTION_CANCELLED'); };
+  const pause = async ms => {
+    try { await sleep(ms); } catch (error) { checkCancelled(); throw error; }
+    checkCancelled();
+  };
   const read = async path => {
+    checkCancelled();
     if (typeof path !== 'string' || /[\\\r\n#]/u.test(path)) throw fail('INPUT_INVALID');
     const url = new URL(path, origin);
     if (url.origin !== origin || url.username || url.password || !url.pathname.startsWith(prefix)
       || /(?:^|\/)\.\.(?:\/|$)/u.test(decodeURIComponent(url.pathname))) throw fail('INPUT_INVALID');
     for (let attempt = 0; attempt < 3; attempt++) {
+      checkCancelled();
       const remaining = 60_000 - (now() - started);
       if (++requests > 200 || remaining <= 0) throw fail('COLLECTION_LIMIT');
       let response;
+      const timeout = AbortSignal.timeout(Math.min(15_000, remaining));
       try { response = await fetchImpl(url.href, { method: 'GET', redirect: 'error',
-        signal: AbortSignal.timeout(Math.min(15_000, remaining)), headers }); }
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout, headers }); }
       catch {
-        if (attempt < 2) { await sleep(250 * (attempt + 1)); continue; }
+        checkCancelled();
+        if (attempt < 2) { await pause(250 * (attempt + 1)); continue; }
         throw fail('PROVIDER_UNAVAILABLE');
       }
+      if (signal?.aborted) { await response.body?.cancel(); checkCancelled(); }
       if (!response.ok) {
         const retryHeader = response.headers.get('retry-after');
         const rateLimited = response.status === 429 || (response.status === 403
@@ -62,7 +76,7 @@ export function boundedReader({ provider, origin, prefix, headers = {}, fetchImp
           : /^\d+(?:\.\d+)?$/u.test(retryHeader) ? Number(retryHeader) * 1000 : Date.parse(retryHeader) - now();
         await response.body?.cancel();
         if (transient && attempt < 2 && Number.isFinite(delay) && delay >= 0 && delay <= 2000
-          && now() - started + delay < 60_000) { await sleep(delay); continue; }
+          && now() - started + delay < 60_000) { await pause(delay); continue; }
         throw fail(rateLimited ? 'RATE_LIMITED' : [401, 403].includes(response.status) ? 'PERMISSION_DENIED'
           : response.status === 404 ? 'NOT_FOUND' : transient ? 'PROVIDER_UNAVAILABLE' : 'RESPONSE_INVALID', response.status);
       }
@@ -71,6 +85,7 @@ export function boundedReader({ provider, origin, prefix, headers = {}, fetchImp
         const stream = response.body.getReader();
         for (;;) {
           const { done, value } = await stream.read();
+          if (signal?.aborted) { await stream.cancel(); checkCancelled(); }
           if (done) break;
           size += value.byteLength;
           if (size > 4_000_000) { await stream.cancel(); throw fail('COLLECTION_LIMIT'); }
@@ -78,6 +93,7 @@ export function boundedReader({ provider, origin, prefix, headers = {}, fetchImp
         }
         return JSON.parse(Buffer.concat(chunks).toString('utf8'));
       } catch (error) {
+        checkCancelled();
         if (error instanceof CollectionError) throw error;
         throw fail('RESPONSE_INVALID');
       }

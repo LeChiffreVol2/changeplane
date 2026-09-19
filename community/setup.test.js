@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planSetup, writeSetupPlan, setupFailure } from './setup.js';
+import { planSetup, inspectSetup, writeSetupPlan, setupFailure } from './setup.js';
 import { CollectionError } from './transport.js';
+import { assessmentRpc, callAssessmentTool } from './mcp.js';
+import { formatReport } from './output.js';
+import { spawnSync } from 'node:child_process';
 
 const base = 'b'.repeat(40), head = 'a'.repeat(40), release = 'c'.repeat(40), root = '/repos/example/project';
 const workflow = '.github/workflows/ci.yml';
@@ -36,6 +39,122 @@ function fixture() {
   return { data, reads, read, options };
 }
 const selected = { check: 'Behavior', workflow };
+
+test('installed CLI doctor reports missing and configured policy with distinct exits and useful text', () => {
+  const f = fixture();
+  f.data[`${root}/pulls?state=open&per_page=1`] = [];
+  f.data[`${root}/actions/runs?per_page=1`] = { workflow_runs: [] };
+  f.data[`${root}/commits/${base}/check-runs?per_page=1`] = { check_runs: [] };
+  const run = (...args) => spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const data = ${JSON.stringify(f.data)};
+    globalThis.fetch = async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.origin !== 'https://api.github.com' || options.method !== 'GET') throw new Error('unexpected access');
+      const value = data[parsed.pathname + parsed.search];
+      return value === undefined ? new Response('', { status: 404 }) : Response.json(value);
+    };
+    process.argv = [process.execPath, 'bin/changeplane.js', ...process.argv.slice(1)];
+    await import(${JSON.stringify(new URL('./cli.js', import.meta.url).href)});
+  `, 'doctor', 'example/project', ...args], { encoding: 'utf8' });
+  const missing = run();
+  assert.equal(missing.status, 1, missing.stderr);
+  assert.equal(JSON.parse(missing.stdout).decision, 'SETUP_REQUIRED'); assert.equal(missing.stderr, '');
+  f.data[`${root}/contents/.changeplane.json?ref=${base}`] = file(JSON.stringify({
+    protectedPaths: { block: [], requireApproval: [] },
+    evidence: { requiredChecks: [{ name: 'Behavior', appSlug: 'github-actions', workflowPath: workflow }] },
+  }));
+  const ready = run();
+  assert.equal(ready.status, 0, ready.stderr); assert.equal(JSON.parse(ready.stdout).decision, 'CHECKS_PASSED');
+  const text = run('--format', 'text'); assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /Next: Run inspect/); assert.match(text.stdout, /Prerequisites only/);
+});
+
+test('MCP takes an unconfigured repository through checks, discovery and a reviewable setup plan', async () => {
+  const f = fixture();
+  f.data[`${root}/pulls?state=open&per_page=1`] = [];
+  f.data[`${root}/actions/runs?per_page=1`] = { workflow_runs: [] };
+  f.data[`${root}/commits/${base}/check-runs?per_page=1`] = { check_runs: [] };
+  const configuration = { CHANGEPLANE_REPOSITORY: 'example/project', GH_TOKEN: 'synthetic-secret' };
+  const rpc = assessmentRpc((name, args) => callAssessmentTool(name, args, configuration, f.options));
+  await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } });
+  await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  const call = async (name, args) => (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })).result;
+  const check = await call('changeplane_check_setup', {});
+  assert.equal(check.isError, false); assert.equal(check.structuredContent.decision, 'SETUP_REQUIRED');
+  assert.match(formatReport(check.structuredContent, 'text'), /Prerequisites only/);
+  const discovery = await call('changeplane_setup', {});
+  assert.equal(discovery.isError, false); assert.equal(discovery.structuredContent.decision, 'SELECTION_REQUIRED');
+  assert.equal(discovery.structuredContent.candidates[0].name, 'Behavior');
+  assert.deepEqual(discovery.structuredContent.files, []);
+  const plan = await call('changeplane_setup', selected);
+  assert.equal(plan.isError, false); assert.equal(plan.structuredContent.decision, 'REVIEW_REQUIRED');
+  assert.equal(plan.structuredContent.runtimeRevision, release);
+  assert.deepEqual(plan.structuredContent.files.map(item => item.path), ['.changeplane.json', '.github/workflows/changeplane-community.yml']);
+  assert.equal(JSON.parse(plan.structuredContent.files[0].content).evidence.requiredChecks[0].name, 'Behavior');
+  assert.equal(plan.structuredContent.authority.repositoryModified, false);
+  assert.equal(JSON.stringify(plan).includes('synthetic-secret'), false);
+  const before = f.reads.length;
+  for (const [name, args] of [
+    ['changeplane_check_setup', { repository: 'other/repo' }], ['changeplane_check_setup', { token: 'injected' }],
+    ['changeplane_setup', { ...selected, output: '/tmp/forbidden' }], ['changeplane_setup', { coordination: true }],
+    ['changeplane_setup', { check: 'Behavior' }], ['changeplane_setup', { check: false, workflow }],
+    ['changeplane_setup', { pullRequest: 0 }], ['changeplane_setup', { ...selected, repository: 'other/repo' }],
+  ]) {
+    const result = await call(name, args);
+    assert.equal(result.isError, true); assert.equal(result.structuredContent.code, 'INPUT_INVALID');
+  }
+  assert.equal(f.reads.length, before);
+});
+
+test('read-only doctor distinguishes missing policy from ready prerequisites without preparing repository changes', async () => {
+  const f = fixture();
+  f.data[`${root}/pulls?state=open&per_page=1`] = [];
+  f.data[`${root}/actions/runs?per_page=1`] = { workflow_runs: [] };
+  f.data[`${root}/commits/${base}/check-runs?per_page=1`] = { check_runs: [] };
+  const missing = await inspectSetup({ ...f.options, nodeVersion: '22.18.0' });
+  assert.equal(missing.decision, 'SETUP_REQUIRED');
+  assert.equal(missing.baseSha, base);
+  assert.equal(missing.authority.repositoryModified, false);
+  assert.equal(missing.files, undefined);
+  assert.match(missing.nextAction, /init/);
+  f.data[`${root}/contents/.changeplane.json?ref=${base}`] = file(JSON.stringify({
+    protectedPaths: { block: [], requireApproval: [] },
+    evidence: { requiredChecks: [{ name: 'Behavior', appSlug: 'github-actions', workflowPath: workflow }] },
+  }));
+  const ready = await inspectSetup({ ...f.options, nodeVersion: '24.13.0' });
+  assert.equal(ready.decision, 'CHECKS_PASSED');
+  assert.equal(ready.runtimeRevision, release);
+  assert.equal(ready.requiredChecks[0].name, 'Behavior');
+  assert.equal(ready.authority.guardPublished, false);
+  assert.match(ready.nextAction, /inspect/);
+  assert.ok(ready.unverified.some(item => /behavior/i.test(item)));
+});
+
+test('doctor rejects unsupported runtimes before access and reports policy drift or permission failures without a ready result', async () => {
+  const f = fixture();
+  await assert.rejects(inspectSetup({ ...f.options, nodeVersion: '20.19.0' }), { code: 'SETUP_NODE_UNQUALIFIED' });
+  assert.equal(f.reads.length, 0);
+  await assert.rejects(inspectSetup({ ...f.options, read: async () => {
+    throw new CollectionError('PERMISSION_DENIED', { provider: 'github', status: 403 });
+  } }), { code: 'PERMISSION_DENIED' });
+  f.data[`${root}/pulls?state=open&per_page=1`] = [];
+  f.data[`${root}/actions/runs?per_page=1`] = { workflow_runs: [] };
+  f.data[`${root}/commits/${base}/check-runs?per_page=1`] = { check_runs: [] };
+  let reads = 0;
+  await assert.rejects(inspectSetup({ ...f.options, read: async path => {
+    const response = await f.read(path);
+    if (path.endsWith('/commits/main') && ++reads === 2) response.sha = head;
+    return response;
+  } }), { code: 'EVIDENCE_CHANGED' });
+  f.data[`${root}/contents/.changeplane.json?ref=${base}`] = file('null');
+  await assert.rejects(inspectSetup(f.options), { code: 'POLICY_INVALID' });
+  f.data[`${root}/contents/.changeplane.json?ref=${base}`] = file(JSON.stringify({
+    protectedPaths: { block: [], requireApproval: [] },
+    evidence: { requiredChecks: [{ name: 'Behavior', appSlug: 'github-actions', workflowPath: workflow }] },
+  }));
+  f.data[`${root}/actions/workflows?per_page=100`].workflows[0].state = 'disabled_manually';
+  await assert.rejects(inspectSetup(f.options), { code: 'SETUP_WORKFLOW_INVALID' });
+});
 
 test('setup discovers exact job identities without selecting or writing a policy', async () => {
   const f = fixture();

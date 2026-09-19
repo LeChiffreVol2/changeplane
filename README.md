@@ -88,7 +88,7 @@ node bin/changeplane.js team next YOUR_ACCOUNT/YOUR_REPOSITORY
 
 Each task has a defined scope and its own worktree. Existing agents perform development and respond to findings; ChangePlane records coordination in the repository. Doctor reports setup problems without changing branches. A stopped agent still needs its existing runtime to resume it.
 
-**Agents:** use the [read-only MCP and consumer skill](docs/community.md#use-with-an-agent) to inspect a PR without configuring coordination writes. `changeplane_inspect` returns the revision, findings and next action. The [separate team MCP](docs/repository-team.md#cursor-and-other-mcp-clients) adds scoped tasks and workspaces after operator setup. [Agent instructions →](skills/changeplane/SKILL.md)
+**Agents:** use the [read-only MCP and consumer skill](docs/community.md#use-with-an-agent) to inspect a PR without configuring coordination writes. Current source adds `changeplane_check_setup`, `changeplane_setup` and bounded waiting through `changeplane_inspect`; the CLI equivalents are `doctor`, `init` and `inspect --wait 30`. These help the agent check access, prepare a reviewed configuration and follow pending CI through the same runtime. Use a verified current-source build and check its help/tool list; immutable tagged bundles may expose fewer capabilities. The [separate team MCP](docs/repository-team.md#cursor-and-other-mcp-clients) adds scoped tasks and workspaces after operator setup. [Agent instructions →](skills/changeplane/SKILL.md)
 
 ## Choose how you work
 
