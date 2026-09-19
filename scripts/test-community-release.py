@@ -40,6 +40,8 @@ assert 'ref: ' + manifest['commit'] in (assets / 'changeplane-team.yml').read_te
 expected = set(manifest['files']) | {'SOURCE.json'}
 actual = {path.relative_to(root).as_posix() for path in root.rglob('*') if path.is_file()}
 assert actual == expected, 'Archive file inventory differs from SOURCE.json.'
+assert not any(name.startswith(('api/', 'server/', 'database/', 'action/')) for name in actual), \
+    'Public runtime must remain separate from hosted controllers, admission storage and managed authority.'
 for name, digest in manifest['files'].items():
     assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, 'Source checksum mismatch.'
 package = json.loads((root / 'package.json').read_text())
@@ -64,10 +66,18 @@ result = subprocess.run(['node', '--input-type=module', '-e',
                         cwd=root, check=True, capture_output=True, text=True)
 assert result.stdout.strip() == manifest['commit']
 
-for document in root.rglob('*.md'):
-    for target in re.findall(r'\]\(([^)]+)\)', document.read_text(encoding='utf-8')):
-        if '://' not in target and not target.startswith('#'):
-            assert (document.parent / target.split('#')[0]).exists(), 'Broken local documentation link.'
+def verify_documentation(directory):
+    for document in directory.rglob('*.md'):
+        for target in re.findall(r'\]\(([^)]+)\)', document.read_text(encoding='utf-8')):
+            if '://' not in target and not target.startswith('#'):
+                assert (document.parent / target.split('#')[0]).exists(), \
+                    f'Broken local documentation link in {document.relative_to(directory)}: {target}'
+
+verify_documentation(root)
+# Users install only the skill folder into their agent client, not all runtime docs.
+installed_skill = destination / 'consumer repository with spaces' / '.agents/skills/changeplane'
+shutil.copytree(root / 'skills/changeplane', installed_skill)
+verify_documentation(installed_skill)
 tests = sorted(str(path.relative_to(root)) for path in (root / 'community').glob('*.test.js'))
 assert tests
 subprocess.run(['node', '--test', *tests], cwd=root, check=True)

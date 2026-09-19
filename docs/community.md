@@ -41,6 +41,23 @@ Download the archive, workflow templates and `SHA256SUMS` from [ChangePlane 0.4.
 
 To evaluate changes after the published release, open a successful **main** run in [CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) and download its `changeplane-source-COMMIT-attempt-N` artifact. GitHub requires sign-in for CI artifact downloads. These artifacts expire after seven days; the release assets remain the primary download. A source checkout at an exact commit also works with `node bin/changeplane.js`.
 
+For the current source without an artifact download or GitHub sign-in, use a separate runtime checkout. From a directory outside your target repository:
+
+```sh
+git clone --filter=blob:none --no-checkout https://github.com/LeChiffreVol2/changeplane.git changeplane-runtime
+git -C changeplane-runtime rev-parse origin/main
+```
+
+Review the returned full commit and its successful **main** CI run. Replace `REVIEWED_COMMIT_SHA` below with that same 40-character SHA; do not advance it to a newer revision while installing:
+
+```sh
+git -C changeplane-runtime checkout --detach REVIEWED_COMMIT_SHA
+node changeplane-runtime/bin/changeplane.js --help
+node changeplane-runtime/bin/changeplane.js evaluate changeplane-runtime/examples/community/satisfied.json
+```
+
+The expected example result is `EVIDENCE_SATISFIED` with no Guard or merge authority. Give your agent the runtime's absolute path and `skills/changeplane/SKILL.md` from this checkout. No `npm install` is needed. Use a new runtime directory for an upgrade, review the new commit and keep participating team operators and workflows on one revision; preserve existing worktrees and reports.
+
 Check the archive and workflow files against `SHA256SUMS`, then extract the `.tar.gz`. If using a CI artifact, extract its outer zip first. Run from the extracted directory with `node bin/changeplane.js`, or install its dependency-free command into your existing writable npm prefix:
 
 ```sh
@@ -95,7 +112,7 @@ For clients using `mcpServers`, configure a trusted runtime path:
 
 For private access, supply a repository-scoped **read-only** `GH_TOKEN` or `GITHUB_TOKEN` through the operator environment or your client's secret mechanism. Do not embed credentials in shared JSON, prompts or committed files. Project MCP configuration is a client configuration surface, not credential isolation. Keep the credentialed process outside any untrusted coding sandbox.
 
-Install the whole [consumer skill folder](../skills/changeplane/SKILL.md) into a skill location supported by your client, such as `.agents/skills/changeplane/` for a compatible client. Review and preserve existing repository instructions. The skill is self-contained; it distinguishes read-only PR diagnosis from an already configured team operator. Root `AGENTS.md` is for contributing to ChangePlane itself.
+Install the whole [consumer skill folder](../skills/changeplane/SKILL.md) into a skill location supported by your client, such as `.agents/skills/changeplane/` for a compatible client. Review and preserve existing repository instructions. Its guide links remain usable after copying; packaged skills link to their exact source revision. Tell the agent the separate runtime's absolute path. Installing the skill does not install a command, configure MCP or connect a repository. Root `AGENTS.md` is for contributing to ChangePlane itself.
 
 Ask the agent to inspect one PR, read the reported revision and next action, and reassess after any change. The complete JSON remains the default CLI output; `--format text` is a human summary and `--format compact` omits the repeated full handback while retaining findings, revision and advisory authority. Summaries cannot replace full evidence verification.
 
