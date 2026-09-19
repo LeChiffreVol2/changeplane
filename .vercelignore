@@ -9,6 +9,7 @@ examples/*
 !examples/changeplane-claim.js
 !examples/changeplane-evidence-policy.js
 !examples/changeplane-grant.js
+!examples/changeplane-openai-response.js
 !examples/changeplane-proposal.js
 !examples/changeplane-provider-openai.js
 !examples/changeplane-review-openai.js

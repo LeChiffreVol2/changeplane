@@ -33,7 +33,7 @@ import {
 import {
   evaluateChange,
 } from "./lib/changeplane.js";
-import { ApiError, responseJson } from "./lib/api-client.js";
+import { EMPTY_HARNESS, useCustomerAccount } from "./use-customer-account.js";
 import {
   REVISION_STAGE_STATE,
   buildRevisionSdlcAssurance,
@@ -68,26 +68,7 @@ const GITHUB_ENTRY_ERROR = {
   installation_unavailable: "That ChangePlane installation is not available to this GitHub account. Sign in with an account that can access it or install ChangePlane again.",
   permissions_required: "ChangePlane is installed, but its required repository permissions are not active. Ask an organization owner to review the App request, then continue with GitHub.",
 }[PAGE_QUERY.get("github")] ?? "";
-const SESSION_KEY = "changeplane.preview-session.v3";
 const RUNS_KEY = "changeplane.autonomous-runs.v2";
-const PRESENTATION_USER = {
-  name: "Alex Morgan",
-  handle: "alex-example",
-  email: "alex@example.invalid",
-  organization: "Example Engineering",
-  role: "Platform Engineering",
-  initials: "AM",
-  isPreview: true,
-};
-
-const PREVIEW_REPOSITORIES = [
-  {
-    fullName: "routethai-shadow/synthetic-routing",
-    private: true,
-    defaultBranch: "main",
-    permissions: { push: true, admin: false },
-  },
-];
 
 const RUNNING_STATES = new Set(["binding", "failing", "proposing", "validating", "applying", "rechecking", "publishing"]);
 const FILTERS = ["All changes", "Active", "Exceptions"];
@@ -98,34 +79,6 @@ const RUNTIME = {
   effort: PROPOSAL_REASONING_EFFORT,
   secretName: BYOK_SECRET_NAME,
 };
-const EMPTY_BYOK = {
-  configured: false,
-  state: "not_connected",
-  secretName: RUNTIME.secretName,
-  updatedAt: null,
-};
-const EMPTY_HARNESS = {
-  mode: "observe",
-  verifyAvailable: true,
-  autonomousAvailable: false,
-  ready: false,
-  enforcement: {
-    state: "not_installed",
-    assuranceLevel: null,
-    active: false,
-    queueCertified: false,
-    strict: false,
-    mergeQueueRequired: false,
-    guardRequired: false,
-    publisherBound: false,
-    evidenceRequired: false,
-    evidencePublisherBound: false,
-  },
-  maxAttempts: 2,
-  budgetMinutes: 15,
-  sdlc: buildSdlcAssurance(),
-};
-
 function enforcementMessage(enforcement) {
   if (enforcement?.assuranceLevel === "queue_certified") return "Queue Certified is active: one strict, no-bypass default-branch Ruleset requires Merge Queue, the dedicated-App guard, and every behavioral evidence Check from its expected publisher.";
   if (enforcement?.assuranceLevel === "strict_head") return "Strict Head is active: the exact pull-request head is protected by one strict, no-bypass Ruleset with the dedicated-App guard and every behavioral evidence Check bound to its expected publisher.";
@@ -166,40 +119,6 @@ function validWorkflowPath(workflowPath) {
 function evidenceOptionValue({ name = "", appSlug = "", workflowPath = "" } = {}) {
   return `${name}\0${appSlug}\0${workflowPath}`;
 }
-
-const PREVIEW_PREFLIGHT = {
-  repositoryState: "active",
-  installable: true,
-  conflicts: [],
-  setupFiles: 9,
-  setupProfile: "verify-lite",
-  payloadProfiles: {
-    verifyLite: { managedProfile: "verify-lite", files: 9, repairAuthority: false, providerKeyRequired: false },
-    autonomous: { managedProfile: "full", files: 21, repairAuthority: true, providerKeyRequired: true },
-  },
-  evidenceOptions: [{
-    name: "test",
-    appSlug: "github-actions",
-    workflowPath: ".github/workflows/ci.yml",
-    suggested: true,
-  }],
-  harness: { verifyAvailable: true, autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
-  capabilities: {
-    independentReview: false,
-    agentHandback: true,
-    assuranceMemory: false,
-    exactHeadPreview: true,
-    mergeQueue: true,
-  },
-  boundary: {
-    defaultBranchWrite: false,
-    pullRequestOnly: true,
-    mergeBlocking: false,
-    agentRepairDuringSetup: false,
-    untrustedCodeExecution: false,
-    providerSecretAccess: false,
-  },
-};
 
 const CHANGES = [
   {
@@ -313,20 +232,6 @@ function useDialogFocus(open, onClose) {
   }, [open]);
 
   return dialogRef;
-}
-
-function sessionFor(login, csrf, authMode = "oauth") {
-  const initials = login.slice(0, 2).toUpperCase();
-  return {
-    name: login,
-    handle: login,
-    organization: "GitHub",
-    role: "Repository access",
-    initials,
-    csrf,
-    authMode,
-    isPreview: false,
-  };
 }
 
 function UsageChoice({ usage, onChange }) {
@@ -990,46 +895,20 @@ function RuntimeFunding({
   );
 }
 
-function GitHubSetup({
-  session,
-  repositories,
-  repositoryStatus,
-  repositoryError,
-  selectedRepository,
-  onSelectRepository,
-  onRetryRepositories,
-  preflightStatus,
-  preflight,
-  preflightError,
-  onRetryPreflight,
-  installStatus,
-  installError,
-  installResult,
-  runtimeStatus,
-  runtimeError,
-  byok,
-  activeModel,
-  modelConfigured,
-  modelSaving,
-  runtimeUpdate,
-  harness,
-  byokSaving,
-  onSaveByok,
-  onDisconnectByok,
-  onChangeModel,
-  onChangeHarness,
-  rulesetPlanStatus,
-  rulesetPlan,
-  rulesetPlanError,
-  onPrepareRuleset,
-  onApplyRuleset,
-  onInstall,
-  onRecheckInstall,
-  onResetInstall,
-  onOpenWorkspace,
-  onSignOut,
-  onSettings,
-}) {
+function GitHubSetup({ onboarding, onOpenWorkspace, onSignOut, onSettings }) {
+  const { account: { session }, inventory, repository, actions } = onboarding;
+  const { items: repositories, status: repositoryStatus, error: repositoryError } = inventory;
+  const { name: selectedRepository } = repository;
+  const { status: preflightStatus, data: preflight, error: preflightError } = repository.preflight;
+  const { status: installStatus, result: installResult, error: installError } = repository.install;
+  const { status: runtimeStatus, error: runtimeError, byok, activeModel, modelConfigured,
+    modelSaving, update: runtimeUpdate, harness, byokSaving } = repository.runtime;
+  const { status: rulesetPlanStatus, plan: rulesetPlan, error: rulesetPlanError } = repository.protection;
+  const { selectRepository: onSelectRepository, loadRepositories: onRetryRepositories,
+    refreshPreflight: onRetryPreflight, saveByok: onSaveByok, disconnectByok: onDisconnectByok,
+    changeModel: onChangeModel, changeHarness: onChangeHarness, prepareRuleset: onPrepareRuleset,
+    applyRuleset: onApplyRuleset, install: onInstall, recheckInstall: onRecheckInstall,
+    resetInstall: onResetInstall } = actions;
   const [query, setQuery] = useState("");
   const [evidenceMode, setEvidenceMode] = useState("behavior");
   const [checkName, setCheckName] = useState(session.isPreview ? "test" : "");
@@ -2522,37 +2401,9 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [usage, setUsage] = useState('individual');
   const [settingsDrafts, setSettingsDrafts] = useState({ individual: { enabled: false, maxActive: 2 }, teams: { enabled: true, maxActive: 3 } });
-  const [session, setSession] = useState(() => PREVIEW_MODE ? readStoredJson(SESSION_KEY, null) : null);
-  const [authStatus, setAuthStatus] = useState(PREVIEW_MODE ? "ready" : "loading");
-  const [githubConfigured, setGithubConfigured] = useState(PREVIEW_MODE ? false : null);
-  const [githubAuthMode, setGithubAuthMode] = useState(PREVIEW_MODE ? "example" : "oauth");
-  const [githubRolloutMode, setGithubRolloutMode] = useState(PREVIEW_MODE ? "example" : "self_serve");
-  const [authError, setAuthError] = useState(GITHUB_ENTRY_ERROR);
-  const [isSigningIn, setIsSigningIn] = useState(false);
-  const [repositories, setRepositories] = useState(() => PREVIEW_MODE && session ? PREVIEW_REPOSITORIES : []);
-  const [repositoryStatus, setRepositoryStatus] = useState(() => PREVIEW_MODE && session ? "ready" : "idle");
-  const [repositoryError, setRepositoryError] = useState("");
-  const [selectedRepository, setSelectedRepository] = useState("");
-  const selectedRepositoryRef = useRef(selectedRepository);
-  const [preflightStatus, setPreflightStatus] = useState("idle");
-  const [preflight, setPreflight] = useState(null);
-  const [preflightError, setPreflightError] = useState("");
-  const [preflightRefresh, setPreflightRefresh] = useState(0);
-  const [installStatus, setInstallStatus] = useState("idle");
-  const [installError, setInstallError] = useState("");
-  const [installResult, setInstallResult] = useState(null);
-  const [runtimeStatus, setRuntimeStatus] = useState("idle");
-  const [runtimeError, setRuntimeError] = useState("");
-  const [byok, setByok] = useState(EMPTY_BYOK);
-  const [activeModel, setActiveModel] = useState(DEFAULT_PROPOSAL_MODEL);
-  const [modelConfigured, setModelConfigured] = useState(false);
-  const [modelSaving, setModelSaving] = useState(false);
-  const [runtimeUpdate, setRuntimeUpdate] = useState(null);
-  const [harness, setHarness] = useState(EMPTY_HARNESS);
-  const [rulesetPlanStatus, setRulesetPlanStatus] = useState("idle");
-  const [rulesetPlan, setRulesetPlan] = useState(null);
-  const [rulesetPlanError, setRulesetPlanError] = useState("");
-  const [byokSaving, setByokSaving] = useState(false);
+  const onboarding = useCustomerAccount({ previewMode: PREVIEW_MODE, entryError: GITHUB_ENTRY_ERROR, notify: showToast });
+  const { account, actions } = onboarding;
+  const { session } = account;
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(CHANGES[0].id);
   const [filter, setFilter] = useState(FILTERS[0]);
@@ -2578,125 +2429,6 @@ export function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [workspaceOpen, session, settingsOpen]);
-
-  useEffect(() => {
-    selectedRepositoryRef.current = selectedRepository;
-    setRulesetPlanStatus("idle");
-    setRulesetPlan(null);
-    setRulesetPlanError("");
-  }, [selectedRepository]);
-
-  useEffect(() => {
-    if (PREVIEW_MODE) return;
-    let cancelled = false;
-    async function loadSession() {
-      try {
-        const payload = await responseJson(await fetch("/api/github?action=session", { credentials: "same-origin" }));
-        if (cancelled) return;
-        setGithubConfigured(Boolean(payload.configured));
-        if (!payload.configured && typeof payload.accessBlock?.message === "string") {
-          setAuthError([payload.accessBlock.message, payload.accessBlock.nextAction]
-            .filter((value) => typeof value === "string").join(" "));
-        }
-        setGithubAuthMode(payload.authMode === "github_app" ? "github_app" : "oauth");
-        setGithubRolloutMode(["controlled_canary", "private_alpha"].includes(payload.rolloutMode)
-          ? payload.rolloutMode
-          : "self_serve");
-        setSession(payload.authenticated ? sessionFor(payload.login, payload.csrf, payload.authMode) : null);
-        setAuthStatus("ready");
-      } catch (error) {
-        if (cancelled) return;
-        setAuthError(error instanceof Error ? error.message : "GitHub setup could not be checked.");
-        setAuthStatus("error");
-      }
-    }
-    loadSession();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!session || session.isPreview) return;
-    loadRepositories();
-  }, [session]);
-
-  useEffect(() => {
-    if (!session || !selectedRepository) {
-      setPreflightStatus("idle");
-      setPreflight(null);
-      setPreflightError("");
-      return;
-    }
-    if (session.isPreview) {
-      setPreflightStatus("ready");
-      setPreflight(PREVIEW_PREFLIGHT);
-      setPreflightError("");
-      return;
-    }
-
-    let cancelled = false;
-    setPreflightStatus("loading");
-    setPreflightError("");
-    fetch(`/api/github?action=preflight&repository=${encodeURIComponent(selectedRepository)}`, {
-      credentials: "same-origin",
-      cache: "no-store",
-    })
-      .then(responseJson)
-      .then((payload) => {
-        if (cancelled) return;
-        setPreflight(payload);
-        setPreflightStatus("ready");
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setPreflightError(error instanceof Error ? error.message : "Repository safety could not be checked.");
-        setPreflightStatus("error");
-      });
-    return () => { cancelled = true; };
-  }, [session, selectedRepository, preflightRefresh]);
-
-  useEffect(() => {
-    if (!session || !selectedRepository) {
-      setRuntimeStatus("idle");
-      setRuntimeError("");
-      setByok(EMPTY_BYOK);
-      setActiveModel(DEFAULT_PROPOSAL_MODEL);
-      setModelConfigured(false);
-      setRuntimeUpdate(null);
-      setHarness(EMPTY_HARNESS);
-      return;
-    }
-    if (session.isPreview) {
-      setRuntimeStatus("ready");
-      setRuntimeError("");
-      setByok(EMPTY_BYOK);
-      setActiveModel(DEFAULT_PROPOSAL_MODEL);
-      setModelConfigured(true);
-      setRuntimeUpdate(null);
-      setHarness({ ...EMPTY_HARNESS, autonomousAvailable: true });
-      return;
-    }
-
-    let cancelled = false;
-    setRuntimeStatus("loading");
-    setRuntimeError("");
-    fetch(`/api/github?action=runtime&repository=${encodeURIComponent(selectedRepository)}`, { credentials: "same-origin" })
-      .then(responseJson)
-      .then((payload) => {
-        if (cancelled) return;
-        setByok(payload.byok);
-        setActiveModel(payload.activeModel || DEFAULT_PROPOSAL_MODEL);
-        setModelConfigured(Boolean(payload.modelConfigured));
-        setRuntimeUpdate(null);
-        setHarness({ ...EMPTY_HARNESS, ...payload.harness, sdlc: payload.sdlc ?? EMPTY_HARNESS.sdlc });
-        setRuntimeStatus("ready");
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setRuntimeError(error instanceof Error ? error.message : "Agent runtime status could not be loaded.");
-        setRuntimeStatus("error");
-      });
-    return () => { cancelled = true; };
-  }, [session, selectedRepository, preflightRefresh]);
 
   useEffect(() => {
     if (session?.isPreview) window.localStorage.setItem(RUNS_KEY, JSON.stringify(runs));
@@ -2745,365 +2477,25 @@ export function App() {
     window.setTimeout(() => setToast(""), 2400);
   }
 
-  function signIn() {
-    if (isSigningIn || githubConfigured !== true) return;
-    setIsSigningIn(true);
-    window.location.assign("/api/github?action=login");
-  }
-
-  function authorizeExisting() {
-    if (isSigningIn || githubConfigured !== true || githubAuthMode !== "github_app") return;
-    setIsSigningIn(true);
-    window.location.assign("/api/github?action=authorize");
-  }
-
   function exploreProduct() {
-    if (isSigningIn) return;
-    setIsSigningIn(true);
-    window.setTimeout(() => {
-      window.localStorage.setItem(SESSION_KEY, JSON.stringify(PRESENTATION_USER));
-      window.localStorage.removeItem(RUNS_KEY);
-      setRuns({});
-      setSession(PRESENTATION_USER);
-      setRepositories(PREVIEW_REPOSITORIES);
-      setSelectedRepository("");
-      setRepositoryStatus("ready");
-      setSelectedId("route");
-      setWorkspaceOpen(true);
-      setIsSigningIn(false);
-    }, 520);
+    if (!actions.explore()) return;
+    window.localStorage.removeItem(RUNS_KEY);
+    setRuns({});
+    setSelectedId("route");
+    setWorkspaceOpen(true);
   }
 
   async function signOut() {
-    if (!session) return;
-    if (!session.isPreview) {
-      try {
-        await responseJson(await fetch("/api/github?action=logout", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "x-changeplane-csrf": session.csrf },
-        }));
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
-          // The server session is already gone; clear the stale browser state below.
-        } else {
-        showToast(error instanceof Error ? error.message : "Sign out failed.");
-        return;
-        }
-      }
-    }
+    if (!await actions.signOut()) return;
     timersRef.current.forEach(window.clearTimeout);
     timersRef.current = [];
-    window.localStorage.removeItem(SESSION_KEY);
     window.localStorage.removeItem(RUNS_KEY);
     setRuns({});
     setAccountOpen(false);
-    setRepositories([]);
-    setRepositoryStatus("idle");
-    setSelectedRepository("");
-    setPreflightStatus("idle");
-    setPreflight(null);
-    setPreflightError("");
-    setInstallStatus("idle");
-    setInstallResult(null);
-    setRuntimeStatus("idle");
-    setRuntimeError("");
-    setByok(EMPTY_BYOK);
-    setActiveModel(DEFAULT_PROPOSAL_MODEL);
-    setModelConfigured(false);
-    setRuntimeUpdate(null);
-    setHarness(EMPTY_HARNESS);
-    setRulesetPlanStatus("idle");
-    setRulesetPlan(null);
-    setRulesetPlanError("");
     setWorkspaceOpen(false);
     setPreviewEvidenceOpen(false);
     setBackboneOpen(false);
     setHandbackOpen(false);
-    setSession(null);
-  }
-
-  async function loadRepositories() {
-    if (session?.isPreview) {
-      setRepositories(PREVIEW_REPOSITORIES);
-      setRepositoryStatus("ready");
-      return;
-    }
-    setRepositoryStatus("loading");
-    setRepositoryError("");
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=repos", { credentials: "same-origin" }));
-      const nextRepositories = Array.isArray(payload.repositories) ? payload.repositories : [];
-      setRepositories(nextRepositories);
-      setSelectedRepository((current) => (
-        nextRepositories.some(({ fullName }) => fullName === current) ? current : ""
-      ));
-      setRepositoryStatus("ready");
-    } catch (error) {
-      setRepositoryError(error instanceof Error ? error.message : "Repositories could not be loaded.");
-      setRepositoryStatus("error");
-    }
-  }
-
-  async function installRepository({ requiredCheck = null, harnessMode = "observe" } = {}) {
-    if (!selectedRepository || preflightStatus !== "ready" || !preflight?.installable || installStatus === "installing") return;
-    setInstallStatus("installing");
-    setInstallError("");
-    if (session?.isPreview) {
-      const timer = window.setTimeout(() => {
-        setInstallResult({
-          preview: true,
-          repository: selectedRepository,
-          branch: "changeplane/observe-setup",
-          harnessMode,
-        });
-        setInstallStatus("complete");
-      }, 780);
-      timersRef.current.push(timer);
-      return;
-    }
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=install", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-changeplane-csrf": session.csrf,
-        },
-        body: JSON.stringify({ repository: selectedRepository, requiredCheck, harnessMode }),
-      }));
-      setInstallResult(payload);
-      setInstallStatus("complete");
-    } catch (error) {
-      setInstallError(error instanceof Error ? error.message : "The installation pull request could not be created.");
-      setInstallStatus("error");
-    }
-  }
-
-  async function saveByok(apiKey) {
-    if (!selectedRepository || byokSaving) return false;
-    const repository = selectedRepository;
-    setByokSaving(true);
-    setRuntimeError("");
-    if (session?.isPreview) {
-      const timer = window.setTimeout(() => {
-        if (selectedRepositoryRef.current === repository) {
-          setByok({ ...EMPTY_BYOK, configured: true, state: "connected", updatedAt: new Date().toISOString() });
-          setRuntimeStatus("ready");
-          showToast("OpenAI key verified");
-        }
-        setByokSaving(false);
-      }, 520);
-      timersRef.current.push(timer);
-      return true;
-    }
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=byok", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-changeplane-csrf": session.csrf,
-        },
-        body: JSON.stringify({ repository, apiKey }),
-      }));
-      if (selectedRepositoryRef.current === repository) {
-        setByok(payload.byok);
-        setRuntimeStatus("ready");
-        showToast("OpenAI key saved to GitHub Actions");
-      }
-      return true;
-    } catch (error) {
-      if (selectedRepositoryRef.current === repository) {
-        setRuntimeError(error instanceof Error ? error.message : "The provider key could not be secured.");
-        setRuntimeStatus("error");
-      }
-      return false;
-    } finally {
-      setByokSaving(false);
-    }
-  }
-
-  async function prepareRulesetPlan(assuranceLevel = "strict_head") {
-    if (!selectedRepository || session?.isPreview || rulesetPlanStatus === "loading" || rulesetPlanStatus === "applying") return;
-    const repository = selectedRepository;
-    setRulesetPlanStatus("loading");
-    setRulesetPlan(null);
-    setRulesetPlanError("");
-    try {
-      const payload = await responseJson(await fetch(
-        `/api/github?action=ruleset-plan&repository=${encodeURIComponent(repository)}&assuranceLevel=${encodeURIComponent(assuranceLevel)}`,
-        { credentials: "same-origin", cache: "no-store" },
-      ));
-      if (selectedRepositoryRef.current !== repository) return;
-      setRulesetPlan(payload.plan);
-      setRulesetPlanStatus(payload.plan?.action === "none" ? "applied" : "ready");
-    } catch (error) {
-      if (selectedRepositoryRef.current !== repository) return;
-      setRulesetPlanError(error instanceof Error ? error.message : "The exact Ruleset plan could not be prepared.");
-      setRulesetPlanStatus("error");
-    }
-  }
-
-  async function applyRulesetPlan() {
-    if (!selectedRepository || session?.isPreview || rulesetPlanStatus !== "ready" || rulesetPlan?.action !== "create" || rulesetPlan.canApply !== true) return;
-    const repository = selectedRepository;
-    const approvedPlan = rulesetPlan;
-    setRulesetPlanStatus("applying");
-    setRulesetPlanError("");
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=ruleset-apply", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-changeplane-csrf": session.csrf,
-        },
-        body: JSON.stringify({
-          repository,
-          assuranceLevel: approvedPlan.assuranceLevel,
-          planDigest: approvedPlan.planDigest,
-        }),
-      }));
-      if (selectedRepositoryRef.current !== repository) return;
-      setHarness((current) => ({ ...current, enforcement: payload.enforcement }));
-      const requestedActive = payload.state === "applied" || payload.state === "already_active";
-      if (requestedActive && payload.enforcement?.active) {
-        setRulesetPlanStatus("applied");
-        showToast(payload.enforcement?.assuranceLevel === "queue_certified"
-          ? "Queue Certified is active"
-          : "Strict Head is active");
-      } else {
-        setRulesetPlanError(payload.enforcement?.nextAction
-          || "Wait for GitHub policy propagation, then recheck this repository.");
-        setRulesetPlanStatus("reconciliation_required");
-      }
-      setPreflightRefresh((value) => value + 1);
-    } catch (error) {
-      if (selectedRepositoryRef.current !== repository) return;
-      setRulesetPlanError(error instanceof Error ? error.message : "The approved Ruleset plan could not be applied.");
-      setRulesetPlanStatus("error");
-    }
-  }
-
-  async function changeRuntimeModel(model) {
-    if (!selectedRepository || modelSaving || !SUPPORTED_PROPOSAL_MODELS.includes(model)) return;
-    const repository = selectedRepository;
-    setModelSaving(true);
-    setRuntimeError("");
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=runtime", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-changeplane-csrf": session.csrf,
-        },
-        body: JSON.stringify({ repository, model }),
-      }));
-      if (selectedRepositoryRef.current === repository) {
-        setRuntimeUpdate(payload);
-        if (payload.state === "current") setActiveModel(model);
-        showToast(payload.state === "current" ? `${model} is already active` : `Runtime PR created for ${model}`);
-      }
-    } catch (error) {
-      if (selectedRepositoryRef.current === repository) {
-        setRuntimeError(error instanceof Error ? error.message : "The runtime pull request could not be created.");
-      }
-    } finally {
-      setModelSaving(false);
-    }
-  }
-
-  async function changeHarnessMode(mode) {
-    if (!selectedRepository || modelSaving || !["observe", "verify", "autonomous"].includes(mode)) return;
-    const repository = selectedRepository;
-    setModelSaving(true);
-    setRuntimeError("");
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=runtime", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-changeplane-csrf": session.csrf,
-        },
-        body: JSON.stringify({ repository, model: activeModel, harnessMode: mode }),
-      }));
-      if (selectedRepositoryRef.current === repository) {
-        setRuntimeUpdate(payload);
-        if (payload.state === "current") {
-          setHarness((current) => ({ ...current, mode, ready: mode === "autonomous" }));
-        }
-        showToast(payload.state === "current" ? `${mode} mode is already active` : `Harness PR created for ${mode} mode`);
-      }
-    } catch (error) {
-      if (selectedRepositoryRef.current === repository) {
-        setRuntimeError(error instanceof Error ? error.message : "The harness pull request could not be created.");
-      }
-    } finally {
-      setModelSaving(false);
-    }
-  }
-
-  async function disconnectByok() {
-    if (!selectedRepository || byokSaving) return;
-    const repository = selectedRepository;
-    setByokSaving(true);
-    setRuntimeError("");
-    if (session?.isPreview) {
-      if (selectedRepositoryRef.current === repository) {
-        setByok(EMPTY_BYOK);
-        showToast("OpenAI key removed from GitHub Actions");
-      }
-      setByokSaving(false);
-      return;
-    }
-    try {
-      const payload = await responseJson(await fetch("/api/github?action=byok", {
-        method: "DELETE",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-changeplane-csrf": session.csrf,
-        },
-        body: JSON.stringify({ repository }),
-      }));
-      if (selectedRepositoryRef.current === repository) {
-        setByok(payload.byok);
-        setRuntimeStatus("ready");
-        showToast("OpenAI key removed from GitHub Actions");
-      }
-    } catch (error) {
-      if (selectedRepositoryRef.current === repository) {
-        setRuntimeError(error instanceof Error ? error.message : "The provider key could not be disconnected.");
-        setRuntimeStatus("error");
-      }
-    } finally {
-      setByokSaving(false);
-    }
-  }
-
-  function resetInstall() {
-    setInstallResult(null);
-    setInstallStatus("idle");
-    setInstallError("");
-    setSelectedRepository("");
-  }
-
-  function refreshPreflight() {
-    if (!selectedRepository || preflightStatus === "loading") return;
-    setPreflightStatus("loading");
-    setPreflightError("");
-    setPreflightRefresh((value) => value + 1);
-  }
-
-  function recheckInstall() {
-    if (!selectedRepository || preflightStatus === "loading") return;
-    setInstallResult(null);
-    setInstallStatus("idle");
-    setInstallError("");
-    refreshPreflight();
   }
 
   function setRunStep(id, status, head = undefined, headSha = undefined) {
@@ -3180,15 +2572,15 @@ export function App() {
     return (
       <>
         <LoginScreen
-          authStatus={authStatus}
-          configured={githubConfigured}
-          authMode={githubAuthMode}
-          rolloutMode={githubRolloutMode}
+          authStatus={account.status}
+          configured={account.configured}
+          authMode={account.authMode}
+          rolloutMode={account.rolloutMode}
           ownerEntry={CANARY_OWNER_ENTRY}
-          error={authError}
-          isSigningIn={isSigningIn}
-          onSignIn={signIn}
-          onAuthorize={authorizeExisting}
+          error={account.error}
+          isSigningIn={account.signingIn}
+          onSignIn={actions.signIn}
+          onAuthorize={actions.authorize}
           onExplore={exploreProduct}
           usage={usage}
           onUsage={setUsage}
@@ -3203,53 +2595,7 @@ export function App() {
     return (
       <>
       <GitHubSetup
-        session={session}
-        repositories={repositories}
-        repositoryStatus={repositoryStatus}
-        repositoryError={repositoryError}
-        selectedRepository={selectedRepository}
-        onSelectRepository={(repository) => {
-          if (installStatus === "installing" || byokSaving) return;
-          if (repository === selectedRepository) {
-            refreshPreflight();
-            return;
-          }
-          selectedRepositoryRef.current = repository;
-          setSelectedRepository(repository);
-          setPreflightStatus("loading");
-          setPreflight(null);
-          setPreflightError("");
-          setInstallError("");
-        }}
-        onRetryRepositories={loadRepositories}
-        preflightStatus={preflightStatus}
-        preflight={preflight}
-        preflightError={preflightError}
-        onRetryPreflight={refreshPreflight}
-        installStatus={installStatus}
-        installError={installError}
-        installResult={installResult}
-        runtimeStatus={runtimeStatus}
-        runtimeError={runtimeError}
-        byok={byok}
-        activeModel={activeModel}
-        modelConfigured={modelConfigured}
-        modelSaving={modelSaving}
-        runtimeUpdate={runtimeUpdate}
-        harness={harness}
-        byokSaving={byokSaving}
-        onSaveByok={saveByok}
-        onDisconnectByok={disconnectByok}
-        onChangeModel={changeRuntimeModel}
-        onChangeHarness={changeHarnessMode}
-        rulesetPlanStatus={rulesetPlanStatus}
-        rulesetPlan={rulesetPlan}
-        rulesetPlanError={rulesetPlanError}
-        onPrepareRuleset={prepareRulesetPlan}
-        onApplyRuleset={applyRulesetPlan}
-        onInstall={installRepository}
-        onRecheckInstall={recheckInstall}
-        onResetInstall={resetInstall}
+        onboarding={onboarding}
         onOpenWorkspace={() => setWorkspaceOpen(true)}
         onSignOut={signOut}
         onSettings={() => setSettingsOpen(true)}

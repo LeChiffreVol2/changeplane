@@ -11,15 +11,24 @@ export function formatReport(report, format = 'json') {
     `Next: ${report.nextAction}`,
     report.staged ? 'Files staged locally for review. No repository changes.' : 'Plan only. No files or repository changes.',
   ].map(clean).join('\n') + '\n';
+  // Keep the supplied binding intact: a policy revision, target revision and diff
+  // base have different meanings. In particular, schema 2 has no legacy baseSha.
+  const binding = report.binding ?? report.handback?.binding ?? null;
+  const revisions = binding?.revisions;
   const summary = {
     schemaVersion: 1, kind: 'changeplane.assessment-summary', decision: report.decision,
     ...(report.code ? { code: report.code } : {}),
-    headSha: report.headSha ?? null, currentHeadSha: report.currentHeadSha ?? null, baseSha: report.baseSha ?? null,
+    headSha: revisions?.head ?? report.headSha ?? null,
+    currentHeadSha: revisions?.currentHead ?? report.currentHeadSha ?? null,
+    baseSha: report.baseSha ?? null,
+    binding,
     subjectBinding: report.subjectBinding ?? null,
+    claim: report.claim ?? null,
+    capabilities: report.capabilities ?? null,
     observation: report.observation ?? null,
     findingCount: report.findings?.length ?? null,
     findings: report.findings ?? [], diagnoses: report.diagnoses ?? [],
-    nextAction: report.nextAction, nextActionCode: report.nextActionCode ?? null,
+    nextAction: report.nextAction, nextActionCode: report.nextActionCode ?? (revisions ? report.nextAction : null),
     authority: report.authority,
     detail: 'Summary only. Use --format json for the complete evidence and handback. Reassess after changes.',
   };
@@ -27,12 +36,26 @@ export function formatReport(report, format = 'json') {
   if (format !== 'text') throw new Error('USAGE_INVALID');
   return [
     `ChangePlane: ${report.decision}`,
-    `Assessed revision: ${report.headSha ?? 'unavailable'}`,
-    `Current revision: ${report.currentHeadSha ?? 'unavailable'}`,
+    `Assessed revision: ${summary.headSha ?? 'unavailable'}`,
+    `Current revision: ${summary.currentHeadSha ?? 'unavailable'}`,
+    ...(binding?.identity ? [`Change request: ${binding.identity.forge} ${binding.identity.origin} repository ${binding.identity.repositoryId} change ${binding.identity.changeId}`,
+      `Source repository: ${binding.identity.sourceRepositoryId}`] : []),
+    ...(summary.baseSha ? [`Base revision: ${summary.baseSha}`] : []),
+    ...[
+      ['Policy revision', revisions?.policy ?? binding?.policyRevision],
+      ['Current policy revision', revisions?.currentPolicy],
+      ['Target revision', revisions?.target ?? binding?.targetRevision],
+      ['Current target revision', revisions?.currentTarget],
+      ['Merge base', revisions?.mergeBase],
+      ['Diff start', revisions?.diffStart],
+    ].filter(([, value]) => value != null).map(([label, value]) => `${label}: ${value}`),
+    ...(summary.subjectBinding ? [`Subject binding: ${summary.subjectBinding}`] : []),
+    ...(summary.claim ? [`Claim: ${summary.claim}`] : []),
+    ...(summary.capabilities ? [`Capabilities: ${JSON.stringify(summary.capabilities)}`] : []),
     `Evidence: ${report.observation?.source ?? 'unavailable'}; point-in-time advisory assessment`,
     ...(report.code ? [`Reason: ${report.code}`] : []),
     ...((report.findings ?? []).map(item => `Finding: ${item.code}`)),
-    `Next: ${report.nextActionCode === 'REOBSERVE_REVISION'
+    `Next: ${summary.nextActionCode === 'REOBSERVE_REVISION'
       ? 'Read the current PR revision and workflow attempt, then reassess fresh evidence.'
       : report.message ?? report.nextAction}`,
     'No Guard, repair or merge authority. Use --format json for complete evidence.',

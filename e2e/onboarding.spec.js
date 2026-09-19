@@ -1836,3 +1836,158 @@ test("Settings keeps keyboard focus while a delayed authenticated session opens 
   expect(requests.every(({ method }) => method === "GET")).toBe(true);
   expect(externalRequests).toEqual([]);
 });
+
+const LIFETIME_REPOSITORIES = ["acme/first", "acme/second"];
+function lifetimePreflight(installed = true) {
+  return {
+    repositoryState: "active", installable: !installed, conflicts: [], setupFiles: installed ? 0 : 9,
+    setupProfile: "verify-lite", payloadProfiles: PAYLOAD_PROFILES,
+    installation: { state: installed ? "current" : "fresh", managedProfile: "verify-lite",
+      currentVersion: installed ? MANAGED_VERSION : null, targetVersion: MANAGED_VERSION, conflicts: [] },
+    setup: { state: installed ? "current" : "none" },
+    evidenceOptions: [{ name: "test", appSlug: "github-actions", workflowPath: ".github/workflows/ci.yml", suggested: true }],
+    harness: { verifyAvailable: true, autonomousAvailable: true, maxAttempts: 2, budgetMinutes: 15 },
+  };
+}
+function lifetimeRuntime() {
+  return { activeModel: "gpt-5.6-luna", modelConfigured: true,
+    byok: { configured: true, state: "connected", secretName: "OPENAI_API_KEY", updatedAt: null },
+    harness: { mode: "verify", autonomousAvailable: true, ready: false, maxAttempts: 2, budgetMinutes: 15 } };
+}
+async function mockOnboardingLifetimes(page, intercept, { installed = true } = {}) {
+  return mockLocalApi(page, async (route, url) => {
+    const action = url.searchParams.get("action");
+    if (await intercept(route, url)) return;
+    if (action === "session") return json(route, { configured: true, authenticated: true, login: "owner",
+      csrf: "fixture-csrf", authMode: "github_app", rolloutMode: "self_serve" });
+    if (action === "repos") return json(route, { repositories: LIFETIME_REPOSITORIES.map(fullName => ({
+      fullName, private: true, defaultBranch: "main", permissions: { push: true, admin: true },
+    })) });
+    if (action === "preflight") return json(route, lifetimePreflight(installed));
+    if (action === "runtime" && route.request().method() === "GET") return json(route, lifetimeRuntime());
+    throw new Error(`Unexpected onboarding lifetime action: ${action}`);
+  });
+}
+async function settleBrowserResponse(page, route, payload) {
+  const received = page.waitForResponse(response => response.url() === route.request().url()
+    && response.request().method() === route.request().method());
+  await json(route, payload);
+  await received;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
+test("repository reads from an earlier A to B to A selection cannot replace the current view", async ({ page }) => {
+  const pending = new Map();
+  const firstReads = new Set();
+  const externalRequests = await mockOnboardingLifetimes(page, (route, url) => {
+    const action = url.searchParams.get("action");
+    if (url.searchParams.get("repository") === "acme/first" && ["preflight", "runtime"].includes(action)
+      && !firstReads.has(action)) {
+      firstReads.add(action); pending.set(action, route); return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  const first = page.getByRole("radio", { name: /acme\/first/u });
+  const second = page.getByRole("radio", { name: /acme\/second/u });
+  await first.click();
+  await expect.poll(() => pending.size).toBe(2);
+  await second.click();
+  await expect(page.getByLabel("OpenAI model")).toHaveValue("gpt-5.6-luna");
+  await first.click();
+  await expect(page.getByText("Managed files installed. Finish activation.")).toBeVisible();
+  await expect(page.getByLabel("OpenAI model")).toBeEnabled();
+
+  await settleBrowserResponse(page, pending.get("preflight"), {
+    ...lifetimePreflight(), installable: false, installation: { state: "conflict", conflicts: ["old-lifetime"] },
+  });
+  await settleBrowserResponse(page, pending.get("runtime"), { ...lifetimeRuntime(), activeModel: "gpt-5.6-sol" });
+  await expect(first).toBeChecked();
+  await expect(page.getByText("Managed files installed. Finish activation.")).toBeVisible();
+  await expect(page.getByLabel("OpenAI model")).toHaveValue("gpt-5.6-luna");
+  await expect(page.getByText("Setup needs attention")).toHaveCount(0);
+  expect(externalRequests).toEqual([]);
+});
+
+test("a stale model response cannot replace or unlock a newer request after returning to the repository", async ({ page }) => {
+  const pending = [];
+  const externalRequests = await mockOnboardingLifetimes(page, (route, url) => {
+    if (url.searchParams.get("action") === "runtime" && route.request().method() === "POST") {
+      pending.push(route); return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  const first = page.getByRole("radio", { name: /acme\/first/u });
+  await first.click();
+  const model = page.getByLabel("OpenAI model");
+  await expect(model).toBeEnabled();
+  await model.selectOption("gpt-5.6-sol");
+  await expect.poll(() => pending.length).toBe(1);
+  await page.getByRole("radio", { name: /acme\/second/u }).click();
+  await expect(model).toBeEnabled();
+  await first.click();
+  await expect(model).toBeEnabled();
+  await model.selectOption("gpt-5.6-terra");
+  await expect.poll(() => pending.length).toBe(2);
+
+  await settleBrowserResponse(page, pending[0], { state: "pending", model: "gpt-5.6-sol",
+    pullRequest: { number: 101, url: "https://github.com/acme/first/pull/101" } });
+  await expect(model).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Review runtime PR #101" })).toHaveCount(0);
+  await settleBrowserResponse(page, pending[1], { state: "pending", model: "gpt-5.6-terra",
+    pullRequest: { number: 102, url: "https://github.com/acme/first/pull/102" } });
+  await expect(model).toBeEnabled();
+  await expect(model).toHaveValue("gpt-5.6-terra");
+  await expect(page.getByRole("link", { name: "Review runtime PR #102" })).toBeVisible();
+  expect(externalRequests).toEqual([]);
+});
+
+test("sign-out invalidates an in-flight installation before the server acknowledges logout", async ({ page }) => {
+  let installation;
+  let logout;
+  const externalRequests = await mockOnboardingLifetimes(page, (route, url) => {
+    if (url.searchParams.get("action") === "install") { installation = route; return true; }
+    if (url.searchParams.get("action") === "logout") { logout = route; return true; }
+    return false;
+  }, { installed: false });
+  await page.goto("/");
+  await page.getByRole("radio", { name: /acme\/first/u }).click();
+  await page.getByRole("checkbox", { name: "This check fails when important code behavior breaks." }).check();
+  await page.getByRole("button", { name: "Create Verify-only setup PR" }).click();
+  await expect.poll(() => Boolean(installation)).toBe(true);
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect.poll(() => Boolean(logout)).toBe(true);
+
+  await settleBrowserResponse(page, installation, { repository: "acme/first", branch: "changeplane/observe-setup",
+    harnessMode: "verify", pullRequest: { number: 103, url: "https://github.com/acme/first/pull/103" } });
+  await expect(page.getByRole("button", { name: "Creating installation pull request…" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toHaveCount(0);
+  await settleBrowserResponse(page, logout, { authenticated: false });
+  await expect(page.getByRole("heading", { name: "Give agent PRs independent lifecycle assurance." })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /acme\/first/u })).toHaveCount(0);
+  expect(externalRequests).toEqual([]);
+});
+
+test("a failed sign-out refreshes account inventory and still rejects the earlier response", async ({ page }) => {
+  let earlierInventory;
+  let inventories = 0;
+  const externalRequests = await mockOnboardingLifetimes(page, async (route, url) => {
+    if (url.searchParams.get("action") === "repos" && ++inventories === 1) {
+      earlierInventory = route; return true;
+    }
+    if (url.searchParams.get("action") === "logout") {
+      await json(route, { error: "Sign out could not finish. Try again." }, 503); return true;
+    }
+    return false;
+  });
+  await page.goto("/");
+  await expect.poll(() => Boolean(earlierInventory)).toBe(true);
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(page.getByRole("radio", { name: /acme\/first/u })).toBeVisible();
+  await settleBrowserResponse(page, earlierInventory, { repositories: [] });
+  await expect(page.getByRole("radio", { name: /acme\/first/u })).toBeVisible();
+  await page.getByRole("radio", { name: /acme\/first/u }).click();
+  await expect(page.getByText("Managed files installed. Finish activation.")).toBeVisible();
+  expect(externalRequests).toEqual([]);
+});

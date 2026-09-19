@@ -301,9 +301,10 @@ export async function operateTeam({ api, command }) {
   }
   if (canonical(state) !== canonical(previous.state)) revision = await save(api, previous, state, context, archive);
   const task = state.tasks.find(item => item.id === command.task);
-  return { ...teamSummary(state), repository: api.repository, revision, baseSha: context.baseSha,
+  const summary = teamSummary(state);
+  return { ...summary, repository: api.repository, revision, baseSha: context.baseSha,
     observations, ...(command.action === 'reconcile' ? { observationsFresh: false,
-      tasks: teamSummary(state).tasks.map(item => {
+      tasks: summary.tasks.map(item => {
         const observation = observations.find(value => value.task === item.id);
         const observationStatus = !observation || observation.state === 'deferred' ? 'deferred'
           : observation.state === 'unavailable' ? 'unavailable' : 'fresh';
