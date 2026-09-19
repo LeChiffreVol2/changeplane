@@ -328,7 +328,47 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
   );
 }
 
-function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore, usage, onUsage, onSettings }) {
+const AGENT_SETUP_PROMPT = `Set up ChangePlane for the repository I am working in.
+Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
+Use a trusted runtime and start with read-only PR and CI assessment. Discover existing policy and behavioral CI, then propose one configuration PR if setup is needed. Preserve existing rules and let me review protected policy/workflow changes and any permission expansion. Keep credentials in my existing environment, never in this chat.
+Return the assessed revision, findings and next action. Reassess after new commits or CI reruns. Add parallel coordination only if I ask for it.`;
+
+function AgentSetupDrawer({ onClose }) {
+  const [copyStatus, setCopyStatus] = useState("");
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(AGENT_SETUP_PROMPT);
+      setCopyStatus("Copied. Paste it into your agent with your repository open.");
+    } catch {
+      setCopyStatus("Clipboard unavailable. Select and copy the prompt above.");
+    }
+  }
+  return (
+    <Drawer title="Set up with your agent" titleId="agent-setup-title" eyebrow="Start in your repository"
+      className="agent-setup-drawer" closeLabel="Close agent setup" onClose={onClose}
+      description="Give this prompt to your coding agent. No ChangePlane account or model key needed."
+      footer={<>
+        <button className="primary-action guide-primary" type="button" onClick={copyPrompt}><Copy size={17} /> Copy setup prompt</button>
+        <p className="agent-copy-status" role="status">{copyStatus}</p>
+      </>}>
+      <ol className="agent-setup-steps">
+        <li><strong>Open your repository.</strong><span>Use your existing coding agent and development environment.</span></li>
+        <li><strong>Paste the setup prompt.</strong><span>Your agent checks existing policy and CI before proposing changes.</span></li>
+        <li><strong>Review one configuration PR.</strong><span>Then ask your agent to assess a current PR and follow its findings.</span></li>
+      </ol>
+      <label className="agent-prompt-label" htmlFor="agent-setup-prompt">Prompt for your agent</label>
+      <textarea id="agent-setup-prompt" className="agent-setup-prompt" value={AGENT_SETUP_PROMPT} readOnly spellCheck={false} rows={10} />
+      <details className="agent-setup-detail">
+        <summary>What your agent can do</summary>
+        <p>CLI and read-only MCP return the revision, findings and next action. Assessments grant no source-write or merge authority. You choose meaningful tests and review changes to policy, workflows and permissions.</p>
+        <p>CLI and MCP protocol tests do not qualify every agent client. Your agent needs repository and tool access; client setup varies.</p>
+        <a className="text-action" href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/community.md#use-with-an-agent" target="_blank" rel="noreferrer">Read CLI and MCP setup <ArrowUpRight size={14} /></a>
+      </details>
+    </Drawer>
+  );
+}
+
+function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry, error, isSigningIn, onSignIn, onAuthorize, onExplore, onAgentSetup, onSettings }) {
   const checking = authStatus === "loading";
   const canConnect = configured === true && !checking;
   const controlledCanary = rolloutMode === "controlled_canary";
@@ -350,56 +390,49 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           </div>
 
           <div className="auth-message">
-            <p className="auth-kicker"><span /> Open source for individuals and teams</p>
+            <p className="auth-kicker"><span /> Open source for coding agents</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Follow PR and CI outcomes across your coding agents. Work on your own or coordinate scoped tasks with your team.</p>
+            <p>Give your coding agent current PR evidence and a clear next action. Keep your tests, your workflow, and control of what merges.</p>
           </div>
 
-          <div className="auth-signal" aria-label="Exact-revision assurance contract">
+          <div className="auth-signal" aria-label="Your existing agent workflow">
             <div className="auth-signal-heading">
-              <span><i /> Exact-revision assurance contract</span>
+              <span><i /> Your agent. Your repository.</span>
               <time>GitHub-native</time>
             </div>
             <div className="auth-signal-row">
               <div>
-                <strong>{exampleOnly
-                  ? "See how a failed check becomes a verified result."
-                  : "Agent opens PR → ChangePlane verifies → GitHub decides"}</strong>
-                <span>{exampleOnly
-                  ? "RouteThai use case · synthetic contract reconstruction"
-                  : "Works with Codex, Cursor, Claude Code, and other coding agents"}</span>
+                <strong>Agent opens PR → CI runs → ChangePlane returns findings</strong>
+                <span>GitHub keeps review and merge authority.</span>
               </div>
-              <span className="auth-pass-label">{exampleOnly ? "No repository access" : "Verify first · no model key"}</span>
+              <span className="auth-pass-label">CLI · MCP · Actions</span>
             </div>
           </div>
         </div>
 
         <div className="auth-access">
           <div className="auth-form">
-            <p className="auth-eyebrow">{exampleOnly ? "Open Source · Apache-2.0" : "GitHub-native setup"}</p>
-            <h2 id="sign-in-title">{exampleOnly ? "Set up your way of working." : "Give agent PRs independent lifecycle assurance."}</h2>
-            <p>{exampleOnly
-              ? "Start with your own PR workflow or coordinate a shared repository. Free for individuals and teams."
-              : "Connect a repository, bind one real test, and merge one setup pull request. ChangePlane handles the normal path from then on."}</p>
+            <p className="auth-eyebrow">Open Source · Apache-2.0</p>
+            <h2 id="sign-in-title">Give your agent a clear next step.</h2>
+            <p>Start in the repository you already use. Your agent reads PR evidence; you review policy and permissions.</p>
+            <button className="github-sign-in community-start" type="button" onClick={onAgentSetup}>
+              <Robot size={21} aria-hidden="true" /><span>Set up with your agent</span><ArrowRight size={18} aria-hidden="true" />
+            </button>
+            <p className="agent-start-note">No ChangePlane account or model key needed.</p>
 
             {error && <p className="auth-error" role="alert"><Warning size={16} weight="fill" /> {error}</p>}
 
-            <UsageChoice usage={usage} onChange={onUsage} />
-
             {exampleOnly ? (
               <>
-                <button className="github-sign-in community-start" type="button" onClick={onSettings}>
-                  <GearSix size={21} aria-hidden="true" />
-                  <span>{usage === 'individual' ? 'Set up Individual' : 'Set up Teams'}</span><ArrowRight size={18} aria-hidden="true" />
-                </button>
                 <button className="github-existing" type="button" onClick={onExplore} disabled={isSigningIn}>
                   {isSigningIn ? "Opening workspace…" : "Open RouteThai example workspace"}
                 </button>
               </>
             ) : (
               <>
+                <p className="auth-browser-label">Prefer setup in your browser?</p>
                 <button
-                  className={`github-sign-in ${isSigningIn ? "is-loading" : ""}`}
+                  className={`github-sign-in hosted-start ${isSigningIn ? "is-loading" : ""}`}
                   type="button"
                   onClick={onSignIn}
                   disabled={isSigningIn || !canConnect}
@@ -430,15 +463,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               </button>
             )}
 
-            <p className="auth-security"><LockKey size={15} /> {controlledCanary
-              ? "Synthetic example · no GitHub, model or production access."
-              : privateAlpha
-                ? "Invite-only alpha access is enforced against an exact repository allowlist before any GitHub mutation."
-              : exampleOnly
-              ? "Synthetic data only. The public example cannot push, merge, or deploy."
-              : authMode === "github_app"
-                ? "GitHub sign-in verifies installations you can access. Your OpenAI key is encrypted directly into GitHub Actions."
-                : "Choose one repository. ChangePlane writes only through a setup pull request."}</p>
+            <p className="auth-security"><LockKey size={15} /> RouteThai workspace uses synthetic data. Opening it connects no repository.</p>
             {controlledCanary ? (
               <p className="auth-deployment-note">Open source is available now. Hosted Guard setup is closed while recovery and service readiness are qualified.</p>
             ) : privateAlpha ? (
@@ -460,6 +485,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
               <summary>Resources <CaretDown size={14} aria-hidden="true" /></summary>
               <div className="auth-resources-content">
                 <nav className="auth-footer-links" aria-label="Project resources">
+                  <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/skills/changeplane/SKILL.md" target="_blank" rel="noreferrer">Agent skill</a>
                   <a href="https://github.com/LeChiffreVol2/changeplane#try-it-in-one-minute" target="_blank" rel="noreferrer">Local quickstart</a>
                   <a href="https://github.com/LeChiffreVol2/changeplane/releases" target="_blank" rel="noreferrer">Releases</a>
                   <a href="https://github.com/LeChiffreVol2/changeplane/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security</a>
@@ -2399,6 +2425,7 @@ function BackboneDrawer({ change, onClose }) {
 
 export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [usage, setUsage] = useState('individual');
   const [settingsDrafts, setSettingsDrafts] = useState({ individual: { enabled: false, maxActive: 2 }, teams: { enabled: true, maxActive: 3 } });
   const onboarding = useCustomerAccount({ previewMode: PREVIEW_MODE, entryError: GITHUB_ENTRY_ERROR, notify: showToast });
@@ -2420,7 +2447,7 @@ export function App() {
   const focusedPageRef = useRef(null);
 
   useEffect(() => {
-    if (!session || settingsOpen) return;
+    if (!session || settingsOpen || agentSetupOpen) return;
     if (focusedPageRef.current?.session === session && focusedPageRef.current?.workspaceOpen === workspaceOpen) return;
     const targetId = workspaceOpen && session.isPreview ? "workspace-main-title" : "setup-main-title";
     const frame = window.requestAnimationFrame(() => {
@@ -2428,7 +2455,7 @@ export function App() {
       focusedPageRef.current = { session, workspaceOpen };
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [workspaceOpen, session, settingsOpen]);
+  }, [workspaceOpen, session, settingsOpen, agentSetupOpen]);
 
   useEffect(() => {
     if (session?.isPreview) window.localStorage.setItem(RUNS_KEY, JSON.stringify(runs));
@@ -2568,6 +2595,8 @@ export function App() {
 
   const settingsDrawer = settingsOpen && <SettingsDrawer usage={usage} onUsage={setUsage} draft={settingsDrafts[usage]} onDraft={(draft) => setSettingsDrafts(current => ({ ...current, [usage]: draft }))} onClose={() => setSettingsOpen(false)} />;
 
+  const agentSetupDrawer = agentSetupOpen && <AgentSetupDrawer onClose={() => setAgentSetupOpen(false)} />;
+
   if (!session) {
     return (
       <>
@@ -2582,11 +2611,11 @@ export function App() {
           onSignIn={actions.signIn}
           onAuthorize={actions.authorize}
           onExplore={exploreProduct}
-          usage={usage}
-          onUsage={setUsage}
+          onAgentSetup={() => setAgentSetupOpen(true)}
           onSettings={() => setSettingsOpen(true)}
         />
         {settingsDrawer}
+        {agentSetupDrawer}
       </>
     );
   }
@@ -2601,6 +2630,7 @@ export function App() {
         onSettings={() => setSettingsOpen(true)}
       />
       {settingsDrawer}
+      {agentSetupDrawer}
       </>
     );
   }
@@ -2684,6 +2714,7 @@ export function App() {
 
       <FileDialog file={inspectedFile} onClose={() => setInspectedFile(null)} />
       {settingsDrawer}
+      {agentSetupDrawer}
       {guideOpen && <GuideDrawer onClose={() => setGuideOpen(false)} />}
       {previewEvidenceOpen && <PreviewEvidenceDrawer change={change} onClose={() => setPreviewEvidenceOpen(false)} onCopy={copyHead} />}
       {backboneOpen && <BackboneDrawer change={change} onClose={() => setBackboneOpen(false)} />}

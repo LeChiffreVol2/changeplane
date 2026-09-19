@@ -1,10 +1,18 @@
 # Open Source quickstart
 
-ChangePlane Open Source runs locally or in your own GitHub Actions. It assesses evidence without publishing a Guard or requiring a ChangePlane account. Start with the synthetic examples, then connect one existing behavioral CI job.
+ChangePlane gives your coding agent the current PR revision, evidence findings and a next action. It runs locally or in your own GitHub Actions, without a ChangePlane account or Guard publication. Start with your agent, or use the local commands below.
 
 Choose **Individual** for read-only PR/CI assessment. If you run several agents yourself, enable optional parallel coordination; **Teams** starts with coordination selected. Both use the same repository engine and support personal and organization repositories with appropriate permissions. The usage choice does not identify the repository owner or grant access.
 
 Version 0.4.1 includes the CLI, setup generator, read-only MCP, agent skill, Individual and Teams settings, and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md). It builds on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts.
+
+## Start with your agent
+
+From the website, choose **Set up with your agent**, copy the prompt and paste it into your coding agent with the target repository open. The [README prompt](../README.md#start-with-your-agent) works too. An agent with repository/tool access follows the [consumer skill](../skills/changeplane/SKILL.md) using your installed CLI or a trusted runtime checkout. MCP is optional.
+
+The agent first identifies your repository, existing policy and CI. If policy exists, it can inspect a current PR with read-only access. If setup is needed, it discovers candidate jobs and prepares one configuration PR after you identify the meaningful behavioral check. Review protected changes before merging. Credentials stay in your operator environment, not in the setup prompt or chat.
+
+Setup is useful when the agent returns a real assessment with the observed revision, findings and next action. A missing policy, unavailable evidence or incomplete permission is a reported blocker, not a successful assessment. After a commit or CI rerun, request fresh evidence. Parallel coordination is a separate opt-in through [operator setup](team-operator.md).
 
 ## Settings for Individual and Teams
 
@@ -32,6 +40,23 @@ These commands read local JSON only. The second and third intentionally exit 1. 
 Download the archive, workflow templates and `SHA256SUMS` from [ChangePlane 0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest). This is the single published release and includes the command wrapper, guided setup and read-only MCP. Its release notes and bundled `SOURCE.json` identify the exact source commit; `--version` alone does not identify routine updates. If you saved an earlier 0.4.1 archive, download the consolidated bundle and review the changed source commit before upgrading.
 
 To evaluate changes after the published release, open a successful **main** run in [CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) and download its `changeplane-source-COMMIT-attempt-N` artifact. GitHub requires sign-in for CI artifact downloads. These artifacts expire after seven days; the release assets remain the primary download. A source checkout at an exact commit also works with `node bin/changeplane.js`.
+
+For the current source without an artifact download or GitHub sign-in, use a separate runtime checkout. From a directory outside your target repository:
+
+```sh
+git clone --filter=blob:none --no-checkout https://github.com/LeChiffreVol2/changeplane.git changeplane-runtime
+git -C changeplane-runtime rev-parse origin/main
+```
+
+Review the returned full commit and its successful **main** CI run. Replace `REVIEWED_COMMIT_SHA` below with that same 40-character SHA; do not advance it to a newer revision while installing:
+
+```sh
+git -C changeplane-runtime checkout --detach REVIEWED_COMMIT_SHA
+node changeplane-runtime/bin/changeplane.js --help
+node changeplane-runtime/bin/changeplane.js evaluate changeplane-runtime/examples/community/satisfied.json
+```
+
+The expected example result is `EVIDENCE_SATISFIED` with no Guard or merge authority. Give your agent the runtime's absolute path and `skills/changeplane/SKILL.md` from this checkout. No `npm install` is needed. Use a new runtime directory for an upgrade, review the new commit and keep participating team operators and workflows on one revision; preserve existing worktrees and reports.
 
 Check the archive and workflow files against `SHA256SUMS`, then extract the `.tar.gz`. If using a CI artifact, extract its outer zip first. Run from the extracted directory with `node bin/changeplane.js`, or install its dependency-free command into your existing writable npm prefix:
 
@@ -87,7 +112,7 @@ For clients using `mcpServers`, configure a trusted runtime path:
 
 For private access, supply a repository-scoped **read-only** `GH_TOKEN` or `GITHUB_TOKEN` through the operator environment or your client's secret mechanism. Do not embed credentials in shared JSON, prompts or committed files. Project MCP configuration is a client configuration surface, not credential isolation. Keep the credentialed process outside any untrusted coding sandbox.
 
-Install the whole [consumer skill folder](../skills/changeplane/SKILL.md) into a skill location supported by your client, such as `.agents/skills/changeplane/` for a compatible client. Review and preserve existing repository instructions. The skill is self-contained; it distinguishes read-only PR diagnosis from an already configured team operator. Root `AGENTS.md` is for contributing to ChangePlane itself.
+Install the whole [consumer skill folder](../skills/changeplane/SKILL.md) into a skill location supported by your client, such as `.agents/skills/changeplane/` for a compatible client. Review and preserve existing repository instructions. Its guide links remain usable after copying; packaged skills link to their exact source revision. Tell the agent the separate runtime's absolute path. Installing the skill does not install a command, configure MCP or connect a repository. Root `AGENTS.md` is for contributing to ChangePlane itself.
 
 Ask the agent to inspect one PR, read the reported revision and next action, and reassess after any change. The complete JSON remains the default CLI output; `--format text` is a human summary and `--format compact` omits the repeated full handback while retaining findings, revision and advisory authority. Summaries cannot replace full evidence verification.
 

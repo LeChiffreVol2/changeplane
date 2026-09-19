@@ -16,6 +16,12 @@ Agent independence and permission separation are not unique inventions. GitHub A
 
 DORA describes AI as amplifying organizational strengths and weaknesses. That supports investigating integration/recovery bottlenecks; it does not establish a ChangePlane improvement. [DORA 2025](https://dora.dev/research/2025/dora-report/)
 
+## Entry-point decision — 2026-09-20
+
+Lead with setup inside the customer's existing coding agent. Website and README route to the consumer skill; CLI/MCP provide the first PR assessment. People retain policy, credential and merge decisions. Individual/Teams settings and hosted setup remain available as secondary paths. This changes distribution and onboarding priority, not the authority model or platform qualification.
+
+Prioritize the path from agent prompt to a real current-PR assessment before expanding dashboards or adding another agent runner. Measure setup blockers, operator effort, repeat assessment and useful findings with the existing opt-in adoption report. Copying the prompt is not activation. [Positioning and current market references](community-positioning.md#agent-first-distribution-human-controlled-authority)
+
 ## Technical sequence
 
 | Priority | Work | Gate for further work |

@@ -8,6 +8,22 @@ Verify is the proposed core paid service, subject to the operating gates below. 
 
 ChangePlane Open Source provides read-only assessment and optional cooperative task metadata/workspace operations described in [Open Source](community.md). It is free for individuals and businesses, without ChangePlane evaluation quotas. Hosted customer activation remains paused after managed-v15 canary qualification, pending provider authority recovery, reliable automatic reconciliation and the exact-release legal pack. The [automated SDLC architecture](automated-sdlc-architecture.md) orders those dependencies. Use [adoption measurement](adoption-measurement.md) for current OSS learning and the separate [launch measurement contract](launch-measurement.md) for the nine future commercial gates; neither reports outcomes without evidence.
 
+## Build the paid service on the same open-source core
+
+The extension boundary is already present in the source. Keep the public package independently installable and tested before changing hosted services. This is an engineering starting point, not a paid-launch approval or a change to the current Apache-2.0 license.
+
+| Layer | Existing boundary | Rule for a future paid service |
+| --- | --- | --- |
+| Deterministic evaluation | [Shared evaluator](../src/lib/changeplane.js), used by public and managed callers | Use the same evidence semantics. An entitlement or payment cannot change a failed assessment into success. |
+| Public CLI, MCP and Action | [Public runtime](../community/README.md), shipped without npm dependencies or hosted controllers | Assessment keeps working without a ChangePlane account, license server, hosted availability or evaluation quota. |
+| Optional repository teamwork | Git-backed task state and the existing team operator | Keep operator opt-in and credential isolation. A paid account cannot confer repository write or merge authority. |
+| Hosted onboarding and authority | `api/`, `server/` and the managed `action/` adapter | Add service operations around the core; retain GitHub App scope, exact revisions and the separately credentialed controller. |
+| Commercial admission and operations | [Candidate commercial plane](../database/README.md#commercial-plane) | Keep tenancy, entitlements and service accounting outside the public bundle. Complete their live gates before offering them. |
+
+The package verifier runs outside the source checkout, installs the command offline, checks the copied consumer skill, and rejects hosted/controller/database paths in the public archive. It runs across six OS/Node combinations through the existing required CI check. Preserve this boundary when implementing a paid edition; do not create a second evaluator or add commercial dependencies to `community/`.
+
+For the next paid-service implementation, follow the existing [operating sequence](automated-sdlc-architecture.md#later-path-to-a-paid-pilot) and evidence gates below. OSS installation and release can proceed independently; effective agreements, measured operating costs, customer access and payment acceptance still need their own completion evidence.
+
 ## Candidate pilot admission
 
 The current source adds a bounded admission path for operator-enrolled Verify Lite pull-request pilots using Strict Head. Each contract lasts at most 30 days and declares finite repository and monthly evaluation limits plus bounded grace. Enrollment binds the authenticated GitHub tenant, repository and Guard installation/App. This does not enable the public pricing catalog, Queue Certified, Autonomous Repair, or general plan enforcement.

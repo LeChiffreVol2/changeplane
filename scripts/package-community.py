@@ -60,6 +60,12 @@ Keep GitHub. Let agents ship.
 Apache-2.0. Node.js 22.18+; no npm dependencies, model key or hosted account.
 Source commit: `{revision}`
 
+## Start with your agent
+
+Open your target repository in your coding agent and give it the absolute path to this verified bundle and its [consumer skill](skills/changeplane/SKILL.md). Ask it to follow the setup path, start with read-only PR/CI assessment and return the revision, findings and next action. Review protected configuration changes before merging; keep credentials in your existing environment.
+
+The CLI works directly from this bundle. MCP is optional; follow the [agent setup guide](docs/community.md#use-with-an-agent). A skill does not install tools or grant repository permissions.
+
 ## Try it in one minute
 
 ```sh

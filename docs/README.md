@@ -1,9 +1,10 @@
 # ChangePlane documentation
 
-Start with one useful PR assessment. Add coordination when several people or agents work in the same repository.
+Start with your existing coding agent and obtain one useful PR assessment. You review policy and permissions; the agent consumes findings through CLI or MCP. Add coordination when several people or agents work in the same repository.
 
 | I want to… | Read |
 | --- | --- |
+| Start with my coding agent | [Agent setup](community.md#start-with-your-agent) and [consumer skill](../skills/changeplane/SKILL.md) |
 | Try the product without credentials | [One-minute quickstart](../README.md#try-it-in-one-minute) |
 | Install the command and inspect a repository | [Public setup guide](community.md) |
 | Use ChangePlane from an agent | [Read-only MCP and skill](community.md#use-with-an-agent) |

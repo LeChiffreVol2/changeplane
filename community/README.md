@@ -1,6 +1,6 @@
 # ChangePlane public runtime
 
-Assess PR evidence locally or in GitHub Actions, then add repository coordination when needed. The CLI, public Action and MCP servers use Node built-ins; they share the deterministic evaluator with the managed runtime.
+Give your coding agent revision-bound PR findings through the CLI or read-only MCP, or assess them in GitHub Actions. Start with the [consumer skill](../skills/changeplane/SKILL.md); add repository coordination when needed. The CLI, public Action and MCP servers use Node built-ins; they share the deterministic evaluator with the managed runtime.
 
 | Task | Entry point |
 | --- | --- |
