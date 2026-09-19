@@ -113,7 +113,8 @@ test("admin recovery verifies the exact terminal owning attempt before shortenin
     assert.equal(result.status, 200, JSON.stringify(result.payload));
     assert.equal(result.payload.state, "reconciled");
     assert.equal(result.patches, 1);
-    assert.equal(result.sourceReads, 2);
+    // Eligibility is checked before minting, then the owning attempt is checked again after minting.
+    assert.equal(result.sourceReads, 3);
     assert.equal(result.check.conclusion, "action_required");
     assert.equal(decodeGuardRunMarker(result.check.output.text).boundContractDigest, "d".repeat(64));
     assert.equal(decodeGuardRunMarker(result.check.output.text).pullRequestNumber, 42);
@@ -146,6 +147,7 @@ test("admin recovery rechecks source-run completion before mutation", async () =
   assert.equal(result.status, 200, JSON.stringify(result.payload));
   assert.equal(result.payload.state, "within_window");
   assert.equal(result.sourceReads, 2);
+  assert.equal(result.writeTokens, 0);
   assert.equal(result.patches, 0);
 });
 

@@ -1,5 +1,5 @@
 import { canonical } from './core.js';
-import { matchesPathRule, normalizeRepoPath } from '../src/lib/changeplane.js';
+import { normalizeRepoPath } from '../src/lib/changeplane.js';
 
 export const TEAM_REF = 'changeplane/team-state';
 const id = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value);
@@ -21,9 +21,34 @@ function scope(paths) {
     return bare + (prefix ? '/**' : '');
   }))].sort();
 }
+function compareScopePaths(left, right) {
+  for (let index = 0; index < Math.min(left.parts.length, right.parts.length); index++) {
+    if (left.parts[index] !== right.parts[index]) return left.parts[index] < right.parts[index] ? -1 : 1;
+  }
+  return left.parts.length - right.parts.length;
+}
+// Validation owns normalization. Compile each validated scope once per operation;
+// segment ordering keeps a directory and all its descendants together, even when
+// a sibling such as "src/api-client" sorts before "src/api/file" as a raw string.
+function compileScope(paths) {
+  return paths.map(value => {
+    const prefix = value.endsWith('/**'), path = prefix ? value.slice(0, -3) : value;
+    return { path, prefix, parts: path.split('/') };
+  }).sort(compareScopePaths);
+}
+function compiledScopesOverlap(left, right) {
+  let a = 0, b = 0;
+  while (a < left.length && b < right.length) {
+    const first = left[a], second = right[b];
+    if (first.path === second.path || first.prefix && second.path.startsWith(first.path + '/')
+      || second.prefix && first.path.startsWith(second.path + '/')) return true;
+    if (compareScopePaths(first, second) < 0) a++;
+    else b++;
+  }
+  return false;
+}
 export function scopesOverlap(left, right) {
-  return left.some(a => right.some(b => matchesPathRule(a.replace(/\/\*\*$/u, ''), b)
-    || matchesPathRule(b.replace(/\/\*\*$/u, ''), a)));
+  return compiledScopesOverlap(compileScope(scope(left)), compileScope(scope(right)));
 }
 export function emptyTeam(repositoryId) {
   requireTeam(Number.isSafeInteger(repositoryId) && repositoryId > 0);
@@ -142,7 +167,8 @@ export function transitionTeam(input, command, context = {}) {
       requireTeam(!task.dependsOn.some(dependency => teamDependency(state, dependency)?.state === 'cancelled'), 'TEAM_DEPENDENCY_CANCELLED');
       requireTeam(task.dependsOn.every(dependency => teamDependency(state, dependency)?.state === 'merged'), 'TEAM_DEPENDENCY_PENDING');
       requireTeam(tasks.filter(active).length < (context.maxActive ?? 10), 'TEAM_CAPACITY');
-      requireTeam(!tasks.some(other => active(other) && scopesOverlap(task.paths, other.paths)), 'TEAM_SCOPE_BUSY');
+      const claimedScope = compileScope(task.paths);
+      requireTeam(!tasks.some(other => active(other) && compiledScopesOverlap(claimedScope, compileScope(other.paths))), 'TEAM_SCOPE_BUSY');
       Object.assign(task, { state: 'active', generation: task.generation + 1, owner: command.owner,
         baseSha: context.baseSha, policySha: context.policySha, outcome: 'START_WORK' });
       task.branch = `changeplane/work/${task.id}-${task.generation}`;
@@ -193,9 +219,11 @@ export function transitionTeam(input, command, context = {}) {
 
 export function teamSummary(input) {
   const state = validateTeam(input);
+  const scopes = new Map(state.tasks.map(task => [task.id, compileScope(task.paths)]));
+  const reservations = state.tasks.filter(active);
   return { ...state, coordinationOnly: true, mergeAuthority: 'github',
     tasks: state.tasks.map(task => ({ ...task,
       waitingFor: task.dependsOn.filter(id => teamDependency(state, id)?.state !== 'merged'),
-      overlaps: state.tasks.filter(other => other.id !== task.id && active(other) && scopesOverlap(task.paths, other.paths)).map(other => other.id),
+      overlaps: reservations.filter(other => other.id !== task.id && compiledScopesOverlap(scopes.get(task.id), scopes.get(other.id))).map(other => other.id),
     })), limitation: 'Coordinates participating clients. Path separation cannot prove semantic independence. GitHub rules and fresh CI still control integration.' };
 }

@@ -7,10 +7,12 @@ import {
 } from "node:crypto";
 
 import {
+  expectedGuardConclusion,
   parseAssurancePassportIntegrity,
   verifyAssurancePassportAgainstCheck,
   verifyAssurancePassportIntegrity,
-} from "../action/index.js";
+  verifyAssurancePassportSummary,
+} from "../src/lib/assurance-passport.js";
 
 const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 const GITHUB_OIDC_JWKS_URL = `${GITHUB_OIDC_ISSUER}/.well-known/jwks`;
@@ -731,11 +733,6 @@ export async function createGuardReadInstallationAccessToken({
   return Object.freeze({ token: payload.token, expiresAt: new Date(expiresAt).toISOString() });
 }
 
-function expectedGuardConclusion(passport) {
-  if (passport.decision.mode === "observe") return "neutral";
-  return passport.decision.outcome === "PASS" ? "success" : "action_required";
-}
-
 function validateCurrentTarget(currentTarget, passport, claims, defaultBranch) {
   exactKeys(currentTarget, CURRENT_TARGET_KEYS, "Current GitHub target");
   validRepository(currentTarget.repository, "Current target repository");
@@ -968,19 +965,8 @@ export function validateGuardPublishBody(body, {
   validateCurrentTarget(currentTarget, passport, oidcClaims, defaultBranch);
 
   const conclusion = expectedGuardConclusion(passport);
-  // Reuse the passport/check envelope verifier with a non-authoritative local
-  // publisher identity to prove that the summary embeds this exact passport and
-  // the exact PR receipt marker. The actual App identity is checked after GitHub
-  // creates the Check Run.
-  verifyAssurancePassportAgainstCheck(passport, {
-    id: 1,
-    name: GUARD_CHECK_NAME,
-    head_sha: passport.target.headSha,
-    status: "completed",
-    conclusion,
-    app: { id: 1, slug: "changeplane-envelope-validator" },
-    output: { summary: body.summary },
-  }, { appId: 1, appSlug: "changeplane-envelope-validator" });
+  // This binds local bytes only; the independent App authenticates publication.
+  verifyAssurancePassportSummary(passport, body.summary);
 
   return Object.freeze({
     schemaVersion: 1,

@@ -44,6 +44,20 @@ _Avoid_: Coding agent, signed-in user, necessarily ChangePlane's maintainer
 An optional ChangePlane installation operated for Customer Accounts by a service provider. Its operating commitments are separate from the software license.
 _Avoid_: Open Source Core, prerequisite for open-source use
 
+## Repository teamwork
+
+**Task Contract**:
+An immutable statement of a participating writer's intended work, permitted paths and prerequisite tasks within one repository.
+_Avoid_: Source-write grant, merge approval, arbitrary agent prompt
+
+**Task Reservation**:
+The recorded assignment of a Task Contract to one participating writer. It coordinates conflicting scopes and dependencies without fencing unknown writers or expiring their authority automatically.
+_Avoid_: Distributed lock, source-write permission, expiring lease
+
+**Task Handoff**:
+A revision-bound observation and next action returned to the assigned task member and workspace, including unfinished work that can be resumed after a restart.
+_Avoid_: New writer authorization, task completion, merge approval
+
 ## Assurance
 
 **Assured Revision**:

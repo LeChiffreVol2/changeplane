@@ -16,7 +16,7 @@ import {
   planAutonomousDecision,
 } from "../src/lib/changeplane.js";
 import { effectiveProtectedPaths } from "../examples/changeplane-evidence-policy.js";
-import { githubWorkflowFilePath } from "../src/lib/harness.js";
+import { createGitHubEvidenceReader } from "./github-evidence.js";
 import {
   canonicalJson,
   issueRepairGrant,
@@ -35,7 +35,6 @@ const LEDGER_SCHEMA_VERSION = 3;
 const REQUEST_SCHEMA_VERSION = 3;
 const EVALUATOR_VERSION = "0.4.0";
 const MAX_CHANGED_FILES = 3_000;
-const MAX_DIAGNOSTIC_LENGTH = 6_000;
 const REQUEST_KEYS = [
   "allowedPaths",
   "attempt",
@@ -533,95 +532,9 @@ function inferAutomaticContract(actualFiles, title) {
   return normalizeContract({ scope, ...(goal ? { goal } : {}) }, "The inferred ChangePlane contract");
 }
 
-function boundedEvidenceText(value, limit = MAX_DIAGNOSTIC_LENGTH) {
-  return String(value ?? "").replaceAll(/[\u0000-\u001f\u007f]+/gu, " ").replaceAll(/\s+/gu, " ").trim().slice(0, limit);
-}
-
-function checkDiagnostic(check, annotations) {
-  return [
-    boundedEvidenceText(check?.output?.title, 300),
-    boundedEvidenceText(check?.output?.summary),
-    boundedEvidenceText(check?.output?.text),
-    ...annotations.slice(0, 20).map((annotation) => {
-      const location = [boundedEvidenceText(annotation?.path, 300), Number.isSafeInteger(annotation?.start_line) ? `line ${annotation.start_line}` : ""]
-        .filter(Boolean).join(":");
-      const message = boundedEvidenceText(annotation?.message ?? annotation?.raw_details ?? annotation?.title);
-      return [location, message].filter(Boolean).join(" — ");
-    }),
-  ].filter(Boolean).join("\n").slice(0, MAX_DIAGNOSTIC_LENGTH);
-}
-
-function canonicalGithubActionsRunId(detailsUrl, repository) {
-  if (typeof detailsUrl !== "string"
-    || typeof repository !== "string"
-    || !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(repository)) return null;
-  let parsed;
-  try {
-    parsed = new URL(detailsUrl);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com" || parsed.port
-    || parsed.username || parsed.password || parsed.search || parsed.hash) return null;
-  const prefix = `/${repository}/actions/runs/`;
-  if (!parsed.pathname.startsWith(prefix)) return null;
-  const match = parsed.pathname.slice(prefix.length).match(/^([1-9][0-9]{0,19})(?:\/job\/[1-9][0-9]{0,19})?$/u);
-  return match?.[1] ?? null;
-}
-
 async function evidenceResult(repository, headSha, policy, token, request) {
-  const requiredChecks = policy.evidence?.requiredChecks ?? [];
-  if (!Array.isArray(requiredChecks) || requiredChecks.some((item) => typeof item === "string")) {
-    throw new Error("Repair requires every evidence check to bind an expected GitHub App");
-  }
-  if (requiredChecks.length === 0) return evaluateEvidence();
-  const encoded = encodedRepository(repository);
-  const checkPayload = await request(`/repos/${encoded}/commits/${headSha}/check-runs?filter=latest&per_page=100`, token);
-  const required = new Map(requiredChecks.map(({ name, appSlug, workflowPath }) => (
-    [`${name}\0${appSlug}`, workflowPath ?? null]
-  )));
-  const actionRuns = new Map();
-  const checks = Array.isArray(checkPayload?.check_runs) ? await Promise.all(checkPayload.check_runs.map(async (check) => {
-    const source = check.check_suite?.app?.slug ?? check.app?.slug ?? null;
-    const workflowPath = required.get(`${check.name}\0${source}`) ?? null;
-    let verifiedWorkflowPath = null;
-    if (source === "github-actions" && typeof workflowPath === "string" && check.head_sha === headSha) {
-      const runId = canonicalGithubActionsRunId(check.details_url, repository);
-      if (runId) {
-        if (!actionRuns.has(runId)) {
-          actionRuns.set(runId, request(`/repos/${encoded}/actions/runs/${runId}`, token));
-        }
-        const run = await actionRuns.get(runId);
-        if (String(run?.id ?? "") === runId && run?.head_sha === headSha
-          && githubWorkflowFilePath(run?.path) === workflowPath) {
-          verifiedWorkflowPath = workflowPath;
-        }
-      }
-    }
-    const needsDiagnostic = check.status === "completed" && check.conclusion !== "success"
-      && required.has(`${check.name}\0${source}`);
-    let annotations = [];
-    if (needsDiagnostic && validPositiveInteger(check.id) && check.output?.annotations_count > 0) {
-      try {
-        const payload = await request(`/repos/${encoded}/check-runs/${check.id}/annotations?per_page=20`, token);
-        if (Array.isArray(payload)) annotations = payload;
-      } catch {
-        // Bounded Check output remains usable when annotation access is unavailable.
-      }
-    }
-    const diagnostic = needsDiagnostic ? checkDiagnostic(check, annotations) : "";
-    return {
-      name: check.name,
-      status: check.status,
-      conclusion: check.conclusion,
-      createdAt: check.started_at,
-      completedAt: check.completed_at,
-      source,
-      ...(verifiedWorkflowPath ? { workflowPath: verifiedWorkflowPath } : {}),
-      ...(diagnostic ? { diagnostic } : {}),
-    };
-  })) : [];
-  return evaluateEvidence({ requiredChecks, checks });
+  return createGitHubEvidenceReader({ repository, request: path => request(path, token) })
+    .forRepair(headSha, policy.evidence?.requiredChecks ?? []);
 }
 
 function sameFinding(left, right) {

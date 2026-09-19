@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { assessmentRpc, callAssessmentTool } from './mcp.js';
 import { CollectionError } from './transport.js';
+import { readFileSync } from 'node:fs';
+import { assessObservation } from './observation.js';
+import { formatReport } from './output.js';
 
 const run = args => spawnSync(process.execPath, ['bin/changeplane.js', ...args], { encoding: 'utf8' });
 const init = async rpc => {
@@ -25,6 +28,66 @@ test('stable command preserves complete assessment JSON and exit codes; alternat
     const text = run(['evaluate', `examples/community/${name}.json`, '--format', 'text']);
     assert.equal(text.status, exit); assert.ok(text.stdout.includes(JSON.parse(result.stdout).headSha));
   }
+});
+
+test('portable CLI summaries retain the revision and supplied-observation authority', () => {
+  const fixture = 'community/fixtures/observation.json';
+  const full = run(['evaluate', fixture]);
+  const report = JSON.parse(full.stdout);
+  const compact = run(['evaluate', fixture, '--format', 'compact']);
+  const summary = JSON.parse(compact.stdout);
+  assert.equal(full.status, 0); assert.equal(compact.status, full.status);
+  assert.equal(summary.headSha, report.binding.revisions.head);
+  assert.equal(summary.currentHeadSha, report.binding.revisions.currentHead);
+  assert.deepEqual(summary.binding, report.binding);
+  assert.deepEqual(summary.authority, report.authority);
+  assert.equal(summary.claim, report.claim);
+  assert.equal(summary.authority.authenticated, false);
+  const text = run(['evaluate', fixture, '--format', 'text']);
+  assert.equal(text.status, full.status);
+  assert.ok(text.stdout.includes(`Assessed revision: ${report.binding.revisions.head}`));
+  assert.ok(text.stdout.includes(`Current revision: ${report.binding.revisions.currentHead}`));
+  assert.ok(text.stdout.includes(report.claim));
+});
+
+test('portable views distinguish policy, target, diff and fork identity without inventing a legacy base or authority', () => {
+  const input = JSON.parse(readFileSync(new URL('./fixtures/observation.json', import.meta.url)));
+  input.identity.sourceRepositoryId = '2';
+  input.revisions.policy = 'e'.repeat(40); input.revisions.currentPolicy = 'e'.repeat(40);
+  input.evidence[0].subject.kind = 'unknown';
+  const report = { ...assessObservation(input),
+    capabilities: { readOnly: true, qualification: 'candidate', testedSubjectVerified: false, repair: false } };
+  const before = structuredClone(report);
+  const summary = JSON.parse(formatReport(report, 'compact'));
+  assert.equal(summary.decision, 'REVIEW_REQUIRED');
+  assert.equal(summary.baseSha, null, 'policy, target and merge-base must not be relabelled as one legacy base');
+  assert.deepEqual(summary.binding, report.binding);
+  assert.deepEqual(summary.capabilities, report.capabilities);
+  assert.deepEqual(summary.authority, report.authority);
+  assert.deepEqual(summary.findings, report.findings);
+  assert.equal(summary.nextActionCode, report.nextAction);
+  const text = formatReport(report, 'text');
+  for (const [label, revision] of [['Policy revision', input.revisions.policy], ['Current policy revision', input.revisions.currentPolicy],
+    ['Target revision', input.revisions.target], ['Current target revision', input.revisions.currentTarget],
+    ['Merge base', input.revisions.mergeBase], ['Diff start', input.revisions.diffStart]]) assert.ok(text.includes(`${label}: ${revision}`));
+  assert.match(text, /repository 1 change 7/); assert.match(text, /Source repository: 2/);
+  assert.match(text, /SUBJECT_UNVERIFIED/); assert.ok(text.includes(report.claim));
+  assert.ok(text.includes(JSON.stringify(report.capabilities)));
+  assert.deepEqual(JSON.parse(formatReport(report)), report);
+  assert.deepEqual(report, before);
+
+  input.revisions.currentHead = 'f'.repeat(40);
+  input.revisions.currentPolicy = '1'.repeat(40);
+  input.revisions.currentTarget = '2'.repeat(40);
+  const stale = assessObservation(input);
+  const staleSummary = JSON.parse(formatReport(stale, 'compact'));
+  assert.equal(staleSummary.decision, 'BLOCKED');
+  assert.equal(staleSummary.headSha, input.revisions.head);
+  assert.equal(staleSummary.currentHeadSha, input.revisions.currentHead);
+  assert.deepEqual(staleSummary.binding.revisions, input.revisions);
+  const staleText = formatReport(stale, 'text');
+  assert.ok(staleText.includes(`Current policy revision: ${input.revisions.currentPolicy}`));
+  assert.ok(staleText.includes(`Current target revision: ${input.revisions.currentTarget}`));
 });
 
 test('CLI rejects unsafe URLs, conflicting setup options and unsupported output formats before network access', () => {
