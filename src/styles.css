@@ -4569,15 +4569,15 @@ code,
   .auth-story { min-height: 0; padding: 25px var(--space-6) var(--space-6); }
   .auth-brand-row { font-size: var(--text-subtitle); }
   .auth-mark { width: 32px; height: 32px; }
-  .auth-message { margin: auto 0; padding: var(--space-6) 0 0; }
+  .auth-message { margin: auto 0; padding: var(--space-4) 0 0; }
   .auth-kicker { margin-bottom: var(--space-4); }
   .auth-message h1 { font-size: clamp(40px, 12vw, 56px); }
   .auth-message > p:last-child { margin-top: var(--space-4); font-size: var(--text-body); }
   .auth-signal { display: none; }
   .auth-access { min-height: 0; padding: var(--space-6); }
-  .auth-form > p:not(.auth-eyebrow):not(.auth-security):not(.auth-account-choice) { margin-bottom: var(--space-6); }
+  .auth-form > p:not(.auth-eyebrow):not(.auth-security):not(.auth-account-choice) { margin-bottom: var(--space-4); }
   .auth-form { margin-block: auto var(--space-8); }
-  .auth-form h2 { font-size: var(--text-display); }
+  .auth-form h2 { font-size: var(--text-display); line-height: var(--leading-tight); }
   .setup-topbar { min-height: 60px; padding: 0 var(--space-4); }
   .setup-account > span:nth-child(2) { display: none; }
   .setup-account button { margin-left: 0; }
