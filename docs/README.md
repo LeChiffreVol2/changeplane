@@ -17,6 +17,7 @@ Start with your existing coding agent and obtain one useful PR assessment. You r
 | Contribute code | [Contributor guide](../CONTRIBUTING.md) |
 | Share setup feedback or measure repeat use | [First-use feedback](https://github.com/LeChiffreVol2/changeplane/issues/new?template=adoption_feedback.yml) and [adoption measurement](adoption-measurement.md) |
 | Report a vulnerability | [Security](../SECURITY.md) |
+| Reproduce the public experiment without customer data | [Benchmark runner](../benchmarks/assurance/README.md), [technical report](research/technical-report.md) and [primary sources](research/benchmark-sources.md) |
 
 ## Current operating guides
 

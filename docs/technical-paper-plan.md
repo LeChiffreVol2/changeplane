@@ -1,6 +1,6 @@
 # Research plan: revision-bound assurance for agent-authored changes
 
-Status: research proposal, 2026-09-20. No new experimental result, novelty claim, competitive superiority or publication acceptance is asserted here. Finish and qualify the product's live read/decision/handoff path before beginning the study.
+Status: research plan with an initial [public benchmark pilot and technical report](research/technical-report.md), 2026-09-20. The offline experiment uses public program tests and separately labeled synthetic protocol faults; it needs no customer data. Live ChatGPT/forge qualification remains a separate requirement before making end-to-end product claims. No novelty, competitive superiority or publication acceptance is asserted here.
 
 ## Honest scope
 

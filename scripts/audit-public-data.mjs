@@ -19,7 +19,7 @@ const EXCLUDED_DIRECTORIES = new Set([
 ]);
 const EXCLUDED_FILES = new Set([".env", ".env.local"]);
 const TEXT_EXTENSIONS = new Set([
-  "", ".css", ".html", ".js", ".json", ".jsx", ".md", ".mjs", ".svg", ".txt", ".yml", ".yaml",
+  "", ".css", ".html", ".js", ".json", ".jsonl", ".jsx", ".md", ".mjs", ".py", ".svg", ".txt", ".yml", ".yaml",
 ]);
 
 const rules = [

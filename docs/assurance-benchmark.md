@@ -1,6 +1,8 @@
 # Agent PR Assurance Benchmark
 
-This benchmark measures independent behavioral merge assurance for agent-authored pull requests. It is not a forge, coding-quality, or code-generation benchmark.
+This is the roadmap for evaluating assurance of agent-authored pull requests. The first executable [public experiment](../benchmarks/assurance/README.md) runs QuixBugs Python programs, then separately tests synthetic evidence handling in the public read-only collector and observation evaluator. Its [technical report](research/technical-report.md) and raw records are maintainer-run evidence, not independent certification, a repair leaderboard score, or live merge assurance.
+
+The scenarios and measures below describe the broader intended benchmark. The current pilot does not measure customer setup/effort, paid model quality, live merge queues, managed Guard publication or repair campaigns. Capability gaps remain unmeasured; they are not successful benchmark rows.
 
 ## Required scenarios
 

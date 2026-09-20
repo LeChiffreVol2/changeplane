@@ -1,0 +1,864 @@
+{
+  "schemaVersion": 1,
+  "kind": "maintainer-run-public-oracle-and-synthetic-protocol-experiment",
+  "productCommit": "0a4cb0e2343d27dde68ddbef252a1e8b5574f2c8",
+  "node": "v22.18.0",
+  "inputSha256": "9fd15611b45790c5c2793cffbe860e737396fc819737145f41c8cc85036f5c3c",
+  "protocolSha256": "9792a049119cc863a109cdc4b39423dbc4d32b35e63e7f4bb2449778c2847c4f",
+  "driverSha256": "d972bccda0437df4c51380d9728649de2a8b253eb2b3618a76ffe947484c66dc",
+  "publicExecution": {
+    "buggy": {
+      "success": 0,
+      "failure": 37,
+      "timed_out": 3,
+      "unavailable": 0
+    },
+    "reference": {
+      "success": 40,
+      "failure": 0,
+      "timed_out": 0,
+      "unavailable": 0
+    }
+  },
+  "replay": {
+    "cases": 1120,
+    "byScenario": {
+      "measured": {
+        "cases": 80,
+        "expectedEligible": 40,
+        "eligible": 40,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "shared",
+        "nativeEligible": 40,
+        "disagreements": 0
+      },
+      "stale_success": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "shared",
+        "nativeEligible": 0,
+        "disagreements": 0
+      },
+      "wrong_publisher": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "shared",
+        "nativeEligible": 0,
+        "disagreements": 0
+      },
+      "newer_failure": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "assumed_current_rerun",
+        "nativeEligible": 0,
+        "disagreements": 0
+      },
+      "newer_pending": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "assumed_current_rerun",
+        "nativeEligible": 0,
+        "disagreements": 0
+      },
+      "head_changed_during_read": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 80,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "policy_changed_during_read": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 80,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "workflow_mismatch": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "evidence_changed_during_read": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 80,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "protected_test": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "missing_file_page": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 80,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "provider_failure": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 80,
+        "comparison": "outside_baseline",
+        "nativeEligible": null,
+        "disagreements": null
+      },
+      "skipped_job": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "policy_difference",
+        "nativeEligible": 80,
+        "disagreements": 80
+      },
+      "neutral_job": {
+        "cases": 80,
+        "expectedEligible": 0,
+        "eligible": 0,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "unavailable": 0,
+        "comparison": "policy_difference",
+        "nativeEligible": 80,
+        "disagreements": 80
+      }
+    },
+    "authorityGrants": 0,
+    "deterministicRowsSha256": "74212d615bfc01eec91d0379b404b7bbb6fd60fc9dd69c9be991c276f09c0112",
+    "overheadMs": {
+      "p50": 0.11779200000000856,
+      "p95": 0.2447080000000028
+    }
+  },
+  "finiteEnumeration": {
+    "dimensions": [
+      "freshHead",
+      "freshPolicy",
+      "freshGeneration",
+      "publisherMatches",
+      "subjectMatches",
+      "complete",
+      "stable",
+      "controlsComplete",
+      "unprotected"
+    ],
+    "outcomes": [
+      "success",
+      "failure",
+      "pending",
+      "cancelled",
+      "timed_out",
+      "skipped",
+      "neutral"
+    ],
+    "evaluators": {
+      "intact": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 1,
+        "falseEligible": 0,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "beb3c8f5211cf750ca537029b9c4c0407e4bd66471d39c83b01769c417eacf1a",
+        "substitutions": [],
+        "firstCounterexample": null
+      },
+      "without-head-binding": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 2,
+        "falseEligible": 1,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "59ae8223f89cd802b0f67aaa574ff800c72fea0702a634b85d17640dcc640db0",
+        "substitutions": [
+          [
+            "if (revisions.head !== revisions.currentHead)",
+            "if (false)"
+          ]
+        ],
+        "firstCounterexample": {
+          "flags": {
+            "freshHead": false,
+            "freshPolicy": true,
+            "freshGeneration": true,
+            "publisherMatches": true,
+            "subjectMatches": true,
+            "complete": true,
+            "stable": true,
+            "controlsComplete": true,
+            "unprotected": true
+          },
+          "outcome": "success",
+          "expectedEligible": false,
+          "observation": {
+            "schemaVersion": 2,
+            "identity": {
+              "forge": "github",
+              "origin": "https://github.com",
+              "repositoryId": "1",
+              "sourceRepositoryId": "1",
+              "changeId": "7"
+            },
+            "revisions": {
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "currentHead": "cccccccccccccccccccccccccccccccccccccccc",
+              "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mergeBase": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "diffStart": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentPolicy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "policy": {
+              "schemaVersion": 2,
+              "protectedPaths": {
+                "block": [],
+                "requireApproval": [
+                  "tests/**"
+                ]
+              },
+              "evidence": {
+                "required": [
+                  {
+                    "name": "QuixBugs",
+                    "producer": {
+                      "kind": "github-app",
+                      "id": "1"
+                    },
+                    "subject": "change_head"
+                  }
+                ]
+              }
+            },
+            "files": [
+              {
+                "path": "src/program.py"
+              }
+            ],
+            "collection": {
+              "complete": true,
+              "stable": true,
+              "controlPathsComplete": true,
+              "controlPaths": [],
+              "generation": 1,
+              "currentGeneration": 1
+            },
+            "evidence": [
+              {
+                "name": "QuixBugs",
+                "producer": {
+                  "kind": "github-app",
+                  "id": "1"
+                },
+                "execution": {
+                  "id": "1",
+                  "attempt": "1"
+                },
+                "subject": {
+                  "kind": "change_head",
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          "decision": "OBSERVED_SUCCESS"
+        }
+      },
+      "without-policy-binding": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 2,
+        "falseEligible": 1,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "af0d57ffc514e40d94de182333dbe888a44423380c35ee0dbc6ddf3522f9ca4c",
+        "substitutions": [
+          [
+            "if (revisions.policy !== revisions.currentPolicy)",
+            "if (false)"
+          ]
+        ],
+        "firstCounterexample": {
+          "flags": {
+            "freshHead": true,
+            "freshPolicy": false,
+            "freshGeneration": true,
+            "publisherMatches": true,
+            "subjectMatches": true,
+            "complete": true,
+            "stable": true,
+            "controlsComplete": true,
+            "unprotected": true
+          },
+          "outcome": "success",
+          "expectedEligible": false,
+          "observation": {
+            "schemaVersion": 2,
+            "identity": {
+              "forge": "github",
+              "origin": "https://github.com",
+              "repositoryId": "1",
+              "sourceRepositoryId": "1",
+              "changeId": "7"
+            },
+            "revisions": {
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "currentHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mergeBase": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "diffStart": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentPolicy": "cccccccccccccccccccccccccccccccccccccccc"
+            },
+            "policy": {
+              "schemaVersion": 2,
+              "protectedPaths": {
+                "block": [],
+                "requireApproval": [
+                  "tests/**"
+                ]
+              },
+              "evidence": {
+                "required": [
+                  {
+                    "name": "QuixBugs",
+                    "producer": {
+                      "kind": "github-app",
+                      "id": "1"
+                    },
+                    "subject": "change_head"
+                  }
+                ]
+              }
+            },
+            "files": [
+              {
+                "path": "src/program.py"
+              }
+            ],
+            "collection": {
+              "complete": true,
+              "stable": true,
+              "controlPathsComplete": true,
+              "controlPaths": [],
+              "generation": 1,
+              "currentGeneration": 1
+            },
+            "evidence": [
+              {
+                "name": "QuixBugs",
+                "producer": {
+                  "kind": "github-app",
+                  "id": "1"
+                },
+                "execution": {
+                  "id": "1",
+                  "attempt": "1"
+                },
+                "subject": {
+                  "kind": "change_head",
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          "decision": "OBSERVED_SUCCESS"
+        }
+      },
+      "without-generation-binding": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 2,
+        "falseEligible": 1,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "ac891a8535643c78c1a1f1ca6be47637674b81d85007bde266b3b0f25dfd33a3",
+        "substitutions": [
+          [
+            "if (collection.generation !== collection.currentGeneration)",
+            "if (false)"
+          ]
+        ],
+        "firstCounterexample": {
+          "flags": {
+            "freshHead": true,
+            "freshPolicy": true,
+            "freshGeneration": false,
+            "publisherMatches": true,
+            "subjectMatches": true,
+            "complete": true,
+            "stable": true,
+            "controlsComplete": true,
+            "unprotected": true
+          },
+          "outcome": "success",
+          "expectedEligible": false,
+          "observation": {
+            "schemaVersion": 2,
+            "identity": {
+              "forge": "github",
+              "origin": "https://github.com",
+              "repositoryId": "1",
+              "sourceRepositoryId": "1",
+              "changeId": "7"
+            },
+            "revisions": {
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "currentHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mergeBase": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "diffStart": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentPolicy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "policy": {
+              "schemaVersion": 2,
+              "protectedPaths": {
+                "block": [],
+                "requireApproval": [
+                  "tests/**"
+                ]
+              },
+              "evidence": {
+                "required": [
+                  {
+                    "name": "QuixBugs",
+                    "producer": {
+                      "kind": "github-app",
+                      "id": "1"
+                    },
+                    "subject": "change_head"
+                  }
+                ]
+              }
+            },
+            "files": [
+              {
+                "path": "src/program.py"
+              }
+            ],
+            "collection": {
+              "complete": true,
+              "stable": true,
+              "controlPathsComplete": true,
+              "controlPaths": [],
+              "generation": 1,
+              "currentGeneration": 2
+            },
+            "evidence": [
+              {
+                "name": "QuixBugs",
+                "producer": {
+                  "kind": "github-app",
+                  "id": "1"
+                },
+                "execution": {
+                  "id": "1",
+                  "attempt": "1"
+                },
+                "subject": {
+                  "kind": "change_head",
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          "decision": "OBSERVED_SUCCESS"
+        }
+      },
+      "without-publisher-binding": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 2,
+        "falseEligible": 1,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "6f58d8a095bff8765e1c7052a98357d280c08da11f92bd530dc439f94bf3ad87",
+        "substitutions": [
+          [
+            " && canonical(item.producer) === canonical(requirement.producer)",
+            ""
+          ]
+        ],
+        "firstCounterexample": {
+          "flags": {
+            "freshHead": true,
+            "freshPolicy": true,
+            "freshGeneration": true,
+            "publisherMatches": false,
+            "subjectMatches": true,
+            "complete": true,
+            "stable": true,
+            "controlsComplete": true,
+            "unprotected": true
+          },
+          "outcome": "success",
+          "expectedEligible": false,
+          "observation": {
+            "schemaVersion": 2,
+            "identity": {
+              "forge": "github",
+              "origin": "https://github.com",
+              "repositoryId": "1",
+              "sourceRepositoryId": "1",
+              "changeId": "7"
+            },
+            "revisions": {
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "currentHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mergeBase": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "diffStart": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentPolicy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "policy": {
+              "schemaVersion": 2,
+              "protectedPaths": {
+                "block": [],
+                "requireApproval": [
+                  "tests/**"
+                ]
+              },
+              "evidence": {
+                "required": [
+                  {
+                    "name": "QuixBugs",
+                    "producer": {
+                      "kind": "github-app",
+                      "id": "1"
+                    },
+                    "subject": "change_head"
+                  }
+                ]
+              }
+            },
+            "files": [
+              {
+                "path": "src/program.py"
+              }
+            ],
+            "collection": {
+              "complete": true,
+              "stable": true,
+              "controlPathsComplete": true,
+              "controlPaths": [],
+              "generation": 1,
+              "currentGeneration": 1
+            },
+            "evidence": [
+              {
+                "name": "QuixBugs",
+                "producer": {
+                  "kind": "github-app",
+                  "id": "2"
+                },
+                "execution": {
+                  "id": "1",
+                  "attempt": "1"
+                },
+                "subject": {
+                  "kind": "change_head",
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          "decision": "OBSERVED_SUCCESS"
+        }
+      },
+      "without-subject-binding": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 2,
+        "falseEligible": 1,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "2739b9df245e79107d4dfde8d660ed1600cad9bc8892c2416ea287c075d867eb",
+        "substitutions": [
+          [
+            "if (subject.kind !== requirement.subject || subject.head !== revisions.head)",
+            "if (subject.kind !== requirement.subject)"
+          ],
+          [
+            "if (subject.kind === 'change_head' && subject.id !== revisions.head)",
+            "if (false)"
+          ]
+        ],
+        "firstCounterexample": {
+          "flags": {
+            "freshHead": true,
+            "freshPolicy": true,
+            "freshGeneration": true,
+            "publisherMatches": true,
+            "subjectMatches": false,
+            "complete": true,
+            "stable": true,
+            "controlsComplete": true,
+            "unprotected": true
+          },
+          "outcome": "success",
+          "expectedEligible": false,
+          "observation": {
+            "schemaVersion": 2,
+            "identity": {
+              "forge": "github",
+              "origin": "https://github.com",
+              "repositoryId": "1",
+              "sourceRepositoryId": "1",
+              "changeId": "7"
+            },
+            "revisions": {
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "currentHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mergeBase": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "diffStart": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentPolicy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "policy": {
+              "schemaVersion": 2,
+              "protectedPaths": {
+                "block": [],
+                "requireApproval": [
+                  "tests/**"
+                ]
+              },
+              "evidence": {
+                "required": [
+                  {
+                    "name": "QuixBugs",
+                    "producer": {
+                      "kind": "github-app",
+                      "id": "1"
+                    },
+                    "subject": "change_head"
+                  }
+                ]
+              }
+            },
+            "files": [
+              {
+                "path": "src/program.py"
+              }
+            ],
+            "collection": {
+              "complete": true,
+              "stable": true,
+              "controlPathsComplete": true,
+              "controlPaths": [],
+              "generation": 1,
+              "currentGeneration": 1
+            },
+            "evidence": [
+              {
+                "name": "QuixBugs",
+                "producer": {
+                  "kind": "github-app",
+                  "id": "1"
+                },
+                "execution": {
+                  "id": "1",
+                  "attempt": "1"
+                },
+                "subject": {
+                  "kind": "change_head",
+                  "id": "cccccccccccccccccccccccccccccccccccccccc",
+                  "head": "cccccccccccccccccccccccccccccccccccccccc"
+                },
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          "decision": "OBSERVED_SUCCESS"
+        }
+      },
+      "without-protected-paths": {
+        "states": 3584,
+        "expectedEligible": 1,
+        "eligible": 2,
+        "falseEligible": 1,
+        "falseHold": 0,
+        "authorityGranted": 0,
+        "sourceSha256": "dd68fca5023df9df86a252b12b7f6726b9965f000030cfe2927b2804f7a6f25b",
+        "substitutions": [
+          [
+            "actualFiles: files, protectedPaths, baseSha:",
+            "actualFiles: files, protectedPaths: { block: [], requireApproval: [] }, baseSha:"
+          ]
+        ],
+        "firstCounterexample": {
+          "flags": {
+            "freshHead": true,
+            "freshPolicy": true,
+            "freshGeneration": true,
+            "publisherMatches": true,
+            "subjectMatches": true,
+            "complete": true,
+            "stable": true,
+            "controlsComplete": true,
+            "unprotected": false
+          },
+          "outcome": "success",
+          "expectedEligible": false,
+          "observation": {
+            "schemaVersion": 2,
+            "identity": {
+              "forge": "github",
+              "origin": "https://github.com",
+              "repositoryId": "1",
+              "sourceRepositoryId": "1",
+              "changeId": "7"
+            },
+            "revisions": {
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "currentHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "target": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentTarget": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mergeBase": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "diffStart": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "policy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "currentPolicy": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "policy": {
+              "schemaVersion": 2,
+              "protectedPaths": {
+                "block": [],
+                "requireApproval": [
+                  "tests/**"
+                ]
+              },
+              "evidence": {
+                "required": [
+                  {
+                    "name": "QuixBugs",
+                    "producer": {
+                      "kind": "github-app",
+                      "id": "1"
+                    },
+                    "subject": "change_head"
+                  }
+                ]
+              }
+            },
+            "files": [
+              {
+                "path": "tests/program.py"
+              }
+            ],
+            "collection": {
+              "complete": true,
+              "stable": true,
+              "controlPathsComplete": true,
+              "controlPaths": [],
+              "generation": 1,
+              "currentGeneration": 1
+            },
+            "evidence": [
+              {
+                "name": "QuixBugs",
+                "producer": {
+                  "kind": "github-app",
+                  "id": "1"
+                },
+                "execution": {
+                  "id": "1",
+                  "attempt": "1"
+                },
+                "subject": {
+                  "kind": "change_head",
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          "decision": "OBSERVED_SUCCESS"
+        }
+      }
+    },
+    "deterministicRowsSha256": "ad837cd12252112423e58e25e407c0a189b1109e02b5b676e74d3b4b0f416082"
+  },
+  "limitations": [
+    "Native baseline and API transcripts are simulated, not live GitHub.",
+    "No model repair, bug-repair leaderboard score, customer data, independent replication or universal proof.",
+    "Generated cases are dependent; counts are not statistical sample sizes.",
+    "Observed success is advisory, never approval, Guard or merge authority."
+  ]
+}

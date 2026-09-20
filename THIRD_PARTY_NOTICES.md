@@ -1,5 +1,7 @@
 # Third-party notices
 
+The public research artifact executes the externally downloaded [QuixBugs benchmark](https://github.com/jkoppel/QuixBugs) at commit `4257f44b0ff1181dedaedee6a447e133219fcebf`. Upstream publishes the MIT license, copyright 2017–2019 James Koppel, and separate `legal_notes.txt` provenance notes. Benchmark programs/tests are not vendored; execution records and test identifiers retain attribution through the [research guide](benchmarks/assurance/README.md) and [primary sources](docs/research/benchmark-sources.md). Keep upstream license/provenance files with any separately obtained source checkout.
+
 ChangePlane uses third-party packages under their respective licenses. The authoritative license texts are distributed with the installed packages and upstream repositories.
 
 | Package | Use | License |

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "protocolFreezeCommit": "41f796c8ed6c1abf14380133eb0c418e2f839acf",
+  "correctedRecorderCommit": "0a4cb0e2343d27dde68ddbef252a1e8b5574f2c8",
+  "reportedRuns": 2,
+  "programPairsPerRun": 40,
+  "suiteRunsPerRun": 80,
+  "perTestOutcomesIdentical": true,
+  "firstSeconds": 60.053636,
+  "repeatSeconds": 57.486227,
+  "excludedPilot": {
+    "file": "excluded-recorder-pilot.json",
+    "reason": "Incorrect pytest-timeout JUnit classification. Preserved for transparency; excluded from all reported scores.",
+    "productionEvaluatorChanged": false
+  },
+  "independentReplication": false,
+  "paidModelCalls": 0,
+  "customerDataUsed": false,
+  "evaluatedRuntimeBaseCommit": "3cbfc5594820b9515d8f013b9cd233742b57a6fb",
+  "runtimeFiles": {
+    "community/core.js": "d50b68580353dfa7ea233863b76535d8f9ba3ebf65f11f3fadb242c15cba0a65",
+    "community/github.js": "2fe691b3725933020337a5197a2148e91298303dbb4e5f3f527a78b7a6129c43",
+    "community/observation.js": "beb3c8f5211cf750ca537029b9c4c0407e4bd66471d39c83b01769c417eacf1a",
+    "community/review-decisions.js": "c441133f3a3c3d92a43d622c12628e0d164717426d85ac61076db7039ac94f24",
+    "community/transport.js": "aca928d30c50b8e415c5a72160d0d794b6df935e99b4c7d441640992c173611b",
+    "examples/changeplane-evidence-policy.js": "90c85b039c9473ace3c6ac87c6b6492f775d7bbb33f1611f49671a1bf398928f",
+    "src/lib/changeplane.js": "8eb5894fab2d485933a0ebe1c87489661de0c7c7a040e03260efadb5e24ff4e9",
+    "src/lib/harness.js": "c377b11f0ee668dab1b894cb92d45787e5f7d5e68a015569f3326f18ad65a023",
+    "src/lib/recovery.js": "0b4ee110467aed6dc1f189c7e1372499548853d994e9572f924c6c2df10f7907"
+  },
+  "analysisRepeat": {
+    "deterministicReplayIdentical": true,
+    "deterministicEnumerationIdentical": true
+  }
+}
