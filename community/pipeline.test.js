@@ -367,3 +367,33 @@ test('session accepts a bounded runner receipt, survives reader outage and rejec
     await assert.rejects(callAssessmentTool('changeplane_follow', { pullRequest: 7 }, { CHANGEPLANE_REPOSITORY: 'example/project' }, { read: s.f.read }), { code: 'INPUT_INVALID' });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('paid review retry is deliberate, limited and never reruns a completed report', async () => {
+  const s = await started(), directory = mkdtempSync(join(tmpdir(), 'changeplane-retry-'));
+  let calls = 0;
+  try {
+    const broken = structuredClone(s.review); broken.summary = { budget_exceeded: true };
+    const runReview = async () => { calls++; return broken; };
+    const first = await followPipeline({ ...s.f.options, runReview: true }, { directory, runReview });
+    assert.equal(first.review.status, 'incomplete'); assert.equal(first.session.reviewAttempts, 1);
+    await followPipeline({ ...s.f.options, runReview: true }, { directory, runReview }); assert.equal(calls, 1);
+    await followPipeline({ ...s.f.options, runReview: true, retryReview: true }, { directory, runReview }); assert.equal(calls, 2);
+    await assert.rejects(followPipeline({ ...s.f.options, runReview: true, retryReview: true }, { directory, runReview }), { code: 'REVIEW_RETRY_EXHAUSTED' });
+    assert.equal(calls, 2);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+  const completeDirectory = mkdtempSync(join(tmpdir(), 'changeplane-retry-'));
+  try {
+    await followPipeline({ ...s.f.options, review: s.review, requestId: s.requestId }, { directory: completeDirectory });
+    await assert.rejects(followPipeline({ ...s.f.options, runReview: true, retryReview: true }, { directory: completeDirectory, runReview: () => assert.fail('no duplicate charge') }), { code: 'REVIEW_RETRY_NOT_NEEDED' });
+  } finally { rmSync(completeDirectory, { recursive: true, force: true }); }
+});
+
+test('an interrupted paid invocation requires an explicit retry', async () => {
+  const s = await started(), directory = mkdtempSync(join(tmpdir(), 'changeplane-retry-'));
+  try {
+    await assert.rejects(followPipeline({ ...s.f.options, runReview: true }, { directory, runReview: async () => { throw new Error('stopped'); } }));
+    await assert.rejects(followPipeline({ ...s.f.options, runReview: true }, { directory, runReview: () => assert.fail('not opted in') }), { code: 'REVIEW_RETRY_REQUIRED' });
+    const done = await followPipeline({ ...s.f.options, runReview: true, retryReview: true }, { directory, runReview: async () => s.review });
+    assert.equal(done.pipeline.status, 'ready'); assert.equal(done.session.reviewAttempts, 2);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

@@ -32,6 +32,8 @@ Session state is sealed in a secure HTTP-only cookie. Short-lived GitHub tokens 
 
 ## Sharing and subprocessors
 
+The optional ChatGPT connection requires explicit connection consent. Requested repository names, PR titles, changed paths, CI observations and handoff text are returned to ChatGPT under its own data controls. The integration does not collect chat history or return raw source diffs, CI logs or credentials. OAuth access/refresh credentials are encrypted in purpose-separated, resource-bound tokens; the MCP server checks GitHub identity and repository access on use. It adds no ChangePlane conversation database or automatic telemetry. See [the connection and revocation contract](docs/chatgpt-app.md). This draft is not approval for public directory submission.
+
 Data is disclosed only to personnel and service providers who need it to operate the service, respond to a customer, meet legal obligations, or protect rights and security. Current service providers and their functions are listed in [SUBPROCESSORS.md](SUBPROCESSORS.md). ChangePlane does not authorize an authoring model to approve, merge, issue `PASS`, or receive GitHub App credentials.
 
 ## Retention, deletion, and security
@@ -41,4 +43,3 @@ The design-partner alpha uses GitHub as the operational record and does not acti
 ## Rights, transfers, and changes
 
 Requests to access, correct, export, object to, restrict, or delete personal information should be sent to the privacy contact above. Identity and authority will be verified before action. **Counsel must complete regional rights, international-transfer, regulator, children's-data, and notice-change language before approval.** Material changes require a new effective date and release review.
-

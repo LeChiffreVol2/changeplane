@@ -22,7 +22,7 @@ Usage:
   changeplane inspect OWNER/REPO PR_NUMBER [--wait SECONDS] [--format json|text|compact]
   changeplane inspect https://github.com/OWNER/REPO/pull/123
   changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait SECONDS]
-  changeplane follow OWNER/REPO PR_NUMBER [--run-review] [--wait SECONDS]
+  changeplane follow OWNER/REPO PR_NUMBER [--run-review [--retry-review]] [--wait SECONDS]
   changeplane init OWNER/REPO --dry-run
   changeplane mcp
   changeplane team --help
@@ -113,7 +113,7 @@ try {
       await serveAssessment();
     }
   } else if (command === 'follow' && args.length === 1 && args[0] === '--help') {
-    process.stdout.write('changeplane follow OWNER/REPO PR_NUMBER [--run-review] [--review FILE --request-id ID] [--wait 1–60]\nSave and resume a private local PR session. CHANGEPLANE_STATE_DIR selects an absolute operator-owned directory; the default is ~/.local/state/changeplane. Every call collects fresh GitHub state and invalidates stale review. --run-review explicitly enables one bounded Docker review using CHANGEPLANE_REVIEW_IMAGE, CHANGEPLANE_REVIEW_REPOSITORY and OPENAI_API_KEY from the operator environment. Current reports are reused. An existing isolated job can write {requestId, review} to session.resultPath; follow imports it automatically. session.humanReviewPath contains a draft for human repository review, never automatic approval. No daemon or agent wakeup. See docs/opencode-review.md.\n');
+    process.stdout.write('changeplane follow OWNER/REPO PR_NUMBER [--run-review] [--review FILE --request-id ID] [--wait 1–60]\nSave and resume a private local PR session. CHANGEPLANE_STATE_DIR selects an absolute operator-owned directory; the default is ~/.local/state/changeplane. Every call collects fresh GitHub state and invalidates stale review. --run-review explicitly enables one bounded Docker review using CHANGEPLANE_REVIEW_IMAGE, CHANGEPLANE_REVIEW_REPOSITORY and OPENAI_API_KEY from the operator environment. Current reports are reused. After investigating an incomplete report or interrupted invocation, --run-review --retry-review permits a deliberate retry, with at most two runner invocations per request in this private session. An existing isolated job can write {requestId, review} to session.resultPath; follow imports it automatically. session.humanReviewPath contains a draft for human repository review, never automatic approval. No daemon or agent wakeup. See docs/opencode-review.md.\n');
   } else if (command === 'pipeline' && args.length === 1 && args[0] === '--help') {
     process.stdout.write('changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait 1–60] [--format json|text|compact]\nFirst call returns an exact-range review request. Run its pinned OpenCodeReview engine separately with trusted configuration and no GitHub/controller credentials, then return its JSON and the request ID. Reports are bounded to 256 KB and remain unauthenticated advisory data. Review findings return to your existing agent; CI, protected paths and repository merge policy retain authority. See docs/opencode-review.md.\n');
   } else if (command === 'doctor') {
@@ -153,10 +153,14 @@ try {
       report = { ...(snapshot.schemaVersion === 2 ? assessObservation(snapshot) : assess(snapshot)),
         observation: { source: 'provided-snapshot', authenticated: false } };
     } else if (['inspect', 'pipeline', 'follow'].includes(command)) {
-      let review, requestId, runReview = false;
+      let review, requestId, runReview = false, retryReview = false;
       if (command === 'follow' && args.includes('--run-review')) {
         args.splice(args.indexOf('--run-review'), 1); runReview = true;
         if (args.includes('--run-review')) throw new Error('USAGE_INVALID');
+      }
+      if (command === 'follow' && args.includes('--retry-review')) {
+        args.splice(args.indexOf('--retry-review'), 1); retryReview = true;
+        if (!runReview || args.includes('--retry-review')) throw new Error('USAGE_INVALID');
       }
       if (command !== 'inspect') {
         const take = flag => {
@@ -192,7 +196,7 @@ try {
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
       const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };
       if (command !== 'inspect') Object.assign(options, { review, requestId });
-      const follow = options => followPipeline({ ...options, runReview }, {
+      const follow = options => followPipeline({ ...options, runReview, retryReview }, {
         directory: process.env.CHANGEPLANE_STATE_DIR || join(homedir(), '.local', 'state', 'changeplane'), runReview: configuredReviewRunner() });
       const inspect = command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : inspectPullRequest;
       const wait = command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : waitForPullRequest;

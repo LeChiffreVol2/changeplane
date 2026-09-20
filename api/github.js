@@ -1,4 +1,7 @@
 import { HttpError, GitHubError } from "../server/http-errors.js";
+import { readWorkspace, listWorkspacePulls } from "../server/product-workspace.js";
+import { githubReader } from "../community/github.js";
+import { createChatgptAuth } from "../server/chatgpt-auth.js";
 import { createGuardLifecycle } from "../server/guard-lifecycle.js";
 import { createGitHubEvidenceReader } from "../server/github-evidence.js";
 import {
@@ -523,6 +526,8 @@ const ROUTE_METHODS = new Map([
   ["installation", ["GET"]],
   ["callback", ["GET"]],
   ["repos", ["GET"]],
+  ["pulls", ["GET"]],
+  ["workspace", ["GET"]],
   ["preflight", ["GET"]],
   ["ruleset-plan", ["GET"]],
   ["ruleset-apply", ["POST"]],
@@ -537,6 +542,8 @@ const ROUTE_METHODS = new Map([
   ["logout", ["POST"]],
 ]);
 const EXTERNAL_ACCESS_ACTIONS = new Set([
+  "pulls",
+  "workspace",
   "login",
   "authorize",
   "installation",
@@ -3307,6 +3314,7 @@ async function repositoryByokToken(session, repo, installationId) {
 }
 
 async function callback(req, res) {
+  if (await chatgptAuth().callback(req, res)) return;
   const state = queryValue(req, "state");
   if (typeof state !== "string" || !/^[A-Za-z0-9_-]{32,128}$/u.test(state)) throw new HttpError(400, "Invalid OAuth state.");
   const rawStateCookie = parseCookies(header(req, "cookie"))[OAUTH_COOKIE];
@@ -3471,6 +3479,70 @@ async function repositories(req, res) {
         permissions: { push: Boolean(repo.permissions?.push), admin: Boolean(repo.permissions?.admin) },
       })),
   });
+}
+
+// Read-only product access shares the existing App/user installation binding and
+// rollout/provenance gates. A caller never supplies a token or installation ID.
+export async function productReadAccess(repository, session) {
+  assertExternalAccessSourceProvenance();
+  assertRolloutAccessAuthorized();
+  repository = validateRepository(repository);
+  if (session.authMode !== "github_app") throw new HttpError(403, "Connect the repository-scoped GitHub App to inspect live pull requests.");
+  const target = await requireWritableRepository(repository, session);
+  const read = githubReader(session.token);
+  const root = `/repos/${repository}`;
+  return { repository, read: async pathname => {
+    if (!(pathname === root || pathname.startsWith(root + "/"))) throw new HttpError(403, "Repository scope mismatch.");
+    return read(pathname);
+  }, target };
+}
+
+export async function productRepositories(session) {
+  assertExternalAccessSourceProvenance();
+  assertRolloutAccessAuthorized();
+  if (session.authMode !== "github_app") throw new HttpError(403, "Connect the ChangePlane GitHub App.");
+  const allowed = allowedRolloutRepositories();
+  if (rolloutMode() !== "self_serve" && !allowed) throw new HttpError(503, "The approved repository scope is not configured.");
+  return (await installationRepositories(session))
+    .filter(repo => (repo.permissions?.push || repo.permissions?.admin)
+      && (!allowed || allowed.some(name => repo.full_name?.toLowerCase() === name.toLowerCase())))
+    .map(repo => ({ repository: repo.full_name, url: `https://github.com/${repo.full_name}`, private: Boolean(repo.private) }));
+}
+
+export function chatgptAuth() {
+  return createChatgptAuth({ seal, unseal,
+    configuration: () => {
+      assertExternalAccessSourceProvenance();
+      assertRolloutAccessAuthorized();
+      if (!process.env.GITHUB_CLIENT_SECRET) throw new HttpError(503, "The GitHub App connection is not configured.");
+      return { origin: configuredAppOrigin(), clientId: process.env.GITHUB_CLIENT_ID,
+        secret: sessionSecret(), appSlug: githubAppSlug() };
+    },
+    exchange: async body => {
+      const response = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({ ...body, client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET }),
+      });
+      if (!response.ok) throw new HttpError(502, "GitHub authorization is unavailable. Reconnect later.");
+      return response.json();
+    },
+    identity: async token => {
+      const user = await github("/user", token);
+      if (!Number.isSafeInteger(user?.id) || typeof user.login !== "string") throw new HttpError(401, "Reconnect GitHub.");
+      const installations = (await userInstallations(token)).filter(item => item.app_slug === githubAppSlug()
+        && item.suspended_at == null && Number.isSafeInteger(item.id) && item.id > 0);
+      if (!installations.length || installations.length > MAX_APP_INSTALLATIONS) throw new HttpError(403, "Connect the ChangePlane GitHub App to selected repositories, then reconnect ChatGPT.");
+      return { token, login: user.login, authMode: "github_app", installationIds: installations.map(item => String(item.id)) };
+    },
+  });
+}
+
+async function productWorkspace(req, res, list = false) {
+  const access = await productReadAccess(queryValue(req, "repository"), requireSession(req));
+  const payload = list ? await listWorkspacePulls({ ...access, page: Number(queryValue(req, "page") ?? 1) })
+    : await readWorkspace({ ...access, number: Number(queryValue(req, "number")), mode: queryValue(req, "mode") ?? "evidence" });
+  sendJson(res, 200, payload);
 }
 
 async function readByokStatus(repository, token) {
@@ -5144,6 +5216,8 @@ async function handleRequest(req, res, suppliedJournal, suppliedPilotAdmission) 
     if (method === "GET" && action === "installation") return await installation(req, res);
     if (method === "GET" && action === "callback") return await callback(req, res);
     if (method === "GET" && action === "repos") return await repositories(req, res);
+    if (method === "GET" && action === "pulls") return await productWorkspace(req, res, true);
+    if (method === "GET" && action === "workspace") return await productWorkspace(req, res);
     if (method === "GET" && action === "preflight") return await preflight(req, res);
     if (method === "GET" && action === "ruleset-plan") return await rulesetPlanStatus(req, res);
     if (method === "POST" && action === "ruleset-apply") return await applyRulesetPlan(req, res);

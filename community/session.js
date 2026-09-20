@@ -41,12 +41,14 @@ export async function followPipeline(options, { directory, inspect = inspectPipe
     const statePath = join(slot, 'state.json');
     const saved = readJson(statePath, REVIEW_BYTES + 4096);
     if (saved && (saved.schemaVersion !== 1 || !hex.test(saved.requestId))) throw new CollectionError('SESSION_UNAVAILABLE');
-    const { runReview: enabled, ...input } = options;
+    const { runReview: enabled, retryReview = false, ...input } = options;
+    if (retryReview && (!enabled || input.review !== undefined)) throw new CollectionError('INPUT_INVALID');
     let current = await inspect({ ...input, review: undefined, requestId: undefined, waitSeconds: undefined });
     const request = current.reviewRequest;
     const requestPath = join(slot, 'request.json'), resultPath = join(slot, `review-${request.id}.json`);
     writeJson(requestPath, request);
     const same = saved?.requestId === request.id;
+    let attempts = same && Number.isSafeInteger(saved.reviewAttempts) ? saved.reviewAttempts : 0;
     let review = input.review, requestId = input.requestId;
     if (review === undefined && same && saved.review !== undefined) { review = saved.review; requestId = saved.requestId; }
     if (review === undefined) {
@@ -59,7 +61,21 @@ export async function followPipeline(options, { directory, inspect = inspectPipe
     if (enabled) {
       if (typeof runReview !== 'function') throw new CollectionError('REVIEW_RUNNER_UNAVAILABLE');
       if (current.ci.decision === 'BLOCKED') return current;
+      if (retryReview && review !== undefined) {
+        const previous = await inspect({ ...input, review, requestId, waitSeconds: undefined });
+        if (previous.reviewRequest.id !== request.id) throw new CollectionError('EVIDENCE_CHANGED');
+        if (!['incomplete', 'unavailable'].includes(previous.review.status)) throw new CollectionError('REVIEW_RETRY_NOT_NEEDED');
+        if (attempts >= 2) throw new CollectionError('REVIEW_RETRY_EXHAUSTED');
+        review = undefined;
+      }
       if (review === undefined) {
+        if (attempts > 0 && !retryReview) throw new CollectionError('REVIEW_RETRY_REQUIRED');
+        if (attempts >= 2) throw new CollectionError('REVIEW_RETRY_EXHAUSTED');
+        attempts += 1;
+        // Record invocation intent before starting a paid job, including failed or
+        // interrupted attempts. A retry is explicit and bounded for this request.
+        writeJson(statePath, { schemaVersion: 1, requestId: request.id, reviewAttempts: attempts,
+          ...(same && saved.review !== undefined ? { review: saved.review } : {}), observedAt: new Date().toISOString() });
         review = await runReview(request, { signal: input.signal }); requestId = request.id;
         // Capture the report before another network request so a transient GitHub error
         // never requires another model call. It is still untrusted on every resume.
@@ -69,12 +85,12 @@ export async function followPipeline(options, { directory, inspect = inspectPipe
     }
     if (review !== undefined) current = await inspect({ ...input, review, requestId });
     const accepted = current.reviewRequest.id === requestId && !['unavailable', 'stale'].includes(current.review.status);
-    writeJson(statePath, { schemaVersion: 1, requestId: current.reviewRequest.id,
+    writeJson(statePath, { schemaVersion: 1, requestId: current.reviewRequest.id, reviewAttempts: current.reviewRequest.id === request.id ? attempts : 0,
       ...(accepted ? { review } : {}), observedAt: new Date().toISOString() });
     if (current.reviewRequest.id !== request.id) writeJson(requestPath, current.reviewRequest);
     const humanReviewPath = join(slot, 'human-review.md');
     writePrivate(humanReviewPath, current.humanReview.reviewBody + '\n');
-    return { ...current, session: { id, resumed: Boolean(same), invalidated: Boolean(saved && !same),
+    return { ...current, session: { id, resumed: Boolean(same), invalidated: Boolean(saved && !same), reviewAttempts: attempts,
       requestPath, resultPath: join(slot, `review-${current.reviewRequest.id}.json`), humanReviewPath,
       nextAction: 'Repeat follow for this PR to resume against fresh GitHub state. Saved reports never authorize approval, repair or merge. Stop the current process before manually clearing a stranded lock; delete this private session directory to forget its reports.' } };
   } finally { rmSync(lock, { recursive: true, force: true }); }

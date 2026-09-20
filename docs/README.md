@@ -41,3 +41,6 @@ Use the single published [0.4.1 release](https://github.com/LeChiffreVol2/change
 ## Commercial and hosted planning
 
 [Commercial plan](commercial-plan.md), [operating budget](operating-budget.md), [design-partner order form](design-partner-order-form.md), [launch measurement](launch-measurement.md). Draft commercial/legal documents do not limit the Apache-2.0 software license or grant hosted-service access.
+## Live PR workspace and ChatGPT
+
+Use [ChangePlane in ChatGPT](chatgpt-app.md) for the read-only conversational connection and its current release boundaries. The signed-in website can inspect live PR evidence after repository selection. [Review quality](review-quality.md) describes offline measurement; the [technical paper plan](technical-paper-plan.md) defines the proposed research and evidence still required.

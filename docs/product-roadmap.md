@@ -2,6 +2,12 @@
 
 ChangePlane advances by dependency and evidence, not by feature count or a calendar promise.
 
+## Current product increment — 2026-09-20
+
+The live PR workspace and read-only ChatGPT MCP adapter share the existing evaluator. The UI adds first-assessment entry, human-review draft preparation, current-head refresh and agent handoff. Local review continuation adds explicit bounded retry; an offline quality report preserves incomplete and unadjudicated results. See [the connection contract](chatgpt-app.md), [review-quality measurement](review-quality.md) and [the next research phase](technical-paper-plan.md).
+
+Local protocol and browser tests qualify implementation behavior. Live ChatGPT OAuth, real-provider review quality and an independently measured ten-minute first-assessment target remain separate observations to collect. Public listing and paid hosted access retain their existing external release gates. The dated sections below are historical milestones, not the current deployment state.
+
 ## Managed-v14 candidate — 2026-09-07
 
 The protected production baseline remains `ddccd7ab7721c28542a0e4a36956cbc307832672`. The current candidate adds installed scheduled recovery, safe profile-preserving upgrades, same-SHA contract retention, truthful launch gates, an [offline pilot scorecard](launch-measurement.md), and a [PostgreSQL publication journal candidate](guard-publication-journal.md). These changes have not inherited live deployment evidence.
