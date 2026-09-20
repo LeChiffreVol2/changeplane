@@ -182,6 +182,8 @@ Outputs:
 
 The workflow summary shows the decision and finding count. It deliberately omits private paths. Consumers of the JSON must treat findings as untrusted data, protect the output like repository metadata, and check the head again before acting. No automatic comment, artifact upload, proposal, repair or merge is performed.
 
+Protected-path findings remain visible in this original assessment even after a human decision. The optional pipeline reports that decision separately; it does not rewrite the Action or publish Guard. Keep behavioral CI and native repository review rules as merge requirements, rather than requiring this advisory assessment to turn every protected change green.
+
 ## Embed the evaluator
 
 ```js
@@ -209,7 +211,7 @@ CLI exit codes are 0 for satisfied evidence, 1 for findings and 2 for invalid/un
 | `WAIT_TIMEOUT` / `COLLECTION_CANCELLED` | No settled assessment | Inspect current state when CI progresses or the operator resumes |
 | More than 100 runs/checks/jobs for a queried revision | No assessment | Narrow the workflow/evidence footprint; the reader does not silently truncate |
 
-Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. Assessment commands have no persistent state. Opt-in team commands maintain repository-owned Git metadata and offer bounded observation; the reviewed team template supplies GitHub scheduling.
+Other limits: 3,000 changed files, 20 required checks, 64 KB trusted policy, 1 MB offline input, 15 seconds per network request, five-minute timeout in the provided workflow. The new source permits at most three safe-read attempts within a sixty-second/200-request reader budget. Long rate-limit guidance returns unavailable. `inspect` and `pipeline` are stateless; opt-in `follow` saves private local continuation state. Opt-in team commands maintain repository-owned Git metadata and offer bounded observation; the reviewed team template supplies GitHub scheduling.
 
 GitHub.com personal accounts and organizations, including Enterprise Cloud, can use the same reader. Private access depends on your GitHub account and organization policies. GitHub Actions usage is billed by GitHub under your own plan; ChangePlane charges nothing for Open Source. Team writes exclude forks. Fork reading and GitLab reading have their own [qualification boundaries](recovery-core.md). GHES, Merge Queue assessments, hosted Guard publication, automatic source repair and supported full-controller self-hosting remain outside this open-source release.
 
