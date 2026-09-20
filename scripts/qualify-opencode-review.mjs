@@ -9,9 +9,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { inspectPipeline, OCR_SOURCE } from '../community/pipeline.js';
+import { configuredReviewRunner } from '../community/review-runner.js';
 
-const binary = process.argv[2] && resolve(process.argv[2]);
-assert.ok(binary, 'Usage: node scripts/qualify-opencode-review.mjs /absolute/path/to/pinned/ocr');
+const image = /^sha256:[a-f0-9]{64}$/u.test(process.argv[2] ?? '') ? process.argv[2] : null;
+const binary = !image && process.argv[2] && resolve(process.argv[2]);
+assert.ok(binary || image, 'Usage: node scripts/qualify-opencode-review.mjs /absolute/path/to/pinned/ocr OR sha256:LOCAL_IMAGE_ID');
 const scratch = mkdtempSync(join(tmpdir(), 'changeplane-ocr-qualification-'));
 const repo = join(scratch, 'repo'), profile = join(scratch, 'profile');
 mkdirSync(repo); mkdirSync(profile);
@@ -56,6 +58,7 @@ try {
     evidence: { requiredChecks: [{ name: 'Behavior', appSlug: 'github-actions', workflowPath: '.github/workflows/ci.yml' }] } };
   const data = {
     [root]: identity,
+    [`${root}/pulls/7/reviews?per_page=100&page=1`]: [],
     [`${root}/pulls/7`]: { id: 71, number: 7, state: 'open', changed_files: 1,
       head: { sha: head, ref: 'feature', repo: identity }, base: { sha: base, ref: 'main', repo: identity } },
     [`${root}/commits/main`]: { sha: base },
@@ -72,7 +75,32 @@ try {
   for (const scenario of ['clean', 'finding', 'failed', 'budget']) {
     mode = scenario; calls = 0;
     const output = join(scratch, `${scenario}.json`);
-    const result = await new Promise((resolve, reject) => {
+    let review, result;
+    if (image) {
+      const worker = join(scratch, 'review-sandbox.mjs');
+      const stub = `
+let calls = 0;
+globalThis.fetch = async (url, options) => {
+  const body = JSON.parse(options.body); calls++;
+  if (url !== 'https://api.openai.com/v1/responses' || body.store !== false || body.reasoning?.effort !== 'high'
+    || body.model !== 'gpt-5.6-luna' || options.headers.Authorization !== 'Bearer synthetic-local-token') throw new Error('invalid provider request');
+  const mode = ${JSON.stringify(scenario)};
+  if (mode === 'failed') return Response.json({error:{message:'synthetic-provider-failure'}}, {status:400});
+  const commented = body.input?.some(item => item.type === 'function_call' && item.name === 'code_comment');
+  const done = {type:'function_call',id:'fc_'+calls,call_id:'call_'+calls,name:'task_done',arguments:'{"state":"DONE"}'};
+  const output = body.tools?.length ? [mode === 'finding' && !commented ? {
+    type:'function_call',id:'fc_'+calls,call_id:'call_'+calls,name:'code_comment',arguments:JSON.stringify({comments:[{
+      path:'sort.js',content:'Handle empty input before sorting.',existing_code:'export const sort = values => values.sort();',category:'bug',severity:'medium'
+    }]})
+  } : done] : [{type:'message',id:'msg_'+calls,role:'assistant',status:'completed',content:[{type:'output_text',text:'Read the diff and finish the review.',annotations:[]}]}];
+  return Response.json({id:'resp_'+calls,object:'response',created_at:1,status:'completed',model:body.model,output,
+    usage:{input_tokens:10,output_tokens:5,total_tokens:mode === 'budget' ? 100001 : 15}});
+};\n`;
+      writeFileSync(worker, stub + readFileSync(new URL('../community/review-sandbox.js', import.meta.url), 'utf8'));
+      review = await configuredReviewRunner({ CHANGEPLANE_REVIEW_IMAGE: image, CHANGEPLANE_REVIEW_REPOSITORY: repo,
+        OPENAI_API_KEY: 'synthetic-local-token', ...(process.env.DOCKER_HOST ? { DOCKER_HOST: process.env.DOCKER_HOST } : {}) }, { worker })(request);
+      result = { code: null, diagnostics: 'isolated Docker with in-container Responses stub' };
+    } else result = await new Promise((resolve, reject) => {
       const child = spawn(binary, ['review', '--repo', repo, '--from', base, '--to', head,
         '--format', 'json', '--output', output, '--no-filter', '--audience', 'agent', '--timeout', '1', '--max-tokens-budget', scenario === 'budget' ? '1' : '100000'],
       { cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -80,15 +108,15 @@ try {
       const timer = setTimeout(() => child.kill('SIGKILL'), 45_000);
       child.on('error', reject); child.on('close', code => { clearTimeout(timer); resolve({ code, diagnostics }); });
     });
-    const review = JSON.parse(readFileSync(output, 'utf8'));
+    review ??= JSON.parse(readFileSync(output, 'utf8'));
     const report = await inspectPipeline({ ...options, review, requestId: request.id });
-    assert.ok(scenario === 'budget' ? calls === 0 : calls > 0, JSON.stringify({ scenario, review, diagnostics: result.diagnostics }));
+    if (!image) assert.ok(scenario === 'budget' ? calls === 0 : calls > 0, JSON.stringify({ scenario, review, diagnostics: result.diagnostics }));
     assert.equal(report.review.status, scenario === 'clean' ? 'complete' : scenario === 'finding' ? 'findings' : 'incomplete', JSON.stringify({ scenario, review, report: report.review, diagnostics: result.diagnostics }));
     assert.equal(report.authority.guardPublished, false);
     if (scenario === 'finding') assert.equal(report.review.findings[0].content, 'Handle empty input before sorting.');
-    outcomes.push({ scenario, exitCode: result.code, providerCalls: calls, upstreamState: review.status, pipelineState: report.pipeline.status });
+    outcomes.push({ scenario, exitCode: result.code, providerCalls: image ? 'isolated-stub' : calls, upstreamState: review.status, pipelineState: report.pipeline.status });
   }
-  console.log(JSON.stringify({ compatibleSource: OCR_SOURCE, binarySha256: createHash('sha256').update(readFileSync(binary)).digest('hex'),
+  console.log(JSON.stringify({ compatibleSource: OCR_SOURCE, ...(image ? { image } : { binarySha256: createHash('sha256').update(readFileSync(binary)).digest('hex') }),
     qualification: 'Real OCR binary; synthetic GitHub observations and loopback Responses stub. No live model quality claim.', outcomes }, null, 2));
 } finally {
   await new Promise(resolve => server.close(resolve));

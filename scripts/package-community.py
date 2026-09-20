@@ -27,12 +27,14 @@ version = version_match.group(1).decode()
 prefix = 'changeplane-community-' + version
 paths = [
     'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md',
-    'bin/changeplane.js', 'community/README.md', 'docs/README.md', 'docs/community.md',
+    'bin/changeplane.js', 'bin/install.mjs', 'community/install.test.js', 'community/README.md', 'docs/README.md', 'docs/community.md',
     'skills/changeplane/SKILL.md',
     'community/setup.js', 'community/setup.test.js', 'community/output.js',
-    'community/mcp.js', 'community/mcp-transport.js', 'community/entrypoints.test.js',
+    'community/mcp.js', 'community/mcp-transport.js', 'community/mcp-transport.test.js', 'community/entrypoints.test.js',
     'community/core.js', 'community/github.js', 'community/cli.js',
     'community/pipeline.js', 'community/pipeline.test.js', 'docs/opencode-review.md',
+    'community/session.js', 'community/review-decisions.js', 'community/review-runner.js',
+    'community/review-runner.test.js', 'community/review-sandbox.js', 'examples/opencode-review.Dockerfile',
     'community/action.js', 'community/action.yml', 'community/core.test.js',
     'community/gitlab.js', 'community/gitlab.test.js', 'community/observation.js', 'community/observation.test.js',
     'community/transport.js', 'community/transport.test.js', 'community/action-output.test.js',
@@ -67,7 +69,7 @@ Open your target repository in your coding agent and give it the absolute path t
 
 The CLI works directly from this bundle. MCP is optional; follow the [agent setup guide](docs/community.md#use-with-an-agent). A skill does not install tools or grant repository permissions.
 
-The optional [OpenCodeReview pipeline](docs/opencode-review.md) combines review coverage, findings and current CI for your existing agent. Install and enable that model-backed engine separately; the core does not execute it or require a model key.
+The optional [OpenCodeReview pipeline](docs/opencode-review.md) combines review coverage, findings, human decisions and current CI. Use `follow` to resume private local state. Explicitly enable the isolated Docker runner with your key for `follow --run-review`; the core assessment needs no model key.
 
 ## Try it in one minute
 

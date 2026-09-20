@@ -20,6 +20,7 @@ Open your repository in your existing coding agent and paste:
 ```text
 Set up ChangePlane for this repository.
 Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
+If no current runtime is installed, use its CI-verified installer in a separate directory and retain the returned source revision.
 Start with read-only PR/CI assessment. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review.
 Return the assessed revision, findings and next action. Keep credentials in my existing environment, never in this chat.
 ```

@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { assess, COMMUNITY_VERSION } from './core.js';
 import { inspectPullRequest, waitForPullRequest } from './github.js';
 import { inspectPipeline, REVIEW_BYTES } from './pipeline.js';
+import { followPipeline } from './session.js';
+import { configuredReviewRunner } from './review-runner.js';
 import { inspectMergeRequest } from './gitlab.js';
 import { assessObservation } from './observation.js';
 import { unavailable } from './transport.js';
 import { githubReader } from './github.js';
 import { formatReport } from './output.js';
-import { inspectSetup, planSetup, setupFailure, SetupError, writeSetupPlan } from './setup.js';
+import { inspectSetup, planSetup, setupFailure, SetupError, writeSetupPlan, setupRuntime } from './setup.js';
 import { runTeamCli, teamFailure } from './team-cli.js';
 
 const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
@@ -18,11 +22,13 @@ Usage:
   changeplane inspect OWNER/REPO PR_NUMBER [--wait SECONDS] [--format json|text|compact]
   changeplane inspect https://github.com/OWNER/REPO/pull/123
   changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait SECONDS]
+  changeplane follow OWNER/REPO PR_NUMBER [--run-review] [--wait SECONDS]
   changeplane init OWNER/REPO --dry-run
   changeplane mcp
   changeplane team --help
   changeplane inspect-gitlab GROUP/PROJECT MR_NUMBER
   changeplane --version
+  changeplane runtime
 
 From a source checkout: node bin/changeplane.js COMMAND
 Existing node community/cli.js commands remain supported.
@@ -94,6 +100,11 @@ try {
   const args = argv.slice(1); command = argv[0];
   if (!command || command === '--help' || command === '-h') process.stdout.write(help);
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
+  else if (command === 'runtime' && args.length === 0) process.stdout.write(JSON.stringify({
+    version: COMMUNITY_VERSION, sourceRevision: setupRuntime().revision,
+    capabilities: ['inspect', 'doctor', 'init', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
+    nextAction: 'Use doctor for repository setup. Model review requires separate Docker image, source scope and explicit BYOK enablement.',
+  }, null, 2) + '\n');
   else if (command === 'mcp') {
     if (args[0] === '--help' && args.length === 1) process.stdout.write('Set CHANGEPLANE_REPOSITORY=OWNER/REPO in the operator environment, then run changeplane mcp. Read-only GitHub setup checks, plans and assessment; use a read-only credential for private access.\n');
     else {
@@ -101,6 +112,8 @@ try {
       const { serveAssessment } = await import('./mcp.js');
       await serveAssessment();
     }
+  } else if (command === 'follow' && args.length === 1 && args[0] === '--help') {
+    process.stdout.write('changeplane follow OWNER/REPO PR_NUMBER [--run-review] [--review FILE --request-id ID] [--wait 1–60]\nSave and resume a private local PR session. CHANGEPLANE_STATE_DIR selects an absolute operator-owned directory; the default is ~/.local/state/changeplane. Every call collects fresh GitHub state and invalidates stale review. --run-review explicitly enables one bounded Docker review using CHANGEPLANE_REVIEW_IMAGE, CHANGEPLANE_REVIEW_REPOSITORY and OPENAI_API_KEY from the operator environment. Current reports are reused. An existing isolated job can write {requestId, review} to session.resultPath; follow imports it automatically. session.humanReviewPath contains a draft for human repository review, never automatic approval. No daemon or agent wakeup. See docs/opencode-review.md.\n');
   } else if (command === 'pipeline' && args.length === 1 && args[0] === '--help') {
     process.stdout.write('changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait 1–60] [--format json|text|compact]\nFirst call returns an exact-range review request. Run its pinned OpenCodeReview engine separately with trusted configuration and no GitHub/controller credentials, then return its JSON and the request ID. Reports are bounded to 256 KB and remain unauthenticated advisory data. Review findings return to your existing agent; CI, protected paths and repository merge policy retain authority. See docs/opencode-review.md.\n');
   } else if (command === 'doctor') {
@@ -139,9 +152,13 @@ try {
       catch { throw new Error('INPUT_INVALID'); }
       report = { ...(snapshot.schemaVersion === 2 ? assessObservation(snapshot) : assess(snapshot)),
         observation: { source: 'provided-snapshot', authenticated: false } };
-    } else if (command === 'inspect' || command === 'pipeline') {
-      let review, requestId;
-      if (command === 'pipeline') {
+    } else if (['inspect', 'pipeline', 'follow'].includes(command)) {
+      let review, requestId, runReview = false;
+      if (command === 'follow' && args.includes('--run-review')) {
+        args.splice(args.indexOf('--run-review'), 1); runReview = true;
+        if (args.includes('--run-review')) throw new Error('USAGE_INVALID');
+      }
+      if (command !== 'inspect') {
         const take = flag => {
           const i = args.indexOf(flag);
           if (i === -1) return undefined;
@@ -174,10 +191,12 @@ try {
       } else if (args.length !== 2) throw new Error('USAGE_INVALID');
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
       const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };
-      if (command === 'pipeline') Object.assign(options, { review, requestId });
-      const inspect = command === 'pipeline' ? inspectPipeline : inspectPullRequest;
-      const wait = command === 'pipeline' ? inspectPipeline : waitForPullRequest;
-      if (waitSeconds === undefined) report = await inspect(options);
+      if (command !== 'inspect') Object.assign(options, { review, requestId });
+      const follow = options => followPipeline({ ...options, runReview }, {
+        directory: process.env.CHANGEPLANE_STATE_DIR || join(homedir(), '.local', 'state', 'changeplane'), runReview: configuredReviewRunner() });
+      const inspect = command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : inspectPullRequest;
+      const wait = command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : waitForPullRequest;
+      if (waitSeconds === undefined && command !== 'follow') report = await inspect(options);
       else {
         const controller = new AbortController();
         const cancel = () => controller.abort();

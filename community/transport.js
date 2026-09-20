@@ -13,6 +13,13 @@ const messages = Object.freeze({
   EVIDENCE_CHANGED: ['REOBSERVE_REVISION', 'The revision, policy or execution changed during collection. Reassess current state.'],
   WAIT_TIMEOUT: ['REASSESS_CURRENT_PR', 'The bounded wait ended without a settled assessment. Inspect the current PR again when CI progresses.'],
   COLLECTION_CANCELLED: ['REASSESS_WHEN_READY', 'Inspection was cancelled. No assessment was issued; inspect again when ready.'],
+  SESSION_UNAVAILABLE: ['CHECK_PRIVATE_SESSION', 'Use an operator-owned private state directory (0700 on Unix). Inspect a corrupt or unsafe session before retrying; no saved result establishes current evidence.'],
+  SESSION_BUSY: ['RESUME_EXISTING_SESSION', 'Another process holds this PR session. Resume it, or stop it before removing its stranded lock and retrying.'],
+  REVIEW_RUNNER_UNAVAILABLE: ['CONFIGURE_REVIEW_JOB', 'Enable the isolated review runner and your model key in the operator environment, then retry follow --run-review. Read-only inspection remains available.'],
+  REVIEW_DOCKER_UNAVAILABLE: ['START_LOCAL_DOCKER', 'The local Docker daemon is unavailable. Start Docker and retry; no model review was started.'],
+  REVIEW_IMAGE_UNAVAILABLE: ['BUILD_REVIEW_IMAGE', 'The pinned local review image is missing or has the wrong source label. Build the documented image and configure its immutable ID. No model review was started.'],
+  REVIEW_SOURCE_UNAVAILABLE: ['PREPARE_REVIEW_SOURCE', 'The local checkout lacks the requested Git objects or exceeds bounded source scope. Fetch the current PR and trusted default branch, or narrow the PR, then retry. No model review was started.'],
+  REVIEW_EXECUTION_UNAVAILABLE: ['INSPECT_REVIEW_JOB', 'The isolated job did not return a bounded report. Check Docker resources and operator model access before a deliberate retry. No complete review was recorded.'],
 });
 export class CollectionError extends Error {
   constructor(code, { provider = null, status = null } = {}) {

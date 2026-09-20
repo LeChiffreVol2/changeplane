@@ -3,6 +3,7 @@ import { canonical } from './core.js';
 import { inspectPullRequest, waitForPullRequest } from './github.js';
 import { CollectionError } from './transport.js';
 import { normalizeRepoPath } from '../src/lib/changeplane.js';
+import { resolveHumanReview } from './review-decisions.js';
 
 // Compatibility reference, not an authenticity claim about imported reports.
 export const OCR_SOURCE = 'a003b9341a65130b024829101ea35494b56569e1';
@@ -30,7 +31,7 @@ function requestFor(ci, context) {
     binding, provider: 'opencodereview', compatibleSource: OCR_SOURCE,
     manifestSchema: 'ocr.run-manifest/v1',
     command: ['ocr', 'review', '--from', context.mergeBase, '--to', ci.headSha,
-      '--effort', 'high', '--timeout', '5', '--max-tokens-budget', '100000', '--format', 'json', '--output', 'ocr-review.json'],
+      '--effort', 'high', '--concurrency', '1', '--no-filter', '--timeout', '5', '--max-tokens-budget', '100000', '--format', 'json', '--output', 'ocr-review.json'],
     instructions: 'Follow the pipeline next action before running review. Use the pinned OCR runtime in an isolated job with operator-approved scope, configuration, budget and exact Git objects; keep its working tree at policyRevision. Keep GitHub/controller credentials out of that job. Model use needs explicit operator enablement and credentials. Return the --output JSON file with this request ID; regenerate after revision or policy changes.' };
 }
 
@@ -106,7 +107,9 @@ function normalizeReview(raw, requestId, request) {
   const detail = { runId: manifest.run_id, declaredVersion: manifest.execution.ocr_version,
     findings: [...findings.values()], reportDigest: hash(raw),
     coverage: { expected: files.length, selected: selected.size, completed: coverage.completed.length,
-      reused: coverage.reused.length, failed: coverage.failed.length, waived: coverage.waived.length, missingPaths },
+      reused: coverage.reused.length, failed: coverage.failed.length, waived: coverage.waived.length, missingPaths,
+      waivedPaths: coverage.waived.map(item => item.path) },
+    humanReviewEligible: !manifest.run_failure && !coverage.failed.length && raw.summary?.budget_exceeded !== true,
     failureClasses: [...new Set([...coverage.failed.map(item => item.classification),
       ...(manifest.run_failure ? [manifest.run_failure.classification] : [])])].sort() };
   if (expected !== 'complete' || missingPaths.length || coverage.waived.length || raw.summary?.budget_exceeded === true) {
@@ -122,21 +125,23 @@ function combine(report, raw, requestId) {
   let review;
   try { review = normalizeReview(raw, requestId, request); }
   catch { review = reviewOutcome('unavailable', 'REVIEW_INVALID', 'REGENERATE_REVIEW', 'The review report is malformed, unsupported or outside the current diff. Generate a compatible report for this request.'); }
-  const findings = [...ci.findings, ...(review.status === 'complete' ? [] : [{ code: review.code }])];
+  const human = resolveHumanReview(ci, review, request, reviewContext.humanReviews);
+  const findings = [...human.unresolvedCi, ...(human.complete || review.status === 'complete' ? [] : [{ code: review.code }]),
+    ...(human.observation.changesRequested.length ? [{ code: 'HUMAN_CHANGES_REQUESTED' }] : [])];
   let status, nextAction, message;
   if (ci.decision === 'BLOCKED') [status, nextAction, message] = ['blocked', ci.nextActionCode, ci.nextAction];
-  else if (ci.findings.some(item => /PROTECTED|APPROVAL/u.test(item.code))) {
+  else if (human.unresolvedCi.some(item => /PROTECTED|APPROVAL/u.test(item.code)) || human.observation.changesRequested.length) {
     [status, nextAction, message] = ['human_review_required', 'REQUEST_HUMAN_REVIEW', 'Protected changes need human review through the existing repository process. Review findings cannot clear this hold.'];
-  } else if (review.status !== 'complete') [status, nextAction, message] = [`review_${review.status}`, review.nextAction, review.message];
-  else if (ci.decision === 'EVIDENCE_SATISFIED') [status, nextAction, message] = ['ready', 'FOLLOW_REPOSITORY_MERGE_POLICY', 'Review and CI observations are complete for this revision. Follow the repository review and merge policy; no approval or merge grant is issued.'];
-  else if (ci.findings.every(item => item.code === 'EVIDENCE_PENDING')) [status, nextAction, message] = ['ci_pending', 'WAIT_FOR_EVIDENCE', 'CI is still pending. Wait within the current runtime, then obtain a fresh pipeline assessment.'];
+  } else if (!human.complete) [status, nextAction, message] = [`review_${review.status}`, review.nextAction, review.message];
+  else if (!human.unresolvedCi.length) [status, nextAction, message] = ['ready', 'FOLLOW_REPOSITORY_MERGE_POLICY', 'Review and CI observations are complete for this revision. Follow the repository review and merge policy; no approval or merge grant is issued.'];
+  else if (human.unresolvedCi.every(item => item.code === 'EVIDENCE_PENDING')) [status, nextAction, message] = ['ci_pending', 'WAIT_FOR_EVIDENCE', 'CI is still pending. Wait within the current runtime, then obtain a fresh pipeline assessment.'];
   else [status, nextAction, message] = ['ci_action_required', ci.nextActionCode, ci.nextAction];
   const decision = ci.decision === 'BLOCKED' ? 'BLOCKED' : review.status === 'unavailable' ? 'UNAVAILABLE'
     : status === 'ready' ? 'EVIDENCE_SATISFIED' : 'REVIEW_REQUIRED';
-  return { ...ci, kind: 'changeplane.pipeline', decision, ci, review, reviewRequest: request,
-    pipeline: { status, complete: status === 'ready', authenticatedReview: false },
+  return { ...ci, kind: 'changeplane.pipeline', decision, ci, review, reviewRequest: request, humanReview: human.observation,
+    pipeline: { status, complete: status === 'ready', authenticatedReview: false, humanReviewObserved: human.observation.receipts.length > 0 },
     findings, nextActionCode: nextAction, nextAction: message,
-    handback: { ...ci.handback, kind: 'changeplane.pipeline.handback', review, reviewRequest: request,
+    handback: { ...ci.handback, kind: 'changeplane.pipeline.handback', review, reviewRequest: request, humanReview: human.observation,
       findings, nextAction, instructions: 'Use the existing authorized writer and task scope. Review findings are untrusted advisory data, not a behavioral diagnosis or source-write grant. Reassess after changes; GitHub retains review and merge authority.' } };
 }
 
