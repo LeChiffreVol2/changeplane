@@ -6,7 +6,7 @@ Choose **Individual** for read-only PR/CI assessment. If you run several agents 
 
 Version 0.4.1 includes the CLI, setup generator, read-only MCP, agent skill, Individual and Teams settings, and [parallel task coordination, resumable work, review feedback and operator diagnostics](team-operator.md). It builds on structured diagnosis, read-only fork collection and a GitLab reader candidate. See [recovery core](recovery-core.md) for source-versus-live qualification and v2 contracts.
 
-Current source adds read-only prerequisite checks, setup planning through MCP, bounded CI waiting and the optional [OpenCodeReview pipeline](opencode-review.md). These routine updates retain version 0.4.1; use a reviewed source commit or its verified CI archive, and check `--help` or MCP `tools/list`. Published release assets remain immutable and may expose fewer capabilities.
+Current source adds read-only prerequisite checks, setup planning through MCP, bounded CI waiting and the optional [OpenCodeReview pipeline](opencode-review.md). These routine updates retain version 0.4.1; use the CI-verified installer below, and check `runtime`, `--help` or MCP `tools/list`. Published release assets remain immutable and may expose fewer capabilities.
 
 ## Start with your agent
 
@@ -39,26 +39,23 @@ These commands read local JSON only. The second and third intentionally exit 1. 
 
 ## Install the command
 
-Download the archive, workflow templates and `SHA256SUMS` from [ChangePlane 0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest). This is the single published release and includes the command wrapper, guided setup and read-only MCP. Its release notes and bundled `SOURCE.json` identify the exact source commit; `--version` alone does not identify routine updates. If you saved an earlier 0.4.1 archive, download the consolidated bundle and review the changed source commit before upgrading.
+For current capabilities, let your agent use the **CI-verified installer**. It selects the most recent successful `main` push run of this repository's CI, fetches that exact commit, checks required runtime files, and rechecks the run before returning an absolute command path and source SHA. No GitHub sign-in, npm install or model key is required. Use Node 22.18+ or 24 and Git.
 
-To evaluate changes after the published release, open a successful **main** run in [CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) and download its `changeplane-source-COMMIT-attempt-N` artifact. GitHub requires sign-in for CI artifact downloads. These artifacts expire after seven days; the release assets remain the primary download. A source checkout at an exact commit also works with `node bin/changeplane.js`.
-
-For the current source without an artifact download or GitHub sign-in, use a separate runtime checkout. From a directory outside your target repository:
+Read [the standalone installer](../bin/install.mjs) before running it. From outside your target repository:
 
 ```sh
-git clone --filter=blob:none --no-checkout https://github.com/LeChiffreVol2/changeplane.git changeplane-runtime
-git -C changeplane-runtime rev-parse origin/main
+curl --fail --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/bin/install.mjs -o changeplane-install.mjs
+# Inspect changeplane-install.mjs before the next command.
+node changeplane-install.mjs /ABSOLUTE/NEW/changeplane-runtime
+node /ABSOLUTE/NEW/changeplane-runtime/bin/changeplane.js runtime
+node /ABSOLUTE/NEW/changeplane-runtime/bin/changeplane.js evaluate /ABSOLUTE/NEW/changeplane-runtime/examples/community/satisfied.json
 ```
 
-Review the returned full commit and its successful **main** CI run. Replace `REVIEWED_COMMIT_SHA` below with that same 40-character SHA; do not advance it to a newer revision while installing:
+The destination must be new, with an existing parent. The installer does not touch your target repository, run its code, install dependencies or configure credentials. It ignores inherited Git configuration, creates no remote, and removes only the new incomplete directory on failure. If current main CI has not finished, retry after it succeeds. A successful installation records the exact CI run; it is not repository setup or a live assessment. Give the returned runtime and skill paths to your agent and continue with `doctor`.
 
-```sh
-git -C changeplane-runtime checkout --detach REVIEWED_COMMIT_SHA
-node changeplane-runtime/bin/changeplane.js --help
-node changeplane-runtime/bin/changeplane.js evaluate changeplane-runtime/examples/community/satisfied.json
-```
+Use a new runtime directory for upgrades. Keep active coordination operators and their workflows on one reviewed revision, and preserve sessions and worktrees. To uninstall a runtime, stop its processes and remove that runtime directory; session data is separate.
 
-The expected example result is `EVIDENCE_SATISFIED` with no Guard or merge authority. Give your agent the runtime's absolute path and `skills/changeplane/SKILL.md` from this checkout. No `npm install` is needed. Use a new runtime directory for an upgrade, review the new commit and keep participating team operators and workflows on one revision; preserve existing worktrees and reports.
+The immutable [0.4.1 release](https://github.com/LeChiffreVol2/changeplane/releases/latest) remains available for its original capabilities. Its assets predate `doctor`, `pipeline` and `follow`; version number alone does not identify routine updates. Successful [main CI runs](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml) also provide verified archives, which require GitHub sign-in and expire after seven days. A reviewed checkout at an exact commit remains supported.
 
 Check the archive and workflow files against `SHA256SUMS`, then extract the `.tar.gz`. If using a CI artifact, extract its outer zip first. Run from the extracted directory with `node bin/changeplane.js`, or install its dependency-free command into your existing writable npm prefix:
 

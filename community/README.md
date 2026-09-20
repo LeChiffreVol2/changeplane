@@ -9,6 +9,9 @@ Give your coding agent revision-bound PR findings through the CLI or read-only M
 | Prepare one repository | `node bin/changeplane.js init OWNER/REPO --dry-run` |
 | Inspect a real PR | `node bin/changeplane.js inspect OWNER/REPO PR_NUMBER` |
 | Follow review, agent fixes and CI | `node bin/changeplane.js pipeline OWNER/REPO PR_NUMBER`; [optional OpenCodeReview setup](../docs/opencode-review.md) |
+| Resume after closing an agent | `node bin/changeplane.js follow OWNER/REPO PR_NUMBER`; private local state, fresh GitHub reads |
+| Run an enabled isolated review | Add `--run-review` to `follow`; requires Docker, a pinned operator image and explicit BYOK |
+| Identify installed capabilities | `node bin/changeplane.js runtime`; source SHA identifies routine updates |
 | Wait for pending CI | Add `--wait 30` to `inspect` (current source; bounded, no rerun) |
 | Give an agent read-only access | `node bin/changeplane.js mcp`, with `CHANGEPLANE_REPOSITORY` set by the operator |
 | Use the public GitHub Action | `LeChiffreVol2/changeplane/community@FULL_REVIEWED_SHA` |

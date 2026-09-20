@@ -330,6 +330,7 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
 
 const AGENT_SETUP_PROMPT = `Set up ChangePlane for the repository I am working in.
 Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
+If no current runtime is installed, use its CI-verified installer in a separate directory and retain the returned source revision.
 Use a trusted runtime and start with read-only PR and CI assessment. Discover existing policy and behavioral CI, then propose one configuration PR if setup is needed. Preserve existing rules and let me review protected policy/workflow changes and any permission expansion. Keep credentials in my existing environment, never in this chat.
 Return the assessed revision, findings and next action. Reassess after new commits or CI reruns. Add parallel coordination only if I ask for it.`;
 
@@ -353,7 +354,7 @@ function AgentSetupDrawer({ onClose }) {
       </>}>
       <ol className="agent-setup-steps">
         <li><strong>Open your repository.</strong><span>Use your existing coding agent and development environment.</span></li>
-        <li><strong>Paste the setup prompt.</strong><span>Your agent checks existing policy and CI before proposing changes.</span></li>
+        <li><strong>Paste the setup prompt.</strong><span>Your agent installs the runtime if needed, then checks existing policy and CI.</span></li>
         <li><strong>Review one configuration PR.</strong><span>Then ask your agent to assess a current PR and follow its findings.</span></li>
       </ol>
       <label className="agent-prompt-label" htmlFor="agent-setup-prompt">Prompt for your agent</label>

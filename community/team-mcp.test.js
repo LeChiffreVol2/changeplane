@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { teamRpc } from './team-mcp.js';
 import { TeamError } from './team.js';
+import { MCP_FRAME_BYTES } from './mcp-transport.js';
 
 test('MCP negotiates, exposes bounded tools and sanitizes operator failures', async () => {
   const rpc = teamRpc(async () => { throw new TeamError('TEAM_SCOPE_BUSY'); });
@@ -28,6 +29,7 @@ test('stdio entry point emits JSON-RPC only, rejects oversized frames and does n
   const responses = child.stdout.trim().split('\n').map(JSON.parse);
   assert.deepEqual(responses.map(response => response.id), [1, 2]);
   assert.equal(responses[1].result.tools.some(tool => /merge|deploy|shell/u.test(tool.name)), false);
-  const oversized = spawnSync(process.execPath, ['community/team-mcp.js'], { input: 'x'.repeat(300_000), encoding: 'utf8' });
-  assert.equal(oversized.status, 2); assert.equal(oversized.stdout, '');
+  const oversized = spawnSync(process.execPath, ['community/team-mcp.js'], { input: 'x'.repeat(MCP_FRAME_BYTES + 1), encoding: 'utf8' });
+  assert.equal(oversized.status, 0); assert.equal(oversized.stderr, '');
+  assert.equal(JSON.parse(oversized.stdout).error.code, -32600);
 });

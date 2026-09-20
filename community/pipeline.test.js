@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectPipeline, OCR_SOURCE } from './pipeline.js';
 import { callAssessmentTool } from './mcp.js';
 import { formatReport } from './output.js';
+import { followPipeline } from './session.js';
 
 const head = 'a'.repeat(40), base = 'b'.repeat(40), mergeBase = 'c'.repeat(40);
 function fixture(paths = ['src/sort.js']) {
@@ -14,12 +15,13 @@ function fixture(paths = ['src/sort.js']) {
   const policy = { protectedPaths: { requireApproval: ['infra/**'], block: ['secrets/**'] },
     evidence: { requiredChecks: [{ name: 'Behavior', appSlug: 'github-actions', workflowPath: '.github/workflows/ci.yml' }] } };
   const repo = { id: 1, full_name: 'example/project', default_branch: 'main' };
-  const pr = { id: 71, number: 7, state: 'open', changed_files: paths.length,
+  const pr = { id: 71, number: 7, state: 'open', user: { id: 10 }, changed_files: paths.length,
     head: { sha: head, ref: 'feature', repo }, base: { sha: base, ref: 'main', repo } };
   const run = { id: 12, workflow_id: 18, run_number: 2, run_attempt: 2, head_sha: head,
     path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', repository: repo, head_repository: repo };
   const data = {
     [root]: repo, [`${root}/pulls/7`]: pr, [`${root}/commits/main`]: { sha: base },
+    [`${root}/pulls/7/reviews?per_page=100&page=1`]: [],
     [`${root}/contents/.changeplane.json?ref=${base}`]: { type: 'file', encoding: 'base64', size: JSON.stringify(policy).length,
       content: Buffer.from(JSON.stringify(policy)).toString('base64') },
     [`${root}/pulls/7/files?per_page=100&page=1`]: paths.map(filename => ({ filename, status: 'modified', patch: '@@ -1,3 +1,4 @@\n unchanged\n+added\n unchanged\n unchanged' })),
@@ -257,4 +259,111 @@ test('CLI request/import round trip preserves findings, revision and authority i
     const compact = JSON.parse(formatReport(report, 'compact'));
     assert.deepEqual(compact.reviewRequest, report.reviewRequest); assert.deepEqual(compact.review, report.review);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+function approve(s, report) {
+  const body = report.humanReview.reviewBody.replaceAll('REPLACE_WITH_YOUR_REASON', 'Inspected this change and verified its intent.');
+  const review = { id: 42, state: 'APPROVED', user: { id: 20, login: 'maintainer', type: 'User' },
+    submitted_at: '2026-09-20T01:00:00Z', commit_id: head, body };
+  s.f.data['/repos/example/project/pulls/7/reviews?per_page=100&page=1'] = [review];
+  s.f.data['/repos/example/project/collaborators/maintainer/permission'] = { permission: 'write', user: { id: 20 } };
+  return review;
+}
+test('current authenticated human decisions resolve protected paths, unsupported coverage and individual false positives', async () => {
+  const s = await started(fixture(['src/sort.js', 'src/sort.test.js', 'asset.bin']));
+  s.review.comments = [finding];
+  s.review.manifest.coverage.selected.pop(); s.review.manifest.coverage.completed.pop();
+  const held = await s.run(); approve(s, held);
+  const result = await s.run();
+  assert.equal(result.pipeline.status, 'ready'); assert.equal(result.pipeline.humanReviewObserved, true);
+  assert.equal(result.review.status, 'incomplete', 'human coverage never rewrites engine completion');
+  assert.equal(result.ci.decision, 'REVIEW_REQUIRED', 'original scope assessment is retained');
+  assert.equal(result.review.findings.length, 1, 'original findings remain visible');
+  assert.equal(result.humanReview.unresolvedFindings.length, 0);
+  assert.equal(result.authority.guardPublished, false); assert.equal(result.authority.mergeAuthorized, false);
+});
+test('author, bot, stale, wrong-report, read-only, empty-reason and dismissed reviews cannot clear holds', async () => {
+  for (const mode of ['author', 'bot', 'head', 'request', 'report', 'permission', 'reason', 'dismissed', 'outside']) {
+    const s = await started(fixture(['src/sort.test.js']));
+    const approved = approve(s, await s.run());
+    if (mode === 'author') approved.user.id = 10;
+    if (mode === 'bot') approved.user.type = 'Bot';
+    if (mode === 'head') approved.commit_id = 'd'.repeat(40);
+    if (mode === 'request') approved.body = approved.body.replace(s.requestId, 'e'.repeat(64));
+    if (mode === 'report') approved.body = approved.body.replace((await s.run()).review.reportDigest, 'e'.repeat(64));
+    if (mode === 'permission') s.f.data['/repos/example/project/collaborators/maintainer/permission'].permission = 'read';
+    if (mode === 'reason') approved.body = approved.body.replace('Inspected this change and verified its intent.', '');
+    if (mode === 'dismissed') approved.state = 'DISMISSED';
+    if (mode === 'outside') approved.body = approved.body.replace('src/sort.test.js', 'outside.js');
+    assert.equal((await s.run()).pipeline.status, 'human_review_required', mode);
+  }
+});
+test('changes requested, blocked scope, provider failure, exhausted budget and failed CI retain their holds', async () => {
+  for (const mode of ['changes', 'blocked', 'provider', 'budget', 'ci']) {
+    const s = await started(fixture([mode === 'blocked' ? 'secrets/value.txt' : 'src/sort.test.js']));
+    if (mode === 'provider') { s.review.manifest.run_failure = { classification: 'configuration' }; s.review.status = s.review.manifest.terminal_state = 'failed'; }
+    if (mode === 'budget') s.review.summary = { budget_exceeded: true };
+    if (mode === 'ci') s.f.run.conclusion = 'failure';
+    const approved = approve(s, await s.run());
+    if (mode === 'changes') approved.state = 'CHANGES_REQUESTED';
+    assert.notEqual((await s.run()).pipeline.status, 'ready', mode);
+  }
+});
+test('review or permission drift during collection fails closed', async () => {
+  const s = await started(fixture(['src/sort.test.js'])); approve(s, await s.run());
+  let reads = 0;
+  await assert.rejects(s.run({ read: async path => {
+    const value = await s.f.read(path);
+    if (path.endsWith('/permission') && ++reads === 2) value.permission = 'read';
+    return value;
+  } }), { code: 'EVIDENCE_CHANGED' });
+});
+test('a personal owner can record their own review without pretending to approve their PR', async () => {
+  const s = await started(fixture(['src/sort.test.js']));
+  const decision = approve(s, await s.run()); decision.state = 'COMMENTED'; decision.user.id = 10;
+  s.f.data['/repos/example/project/collaborators/maintainer/permission'] = { permission: 'admin', user: { id: 10 } };
+  assert.equal((await s.run()).pipeline.status, 'human_review_required', 'authorship alone is insufficient');
+  s.f.data['/repos/example/project'].owner = { id: 10, type: 'User' };
+  const result = await s.run();
+  assert.equal(result.pipeline.status, 'ready'); assert.equal(result.humanReview.receipts[0].selfReview, true);
+  assert.equal(result.humanReview.receipts[0].state, 'COMMENTED'); assert.equal(result.authority.mergeAuthorized, false);
+  s.f.data['/repos/example/project'].owner.type = 'Organization';
+  assert.equal((await s.run()).pipeline.status, 'human_review_required');
+});
+test('private sessions import job receipts, survive restart, avoid repeated model runs and invalidate new identity', async () => {
+  const s = await started(), directory = mkdtempSync(join(tmpdir(), 'changeplane-session-'));
+  try {
+    const first = await followPipeline(s.f.options, { directory });
+    assert.equal(first.session.resumed, false); assert.equal(existsSync(first.session.requestPath), true);
+    writeFileSync(first.session.resultPath, JSON.stringify({ requestId: s.requestId, review: s.review }));
+    const resumed = await followPipeline(s.f.options, { directory });
+    assert.equal(resumed.pipeline.status, 'ready'); assert.equal(resumed.session.resumed, true);
+    const retained = await followPipeline({ ...s.f.options, runReview: true }, { directory, runReview: () => assert.fail('must reuse the current receipt') });
+    assert.equal(retained.pipeline.status, 'ready');
+    s.f.pr.id++;
+    const changed = await followPipeline(s.f.options, { directory });
+    assert.equal(changed.review.status, 'required'); assert.equal(changed.session.invalidated, true);
+    assert.notEqual(changed.session.resultPath, first.session.resultPath);
+    assert.equal(JSON.parse(readFileSync(changed.session.requestPath)).id, changed.reviewRequest.id);
+    mkdirSync(join(directory, changed.session.id, 'lock'));
+    await assert.rejects(followPipeline(s.f.options, { directory }), { code: 'SESSION_BUSY' });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+test('session accepts a bounded runner receipt, survives reader outage and rejects unsafe paths', async () => {
+  const s = await started(), directory = mkdtempSync(join(tmpdir(), 'changeplane-session-'));
+  try {
+    let calls = 0, inspections = 0;
+    await assert.rejects(followPipeline({ ...s.f.options, runReview: true }, { directory,
+      inspect: async options => { if (++inspections === 2) throw new Error('reader offline'); return inspectPipeline(options); },
+      runReview: async () => { calls++; return s.review; },
+    }));
+    const resumed = await followPipeline({ ...s.f.options, runReview: true }, { directory,
+      runReview: async () => { calls++; return s.review; } });
+    assert.equal(calls, 1); assert.equal(resumed.pipeline.status, 'ready');
+    const state = join(directory, resumed.session.id, 'state.json'), outside = join(directory, 'outside');
+    writeFileSync(outside, 'preserve'); rmSync(state); symlinkSync(outside, state);
+    await assert.rejects(followPipeline(s.f.options, { directory }), { code: 'SESSION_UNAVAILABLE' });
+    assert.equal(readFileSync(outside, 'utf8'), 'preserve');
+    await assert.rejects(callAssessmentTool('changeplane_follow', { pullRequest: 7 }, { CHANGEPLANE_REPOSITORY: 'example/project' }, { read: s.f.read }), { code: 'INPUT_INVALID' });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

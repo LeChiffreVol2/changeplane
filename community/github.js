@@ -3,6 +3,7 @@ import { githubWorkflowFilePath } from '../src/lib/harness.js';
 import { boundedReader, CollectionError } from './transport.js';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { collectHumanReviews, sameReviews } from './review-decisions.js';
 
 const SHA = /^[a-f0-9]{40}$/u;
 const positive = value => Number.isSafeInteger(value) && value > 0;
@@ -160,11 +161,14 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
   const first = await collect();
   const second = await collect();
   if (canonical(first) !== canonical(second)) throw new Error('EVIDENCE_CHANGED: a workflow changed during inspection; rerun the assessment.');
-  let mergeBase;
+  let mergeBase, humanReviews;
   if (includeReviewContext) {
     const comparison = await read(`${root}/compare/${initial.baseSha}...${initial.headSha}?per_page=1`);
     if (!SHA.test(comparison.merge_base_commit?.sha) || comparison.base_commit?.sha !== initial.baseSha) throw new CollectionError('COLLECTION_INCOMPLETE');
     mergeBase = comparison.merge_base_commit.sha;
+    const personalOwnerId = repo.owner?.type === 'User' ? repo.owner.id : undefined;
+    humanReviews = await collectHumanReviews(read, root, number, pr.user?.id, personalOwnerId);
+    sameReviews(humanReviews, await collectHumanReviews(read, root, number, pr.user?.id, personalOwnerId));
   }
   const finalRepo = await read(root);
   const finalBase = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
@@ -180,7 +184,7 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
   const binding = { ...report.handback.binding, identity, policyRevision: base.sha, targetRevision: initial.baseSha,
     observationDigest: createHash('sha256').update(canonical({ identity, initial, policyDigest: report.policyDigest,
       inputDigest: report.inputDigest, executions: second.identities })).digest('hex') };
-  return { ...report, ...(includeReviewContext ? { reviewContext: { mergeBase, files: reviewFiles } } : {}),
+  return { ...report, ...(includeReviewContext ? { reviewContext: { mergeBase, files: reviewFiles, humanReviews } } : {}),
     handback: { ...report.handback, binding, executions: second.identities },
     observation: { source: 'github-api', identity, repository, pullRequest: number,
     observedAt: new Date().toISOString(), workflowIdentities: second.identities,

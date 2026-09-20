@@ -36,19 +36,44 @@ export function mcpRpc({ name, version, instructions, tools, call, failure }) {
   };
 }
 
-export async function serveMcp(rpc) {
-  process.stdin.setEncoding('utf8');
-  let pending = '';
-  for await (const chunk of process.stdin) {
-    pending += chunk;
-    if (Buffer.byteLength(pending) > 256_000) { process.exitCode = 2; break; }
-    let index;
-    while ((index = pending.indexOf('\n')) !== -1) {
-      const line = pending.slice(0, index); pending = pending.slice(index + 1);
-      let result;
-      try { result = await rpc(JSON.parse(line)); }
-      catch { result = { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON' } }; }
-      if (result) process.stdout.write(JSON.stringify(result) + '\n');
+// Review input is bounded separately to 256 KB. Leave room for the JSON-RPC
+// envelope and whitespace, and bound each frame rather than a read chunk.
+export const MCP_FRAME_BYTES = 512_000;
+export async function serveMcp(rpc, { input = process.stdin, output = process.stdout } = {}) {
+  input.setEncoding('utf8');
+  let pending = '', bytes = 0, discarding = false;
+  const send = async result => {
+    if (result && !output.write(JSON.stringify(result) + '\n')) await new Promise((resolve, reject) => {
+      const cleanup = () => { output.off('drain', drained); output.off('error', failed); };
+      const drained = () => { cleanup(); resolve(); };
+      const failed = error => { cleanup(); reject(error); };
+      output.once('drain', drained); output.once('error', failed);
+    });
+  };
+  const failure = (code, message) => ({ jsonrpc: '2.0', id: null, error: { code, message } });
+  for await (const chunk of input) {
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf('\n', start), end = newline === -1 ? chunk.length : newline;
+      const piece = chunk.slice(start, end);
+      if (!discarding) {
+        bytes += Buffer.byteLength(piece);
+        if (bytes > MCP_FRAME_BYTES) { pending = ''; bytes = 0; discarding = true; }
+        else pending += piece;
+      }
+      if (newline !== -1) {
+        if (discarding) await send(failure(-32600, 'Request exceeds the 512 KB frame limit. Reduce the request and retry.'));
+        else {
+          let result;
+          try { result = await rpc(JSON.parse(pending)); }
+          catch { result = failure(-32700, 'Invalid JSON'); }
+          await send(result);
+        }
+        pending = ''; bytes = 0; discarding = false;
+      }
+      start = newline === -1 ? chunk.length : newline + 1;
     }
   }
+  if (discarding) await send(failure(-32600, 'Request exceeds the 512 KB frame limit. Reduce the request and retry.'));
+  else if (pending.length) await send(failure(-32700, 'Incomplete JSON frame'));
 }
