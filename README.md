@@ -108,6 +108,8 @@ The website includes **Settings** for Individual and Teams. Individual starts wi
 
 ## How it works
 
+For measured evidence, see the [public QuixBugs experiment and reproduction commands](benchmarks/assurance/README.md) and [preliminary technical report](docs/research/technical-report.md). Actual public test executions and synthetic protocol faults are reported separately. The native-control comparison shows agreement in shared cases, not competitive superiority.
+
 ```mermaid
 flowchart LR
   A[Your coding agent] --> B[Pull request and existing CI]

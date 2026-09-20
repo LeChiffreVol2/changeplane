@@ -1,0 +1,3688 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "QuixBugs Python upstream suites",
+  "source": "https://github.com/jkoppel/QuixBugs",
+  "sourceCommit": "4257f44b0ff1181dedaedee6a447e133219fcebf",
+  "python": "3.14.6",
+  "platform": "Darwin",
+  "architecture": "arm64",
+  "packages": {
+    "pytest": "8.4.2",
+    "pytest-timeout": "2.4.0",
+    "iniconfig": "2.3.0",
+    "packaging": "26.3",
+    "pluggy": "1.6.0",
+    "Pygments": "2.21.0"
+  },
+  "runnerSha256": "b7d8670d3223e5672c8df351822c42eb54055943128b09c83ee03ef4ecae543a",
+  "perTestTimeoutSeconds": 2,
+  "perSuiteTimeoutSeconds": 60,
+  "slowTests": "Upstream defaults; knapsack and levenshtein slow cases remain explicitly skipped.",
+  "seconds": 65.551921,
+  "rows": [
+    {
+      "program": "bitcount",
+      "variant": "buggy",
+      "sourceSha256": "585fc5e7140a87d698574ad74acfd4cf5de4e03e460dea7e87725e2694b60b8c",
+      "testSha256": "24cdf73b1e1f6b9e947493e1714c0f9dbfac868589fb5ea4c7dd9fc5bbd44c95",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 18.357413,
+      "counts": {
+        "passed": 0,
+        "failed": 9,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_bitcount[input_data0-7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data1-1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data2-9]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data3-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data4-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data5-4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data6-4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data7-7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bitcount[input_data8-1]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "bitcount",
+      "variant": "reference",
+      "sourceSha256": "debc7dc00e3084e106c388d31e90087b3b86845aa5bae1b848d6bac97ec872b4",
+      "testSha256": "24cdf73b1e1f6b9e947493e1714c0f9dbfac868589fb5ea4c7dd9fc5bbd44c95",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.306718,
+      "counts": {
+        "passed": 9,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_bitcount[input_data0-7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data1-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data2-9]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data3-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data4-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data5-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data6-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data7-7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bitcount[input_data8-1]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "breadth_first_search",
+      "variant": "buggy",
+      "sourceSha256": "24e7a1ad2916acaa1759c388cccce1b9ce812cb27997e36fe8287082b29d0873",
+      "testSha256": "e20b957060c2a39fd2dfd40399e3ed5080f4a98f86f8360edebf81da98454024",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.219986,
+      "counts": {
+        "passed": 4,
+        "failed": 1,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "failed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        },
+        {
+          "name": "test5",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "breadth_first_search",
+      "variant": "reference",
+      "sourceSha256": "2806667b01d63e133e3aaac74f37059de2e45e630679f76833f15218f2d36af1",
+      "testSha256": "e20b957060c2a39fd2dfd40399e3ed5080f4a98f86f8360edebf81da98454024",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.225403,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        },
+        {
+          "name": "test5",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "bucketsort",
+      "variant": "buggy",
+      "sourceSha256": "1cc4197c2ee524ec8dd3a45c0e943acf31fa429cb8b179195334f51ff939b9fd",
+      "testSha256": "b5f3915b983f869cd87935c4b82246695aedc03400fe44114f7352dc02a6e65e",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.21957,
+      "counts": {
+        "passed": 1,
+        "failed": 6,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_bucketsort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bucketsort[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bucketsort[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bucketsort[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bucketsort[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_bucketsort[input_data6-expected6]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "bucketsort",
+      "variant": "reference",
+      "sourceSha256": "a83473634c9a9bf43d589e183201ae9d00006b028c2eec403a1e74abe1927ab9",
+      "testSha256": "b5f3915b983f869cd87935c4b82246695aedc03400fe44114f7352dc02a6e65e",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.237074,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_bucketsort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_bucketsort[input_data6-expected6]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "depth_first_search",
+      "variant": "buggy",
+      "sourceSha256": "9d603dfef6b5b2697c6017428aea5c56b5728edfe4aabf4028927b75224b2c0e",
+      "testSha256": "9c5d8af061cd9b84df545aa1208f7aab8165ab314f7be395ad1d034e028fbc01",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.229746,
+      "counts": {
+        "passed": 4,
+        "failed": 1,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        },
+        {
+          "name": "test5",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "depth_first_search",
+      "variant": "reference",
+      "sourceSha256": "6564fa8ca6ac8cbab75ca4bbdd26e887303d1e72565a5e42e64576414f96e216",
+      "testSha256": "9c5d8af061cd9b84df545aa1208f7aab8165ab314f7be395ad1d034e028fbc01",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.221212,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        },
+        {
+          "name": "test5",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "detect_cycle",
+      "variant": "buggy",
+      "sourceSha256": "0f3f0f1a5160f1fca66f164de1a73d884bb83d45fea702c46512bcac520bc1ba",
+      "testSha256": "d83aebf17b6d31c810a0935ea148093efb6065576960878c830b59f0007f58d2",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.221407,
+      "counts": {
+        "passed": 5,
+        "failed": 1,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "failed"
+        },
+        {
+          "name": "test5",
+          "outcome": "passed"
+        },
+        {
+          "name": "test6",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "detect_cycle",
+      "variant": "reference",
+      "sourceSha256": "f654c3c36fc62062bcdf28aed9de2c016699a3ee9211574a795fce83764536ab",
+      "testSha256": "d83aebf17b6d31c810a0935ea148093efb6065576960878c830b59f0007f58d2",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.219759,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        },
+        {
+          "name": "test5",
+          "outcome": "passed"
+        },
+        {
+          "name": "test6",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "find_first_in_sorted",
+      "variant": "buggy",
+      "sourceSha256": "59bdf7033f9b0f0f63aed032d18e89f30e333eee8689354b666d12ef4d7e3fda",
+      "testSha256": "006fc9b2b1c5192f710aeae78ea3aba935b5eaa62ba98df5f51ec0e7274b7301",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 4.440223,
+      "counts": {
+        "passed": 4,
+        "failed": 3,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_find_first_in_sorted[input_data0-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data1--1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data2--1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data3-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data4--1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data5-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data6-7]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "find_first_in_sorted",
+      "variant": "reference",
+      "sourceSha256": "815d382f87c7ccc215305b5c28429c96cd605755d44f466bae3448be298bc17d",
+      "testSha256": "006fc9b2b1c5192f710aeae78ea3aba935b5eaa62ba98df5f51ec0e7274b7301",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.365756,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_find_first_in_sorted[input_data0-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data1--1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data2--1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data3-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data4--1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data5-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_first_in_sorted[input_data6-7]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "find_in_sorted",
+      "variant": "buggy",
+      "sourceSha256": "b640b4bcb1b2c0f7875de8f13df191f4e61ddf7e6fbdcfc42d477ec60885d3c7",
+      "testSha256": "a943c5c1df1e87360308b23341a651da9cfb31b1f1e2954cdca75c2cf4b6ba54",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.339282,
+      "counts": {
+        "passed": 5,
+        "failed": 2,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_find_in_sorted[input_data0-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data1--1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data2-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data3-8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data4--1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data5-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data6--1]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "find_in_sorted",
+      "variant": "reference",
+      "sourceSha256": "cce13769543e2972d66ea61c9d1f1751836c719abf336be8f50f2702d19477ea",
+      "testSha256": "a943c5c1df1e87360308b23341a651da9cfb31b1f1e2954cdca75c2cf4b6ba54",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.31296,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_find_in_sorted[input_data0-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data1--1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data2-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data3-8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data4--1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data5-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_find_in_sorted[input_data6--1]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "flatten",
+      "variant": "buggy",
+      "sourceSha256": "5023275fe603f1ebade0027073c3d116274d405069ea350076f220f10ff451e2",
+      "testSha256": "8751773222d9310f75ef92e2111298a12e24389cb03aa62b905bcd6ae55f8ee5",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.287127,
+      "counts": {
+        "passed": 1,
+        "failed": 6,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_flatten[input_data0-expected0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_flatten[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_flatten[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_flatten[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_flatten[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_flatten[input_data6-expected6]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "flatten",
+      "variant": "reference",
+      "sourceSha256": "9a81d65b8147aa84be75b3345b1ce25d2577335d955e963e10bbef19f986618d",
+      "testSha256": "8751773222d9310f75ef92e2111298a12e24389cb03aa62b905bcd6ae55f8ee5",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.235743,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_flatten[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_flatten[input_data6-expected6]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "gcd",
+      "variant": "buggy",
+      "sourceSha256": "d68e155c2af40d787f617f03c596005edabee3d9e33626b9185d83650895636f",
+      "testSha256": "1e0f36211d258a295ec11359495202ff8491736ffe3a9b56336c1a633a1af589",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.305102,
+      "counts": {
+        "passed": 1,
+        "failed": 5,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_gcd[input_data0-17]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_gcd[input_data1-13]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_gcd[input_data2-1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_gcd[input_data3-20]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_gcd[input_data4-18913]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_gcd[input_data5-3]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "gcd",
+      "variant": "reference",
+      "sourceSha256": "68ed345fa14c13fa0d3b70ebfd3ab3e30ca937a52fd4a7f139630177ca005d9b",
+      "testSha256": "1e0f36211d258a295ec11359495202ff8491736ffe3a9b56336c1a633a1af589",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.416469,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_gcd[input_data0-17]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_gcd[input_data1-13]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_gcd[input_data2-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_gcd[input_data3-20]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_gcd[input_data4-18913]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_gcd[input_data5-3]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "get_factors",
+      "variant": "buggy",
+      "sourceSha256": "7eff7ef2adbb266142cf20e8fa64b05b16ec7e1536a20fa10f036091b1d3290d",
+      "testSha256": "158d474cce9c5f8dff5e05749648f5e41f47b709a03e1d09f4d05828f65c16f6",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.411944,
+      "counts": {
+        "passed": 1,
+        "failed": 10,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_get_factors[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data6-expected6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data7-expected7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data8-expected8]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data9-expected9]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_get_factors[input_data10-expected10]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "get_factors",
+      "variant": "reference",
+      "sourceSha256": "a2cd419152aa9262e76614bd7fc4834329cb72263c9b9e91afa4037570c2f99f",
+      "testSha256": "158d474cce9c5f8dff5e05749648f5e41f47b709a03e1d09f4d05828f65c16f6",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.359719,
+      "counts": {
+        "passed": 11,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_get_factors[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data7-expected7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data8-expected8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data9-expected9]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_get_factors[input_data10-expected10]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "hanoi",
+      "variant": "buggy",
+      "sourceSha256": "edd1ceeb79b556a6d15e3bc21f625c5776b46c10f94a754531d39a6f7e120f9e",
+      "testSha256": "a93f11847b7cc48409035229316cdfd5ee5ca209fb95d2cb9be3aaf419e2fb98",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.369677,
+      "counts": {
+        "passed": 1,
+        "failed": 7,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_hanoi[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_hanoi[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_hanoi[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_hanoi[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_hanoi[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_hanoi[input_data6-expected6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_hanoi[input_data7-expected7]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "hanoi",
+      "variant": "reference",
+      "sourceSha256": "1774236aad5689bc5af632d59eab2cb030307b5e376945c64a415dfe2a2c0943",
+      "testSha256": "a93f11847b7cc48409035229316cdfd5ee5ca209fb95d2cb9be3aaf419e2fb98",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.389047,
+      "counts": {
+        "passed": 8,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_hanoi[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_hanoi[input_data7-expected7]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "is_valid_parenthesization",
+      "variant": "buggy",
+      "sourceSha256": "2340cddfce49b055a5a7a70c3341351bf130702512278bafaed5d5b345d0ba60",
+      "testSha256": "484b2e67707900e6ef0cff1df83ef441d39fcc3f56afdd9180ff1363fc7d1f76",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.369769,
+      "counts": {
+        "passed": 2,
+        "failed": 1,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_is_valid_parenthesization[input_data0-True]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_is_valid_parenthesization[input_data1-False]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_is_valid_parenthesization[input_data2-False]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "is_valid_parenthesization",
+      "variant": "reference",
+      "sourceSha256": "77d7131ce9cadd9876621835bbf18f8299ee52882a1860593409260e41cbb559",
+      "testSha256": "484b2e67707900e6ef0cff1df83ef441d39fcc3f56afdd9180ff1363fc7d1f76",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.385078,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_is_valid_parenthesization[input_data0-True]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_is_valid_parenthesization[input_data1-False]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_is_valid_parenthesization[input_data2-False]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "kheapsort",
+      "variant": "buggy",
+      "sourceSha256": "0cabf3d462d941ec01f261f2d794d960ab8ba497c42140cedbc3c872f772cea8",
+      "testSha256": "7751ea3a7611406695c84ed254eddc2afdc17eb3e5962bb9a494b3a307953d7a",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.526684,
+      "counts": {
+        "passed": 1,
+        "failed": 3,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_kheapsort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kheapsort[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_kheapsort[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_kheapsort[input_data3-expected3]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "kheapsort",
+      "variant": "reference",
+      "sourceSha256": "f97bce3d8b0a390c56b826df364c1e2d836b1997a416c3e729b75a61a7640cc7",
+      "testSha256": "7751ea3a7611406695c84ed254eddc2afdc17eb3e5962bb9a494b3a307953d7a",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.498424,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_kheapsort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kheapsort[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kheapsort[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kheapsort[input_data3-expected3]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "knapsack",
+      "variant": "buggy",
+      "sourceSha256": "ce8ab048641f73e89cf0f196237a0c13d1e78025f6c44f4e92e4fd834f10123b",
+      "testSha256": "d29882496c29567a279e61f5f2be28cf074897e774267d629a99a7f221e40ff7",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.367945,
+      "counts": {
+        "passed": 3,
+        "failed": 6,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 1
+      },
+      "tests": [
+        {
+          "name": "test_knapsack[input_data0-19]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data1-30]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_knapsack[input_data2-1458]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data3-51]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_knapsack[input_data4-107]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_knapsack[input_data5-150]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_knapsack[input_data6-900]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_knapsack[input_data7-309]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_knapsack[input_data8-1735]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data9-13549094]",
+          "outcome": "skipped"
+        }
+      ]
+    },
+    {
+      "program": "knapsack",
+      "variant": "reference",
+      "sourceSha256": "eb77641ea54529f03ca727bf38b3ab6006ffc17d634540c5e831f9f381aef8b4",
+      "testSha256": "d29882496c29567a279e61f5f2be28cf074897e774267d629a99a7f221e40ff7",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.469301,
+      "counts": {
+        "passed": 9,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 1
+      },
+      "tests": [
+        {
+          "name": "test_knapsack[input_data0-19]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data1-30]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data2-1458]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data3-51]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data4-107]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data5-150]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data6-900]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data7-309]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data8-1735]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_knapsack[input_data9-13549094]",
+          "outcome": "skipped"
+        }
+      ]
+    },
+    {
+      "program": "kth",
+      "variant": "buggy",
+      "sourceSha256": "505b7d8079de35173a8371dc40e6064d12f597441e1e7c49b782ed3892c37e7b",
+      "testSha256": "89c57596f6deaf8564c0bf076f41c3a293af694ba45c0c8b764a7913fe492e70",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.534983,
+      "counts": {
+        "passed": 3,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_kth[input_data0-5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_kth[input_data1-7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_kth[input_data2-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data3-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data4-34]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data5-6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_kth[input_data6-322]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "kth",
+      "variant": "reference",
+      "sourceSha256": "1a744253b219bf9fee54fbe5f612ac3c6d186cd38f442b57c41736d102524252",
+      "testSha256": "89c57596f6deaf8564c0bf076f41c3a293af694ba45c0c8b764a7913fe492e70",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.401442,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_kth[input_data0-5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data1-7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data2-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data3-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data4-34]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data5-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_kth[input_data6-322]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "lcs_length",
+      "variant": "buggy",
+      "sourceSha256": "ab35b03aa24601348e41e39b70514c9837d5d029009862c0b1d9c90e09b9f532",
+      "testSha256": "8e5fa445c5eed173b8978a0ed0773fef8b322e17e8a5813e28d9b83970b6b2b2",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.305843,
+      "counts": {
+        "passed": 1,
+        "failed": 8,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_lcs_length[input_data0-2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data1-4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data2-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data3-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data4-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data5-7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data6-6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data7-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lcs_length[input_data8-3]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "lcs_length",
+      "variant": "reference",
+      "sourceSha256": "c0c66a9a499e75814743654a7a5403dc9d826ebdd0a151859047f66ddfa0fc27",
+      "testSha256": "8e5fa445c5eed173b8978a0ed0773fef8b322e17e8a5813e28d9b83970b6b2b2",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.330749,
+      "counts": {
+        "passed": 9,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_lcs_length[input_data0-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data1-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data2-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data3-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data4-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data5-7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data6-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data7-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lcs_length[input_data8-3]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "levenshtein",
+      "variant": "buggy",
+      "sourceSha256": "55f92da7c06a1eb1e398b557d18dee92d550a0ccfc72e65007729a83eda36266",
+      "testSha256": "c12e8f8cb13577e526ae9cc0e6d7187a2e9c05af91de25c9a73bd671682a979b",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 1.638071,
+      "counts": {
+        "passed": 1,
+        "failed": 5,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 1
+      },
+      "tests": [
+        {
+          "name": "test_levenshtein[input_data0-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_levenshtein[input_data1-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_levenshtein[input_data2-8]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_levenshtein[input_data3-42]",
+          "outcome": "skipped"
+        },
+        {
+          "name": "test_levenshtein[input_data4-2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_levenshtein[input_data5-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_levenshtein[input_data6-4]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "levenshtein",
+      "variant": "reference",
+      "sourceSha256": "9c44bb70893dbce0af02c54f97dc56cd859cc8dbc08e2985b581d79590abe837",
+      "testSha256": "c12e8f8cb13577e526ae9cc0e6d7187a2e9c05af91de25c9a73bd671682a979b",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 1.633487,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 1
+      },
+      "tests": [
+        {
+          "name": "test_levenshtein[input_data0-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_levenshtein[input_data1-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_levenshtein[input_data2-8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_levenshtein[input_data3-42]",
+          "outcome": "skipped"
+        },
+        {
+          "name": "test_levenshtein[input_data4-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_levenshtein[input_data5-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_levenshtein[input_data6-4]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "lis",
+      "variant": "buggy",
+      "sourceSha256": "fe9e751f62674299be95f5026c30c778ec331eb449caaa9a13f6b2908e44a016",
+      "testSha256": "69763e61b7426521ca6adb5072d2a10527061838534765ab367ea6508bea6ca9",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.371059,
+      "counts": {
+        "passed": 8,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_lis[input_data0-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data1-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data2-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data3-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data4-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data5-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data6-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data7-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data8-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lis[input_data9-6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lis[input_data10-3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_lis[input_data11-4]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "lis",
+      "variant": "reference",
+      "sourceSha256": "f2f14efdb6b419591d565882734ce05c40cdd3b203b45b5727d2838338063a61",
+      "testSha256": "69763e61b7426521ca6adb5072d2a10527061838534765ab367ea6508bea6ca9",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.320345,
+      "counts": {
+        "passed": 12,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_lis[input_data0-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data1-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data2-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data3-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data4-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data5-1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data6-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data7-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data8-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data9-6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data10-3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_lis[input_data11-4]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "longest_common_subsequence",
+      "variant": "buggy",
+      "sourceSha256": "93215319e44f895561f14567dd6098e2b8fc04497d4d71f5c21c9267fc2a02da",
+      "testSha256": "68776892aaab10564899a4193035455f955eec78df9f11c764cf9920aff95dc8",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.544621,
+      "counts": {
+        "passed": 6,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_longest_common_subsequence[input_data0-eadac]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data1-aary]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data2-MJAU]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data3-tsitest]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data4-1234]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data5-bcba]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data6-TAAG]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data7-BCBA]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data8-BCD]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data9-begceb]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "longest_common_subsequence",
+      "variant": "reference",
+      "sourceSha256": "e59ea6754bc515a15e00d233ab082b6aa9ff7619656007082e9e439051588f6f",
+      "testSha256": "68776892aaab10564899a4193035455f955eec78df9f11c764cf9920aff95dc8",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.438684,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_longest_common_subsequence[input_data0-eadac]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data1-aary]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data2-MJAU]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data3-tsitest]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data4-1234]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data5-bcba]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data6-TAAG]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data7-BCBA]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data8-BCD]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_longest_common_subsequence[input_data9-begceb]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "max_sublist_sum",
+      "variant": "buggy",
+      "sourceSha256": "aab26d9f3984f177adcff110fe72de97e54c5f85ad476c38e49c949a873d85b5",
+      "testSha256": "a93255549d80e5ae3ac046905c538d8168b02a833ba296188088b93cf2338525",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.346896,
+      "counts": {
+        "passed": 2,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_max_sublist_sum[input_data0-5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data1-4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data2-12]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data3-19]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data4-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data5-6]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "max_sublist_sum",
+      "variant": "reference",
+      "sourceSha256": "2f2b119d49fbbe641707020b6e7cbb637affeffe9ae3ca653cccd5a3bee8d798",
+      "testSha256": "a93255549d80e5ae3ac046905c538d8168b02a833ba296188088b93cf2338525",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.325428,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_max_sublist_sum[input_data0-5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data1-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data2-12]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data3-19]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data4-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_max_sublist_sum[input_data5-6]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "mergesort",
+      "variant": "buggy",
+      "sourceSha256": "9e1911f1da8b7535c52d19f73d32238e72066b859a853c09cbd2644214f79d61",
+      "testSha256": "0955518178cd1b1402159311552f710ffec69b161e95397e76eed46e3d97d8bf",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.991264,
+      "counts": {
+        "passed": 1,
+        "failed": 13,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_mergesort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data6-expected6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data7-expected7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data8-expected8]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data9-expected9]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data10-expected10]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data11-expected11]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data12-expected12]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_mergesort[input_data13-expected13]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "mergesort",
+      "variant": "reference",
+      "sourceSha256": "f4b64e3c49b0a050fa99002be491615708eb532be0b137bbc928af683f4da3f7",
+      "testSha256": "0955518178cd1b1402159311552f710ffec69b161e95397e76eed46e3d97d8bf",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.340539,
+      "counts": {
+        "passed": 14,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_mergesort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data7-expected7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data8-expected8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data9-expected9]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data10-expected10]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data11-expected11]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data12-expected12]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_mergesort[input_data13-expected13]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "minimum_spanning_tree",
+      "variant": "buggy",
+      "sourceSha256": "116d2b6f60ab516973d6a254e4f0dfd31e9c5e2966eaf9158c336d62dd2da5fc",
+      "testSha256": "45b23edf3513e1f1a6e7ecf5f17eb85d1a32845d70869c7190b16b10cd61d811",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.335426,
+      "counts": {
+        "passed": 0,
+        "failed": 3,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "failed"
+        },
+        {
+          "name": "test2",
+          "outcome": "failed"
+        },
+        {
+          "name": "test3",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "minimum_spanning_tree",
+      "variant": "reference",
+      "sourceSha256": "f2aaf12e9c472a19e6ce0ad42e09f48b71375c369488ad9cd686fbb2cd1dc0a9",
+      "testSha256": "45b23edf3513e1f1a6e7ecf5f17eb85d1a32845d70869c7190b16b10cd61d811",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.359525,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "next_palindrome",
+      "variant": "buggy",
+      "sourceSha256": "e383f403abe2f85fff232871f691b560d5aadd6cccbfbbf205d25099abe734ce",
+      "testSha256": "276dfb1e01b412528965d670f3e6f632f8a4f0f6a02316417511b94ae24139b3",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.377067,
+      "counts": {
+        "passed": 4,
+        "failed": 1,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_next_palindrome[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data4-expected4]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "next_palindrome",
+      "variant": "reference",
+      "sourceSha256": "6b5b1d10c30ff9277d5a8a881cc0daa19a5c0e6bbca42c3e432f87bd634224b6",
+      "testSha256": "276dfb1e01b412528965d670f3e6f632f8a4f0f6a02316417511b94ae24139b3",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.369318,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_next_palindrome[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_palindrome[input_data4-expected4]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "next_permutation",
+      "variant": "buggy",
+      "sourceSha256": "14ffc36c80bf3bba8db91b7e0fa6be14a8011130ddeaccf33ed62638eac1b25b",
+      "testSha256": "0103d415e3c74908489ebfd55a8778542b8ff3ad9d17cf725c9e4aa789438dae",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.323529,
+      "counts": {
+        "passed": 0,
+        "failed": 8,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_next_permutation[input_data0-expected0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data6-expected6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_next_permutation[input_data7-expected7]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "next_permutation",
+      "variant": "reference",
+      "sourceSha256": "93bbb04ed299c44c202ab2eca2aa68318b5ee94fdcb6ce5a3977f24c7ed67957",
+      "testSha256": "0103d415e3c74908489ebfd55a8778542b8ff3ad9d17cf725c9e4aa789438dae",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.403947,
+      "counts": {
+        "passed": 8,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_next_permutation[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_next_permutation[input_data7-expected7]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "pascal",
+      "variant": "buggy",
+      "sourceSha256": "4445ef075a5f987d005bba5587c58f4697a90675be09171af2ca4009f64824a1",
+      "testSha256": "5f671a8e6b49f24c0d927be9f1d6b1e1ef6a33e04a5bab174278098dc7f7d15d",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.339029,
+      "counts": {
+        "passed": 1,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_pascal[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_pascal[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_pascal[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_pascal[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_pascal[input_data4-expected4]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "pascal",
+      "variant": "reference",
+      "sourceSha256": "96b7da947feab99eb7e273c6d1d0e7f1692c04b3f0d9654a1a4253ce57dfcaa8",
+      "testSha256": "5f671a8e6b49f24c0d927be9f1d6b1e1ef6a33e04a5bab174278098dc7f7d15d",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.309238,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_pascal[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_pascal[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_pascal[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_pascal[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_pascal[input_data4-expected4]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "possible_change",
+      "variant": "buggy",
+      "sourceSha256": "e21854dbb1a8f299bab639e71797a14989ab6bd6b700665a2056c48a70154917",
+      "testSha256": "655305d59309352913a710d9bdde631191c83c80a76e78df36d58c7c5c0a964b",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.358217,
+      "counts": {
+        "passed": 1,
+        "failed": 9,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_possible_change[input_data0-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data1-4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data2-121]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data3-18]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data4-16]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data5-568]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data6-786]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data7-817]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data8-981]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_possible_change[input_data9-20]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "possible_change",
+      "variant": "reference",
+      "sourceSha256": "195f5cdc05e838b4c14553090b95e297c75401a6ce778b2738e7e9f47ec18cd0",
+      "testSha256": "655305d59309352913a710d9bdde631191c83c80a76e78df36d58c7c5c0a964b",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.433429,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_possible_change[input_data0-0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data1-4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data2-121]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data3-18]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data4-16]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data5-568]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data6-786]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data7-817]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data8-981]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_possible_change[input_data9-20]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "powerset",
+      "variant": "buggy",
+      "sourceSha256": "3e3deb045ed61fbe82725cd7e7b0fb4d00f411f87f0f91358109ec0204c61ae9",
+      "testSha256": "9b0b816ba26a0a14fc8387946a2c1f08a85cb7c4e5d0c52c29e9fd640ae89d4e",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.344404,
+      "counts": {
+        "passed": 1,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_powerset[input_data0-expected0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_powerset[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_powerset[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_powerset[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_powerset[input_data4-expected4]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "powerset",
+      "variant": "reference",
+      "sourceSha256": "b53f71a04fec20cbd20c5f0edd64ec1c49796b693677d46b3e7e02b5e3aaf46e",
+      "testSha256": "9b0b816ba26a0a14fc8387946a2c1f08a85cb7c4e5d0c52c29e9fd640ae89d4e",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.374149,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_powerset[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_powerset[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_powerset[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_powerset[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_powerset[input_data4-expected4]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "quicksort",
+      "variant": "buggy",
+      "sourceSha256": "4bc023d77dcdaeaaf5b284a03eecf0f73765ff216efecadd1d5ed78382ac89a3",
+      "testSha256": "256fd90b33d35a904b66332d23ce896d64f574c28faf1db24ac2d5de4d1cc2a3",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.34437,
+      "counts": {
+        "passed": 12,
+        "failed": 1,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_quicksort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_quicksort[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data7-expected7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data8-expected8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data9-expected9]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data10-expected10]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data11-expected11]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data12-expected12]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "quicksort",
+      "variant": "reference",
+      "sourceSha256": "2b9aa475d442ab534de2f1a5912de4ae3049282db3093f17f2bd88b6b356ba54",
+      "testSha256": "256fd90b33d35a904b66332d23ce896d64f574c28faf1db24ac2d5de4d1cc2a3",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.400048,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_quicksort[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data7-expected7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data8-expected8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data9-expected9]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data10-expected10]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data11-expected11]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_quicksort[input_data12-expected12]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "reverse_linked_list",
+      "variant": "buggy",
+      "sourceSha256": "472b29daff20c0a6ec316b841a7aeca577eef6aad81c65bb44d63ef121cfbab0",
+      "testSha256": "3c841e2b0bcbf7f86003e41425ea29eeb1e39fd43b3578a01eb610845ce95247",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.29584,
+      "counts": {
+        "passed": 1,
+        "failed": 2,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "failed"
+        },
+        {
+          "name": "test2",
+          "outcome": "failed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "reverse_linked_list",
+      "variant": "reference",
+      "sourceSha256": "3d157b792c196db5b65b9316277c4011ac90981df397c3434b22e252f518648d",
+      "testSha256": "3c841e2b0bcbf7f86003e41425ea29eeb1e39fd43b3578a01eb610845ce95247",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.279022,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "rpn_eval",
+      "variant": "buggy",
+      "sourceSha256": "4a473b1beaa9eb8155fcb079917e390d0584d8ebdfc6d6d8c88069609854194a",
+      "testSha256": "5a605345d5d036f47b7eba0ae87c0abd854b4d88610bbb3e44b9f60744cd2e08",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.28678,
+      "counts": {
+        "passed": 3,
+        "failed": 3,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_rpn_eval[input_data0-4.0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_rpn_eval[input_data1-4.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data2-8.0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_rpn_eval[input_data3-14.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data4-23.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data5-14.0]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "rpn_eval",
+      "variant": "reference",
+      "sourceSha256": "a5f9ec92795e5703653039bfb6b08e8a1298c18ea89a842d3c67e7bc67a2030e",
+      "testSha256": "5a605345d5d036f47b7eba0ae87c0abd854b4d88610bbb3e44b9f60744cd2e08",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.323458,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_rpn_eval[input_data0-4.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data1-4.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data2-8.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data3-14.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data4-23.0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_rpn_eval[input_data5-14.0]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "shortest_path_length",
+      "variant": "buggy",
+      "sourceSha256": "7dfc112f10e97ef4023f0d0eacec6c4659d1775fb9125826c4379e78c41dc46f",
+      "testSha256": "4e8fef27efa2f18103a72698f93dd787525e5a3b1a28550cbdb94e57ba9b142e",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.350038,
+      "counts": {
+        "passed": 2,
+        "failed": 2,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "failed"
+        },
+        {
+          "name": "test2",
+          "outcome": "failed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "shortest_path_length",
+      "variant": "reference",
+      "sourceSha256": "4b1716a8665e9e7b152eb9557768648ea7526ffc9f722aa7522f7fe7a76e98ff",
+      "testSha256": "4e8fef27efa2f18103a72698f93dd787525e5a3b1a28550cbdb94e57ba9b142e",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.34271,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "shortest_path_lengths",
+      "variant": "buggy",
+      "sourceSha256": "bf989a11e41f482987d45a295c07b6c7659d6808b8628335fd6ba4599969796c",
+      "testSha256": "739c06b7341b481b57e72a8b81b4561d47f79e3c8030ddcbf6664850c6f86fa8",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.419208,
+      "counts": {
+        "passed": 0,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "failed"
+        },
+        {
+          "name": "test2",
+          "outcome": "failed"
+        },
+        {
+          "name": "test3",
+          "outcome": "failed"
+        },
+        {
+          "name": "test4",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "shortest_path_lengths",
+      "variant": "reference",
+      "sourceSha256": "5ce0af6a7a13a5023804a984c2f765025e71d137413980e2b597528ee8e0ed70",
+      "testSha256": "739c06b7341b481b57e72a8b81b4561d47f79e3c8030ddcbf6664850c6f86fa8",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.33481,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        },
+        {
+          "name": "test4",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "shortest_paths",
+      "variant": "buggy",
+      "sourceSha256": "e99679a54634bc940a78c1f211e6126f5119a7654a089d1f56f264a1deaa0ce2",
+      "testSha256": "8ee521556000dc6bcf4ae71c6db0f91c387f96e055557ec1accdde824928b4f8",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.304064,
+      "counts": {
+        "passed": 0,
+        "failed": 3,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "failed"
+        },
+        {
+          "name": "test2",
+          "outcome": "failed"
+        },
+        {
+          "name": "test3",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "shortest_paths",
+      "variant": "reference",
+      "sourceSha256": "5adad4888cab319fadc4a8a8c62fddb570648bc4906452bbc1939070cd92b426",
+      "testSha256": "8ee521556000dc6bcf4ae71c6db0f91c387f96e055557ec1accdde824928b4f8",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.311764,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "shunting_yard",
+      "variant": "buggy",
+      "sourceSha256": "b010f04bbfc6158888d97498cc8e0adb323b9f8285fbf5b908c7d4c8c48cfb68",
+      "testSha256": "6573899a42a8fa12a7b868b863abad256fda5bddc1c07f147c9818fbf3c6cef1",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.331136,
+      "counts": {
+        "passed": 2,
+        "failed": 4,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_shunting_yard[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_shunting_yard[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_shunting_yard[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_shunting_yard[input_data5-expected5]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "shunting_yard",
+      "variant": "reference",
+      "sourceSha256": "f24efd158ead068cf2d476eaec3fdd5f58ef19578ee6a7861f7fcdff7d924645",
+      "testSha256": "6573899a42a8fa12a7b868b863abad256fda5bddc1c07f147c9818fbf3c6cef1",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.41324,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_shunting_yard[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_shunting_yard[input_data5-expected5]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "sieve",
+      "variant": "buggy",
+      "sourceSha256": "577f762267c71617107ca3ec8d509012a7d6b692fb94432f943cd5b694ad5ffc",
+      "testSha256": "dadbd41505be6c7dd579960ce8b4ba1d26e7371f348df38c1c8eae0a286acebd",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.342514,
+      "counts": {
+        "passed": 1,
+        "failed": 5,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_sieve[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sieve[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sieve[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sieve[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sieve[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sieve[input_data5-expected5]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "sieve",
+      "variant": "reference",
+      "sourceSha256": "624b6480828391cd5316f7418acd9d2654fafa04b3821d07e6c99f062857da44",
+      "testSha256": "dadbd41505be6c7dd579960ce8b4ba1d26e7371f348df38c1c8eae0a286acebd",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.3003,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_sieve[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sieve[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sieve[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sieve[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sieve[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sieve[input_data5-expected5]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "sqrt",
+      "variant": "buggy",
+      "sourceSha256": "e3623a160e6ada452b36ce0bd2370fc031943e2c1ae93aae5f0c82865e083ebf",
+      "testSha256": "a8374bfa1ef4d2900e0c12d83c29bf22d34c3b0495a70262bdede53e77e90631",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 12.414298,
+      "counts": {
+        "passed": 1,
+        "failed": 6,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_sqrt[input_data0-1.4166666666666665]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sqrt[input_data1-1.5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data2-1.5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sqrt[input_data3-2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sqrt[input_data4-5.196164639727311]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sqrt[input_data5-5.744627526262464]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_sqrt[input_data6-13.038404876679632]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "sqrt",
+      "variant": "reference",
+      "sourceSha256": "8abad14937a9cd1cfe0e1c7f20f92861a0a86c6305e473f184ae813b6120375e",
+      "testSha256": "a8374bfa1ef4d2900e0c12d83c29bf22d34c3b0495a70262bdede53e77e90631",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.433746,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_sqrt[input_data0-1.4166666666666665]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data1-1.5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data2-1.5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data3-2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data4-5.196164639727311]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data5-5.744627526262464]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_sqrt[input_data6-13.038404876679632]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "subsequences",
+      "variant": "buggy",
+      "sourceSha256": "0566273a521b768c0f9d8ba33d95bc7a10447b654327ad0d3460500245bef7c3",
+      "testSha256": "1c3c5c6afe504d4dbfdd5710e52431fd258f45619a172cb6bc1111b2361c3b3d",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.442543,
+      "counts": {
+        "passed": 2,
+        "failed": 10,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_subsequences[input_data0-expected0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data4-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data5-expected5]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data6-expected6]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data7-expected7]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data8-expected8]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data9-expected9]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data10-expected10]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_subsequences[input_data11-expected11]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "subsequences",
+      "variant": "reference",
+      "sourceSha256": "cc04b2d74db77bdd93af52c8a0b7ab2c7eb9adc83719ebe739bd74b71d46a185",
+      "testSha256": "1c3c5c6afe504d4dbfdd5710e52431fd258f45619a172cb6bc1111b2361c3b3d",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.392257,
+      "counts": {
+        "passed": 12,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_subsequences[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data4-expected4]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data5-expected5]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data6-expected6]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data7-expected7]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data8-expected8]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data9-expected9]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data10-expected10]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_subsequences[input_data11-expected11]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "to_base",
+      "variant": "buggy",
+      "sourceSha256": "e6f2d42474e4e641f08d2e6d5c0e8c8bf8a540e79aaaf1ab903031c163193744",
+      "testSha256": "9c0c9c0c7242ce3cfcfb170be7770c7bfdcc5421fef1bfd4a10e9f63afa17ef8",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.380236,
+      "counts": {
+        "passed": 3,
+        "failed": 7,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_to_base[input_data0-1771]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data1-111]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data2-G]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data3-1F]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_to_base[input_data4-101001]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_to_base[input_data5-134]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_to_base[input_data6-14]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_to_base[input_data7-2A]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_to_base[input_data8-E75]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_to_base[input_data9-749]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "to_base",
+      "variant": "reference",
+      "sourceSha256": "bebdb1310d6db38977227a0a4c25a8e3861cd67faee92ab66bb7cbd314d92bc0",
+      "testSha256": "9c0c9c0c7242ce3cfcfb170be7770c7bfdcc5421fef1bfd4a10e9f63afa17ef8",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.435096,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_to_base[input_data0-1771]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data1-111]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data2-G]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data3-1F]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data4-101001]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data5-134]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data6-14]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data7-2A]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data8-E75]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_to_base[input_data9-749]",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "topological_ordering",
+      "variant": "buggy",
+      "sourceSha256": "0c3ab86d546e40db10a649077520978f0674c54069c63fceaa3cc4c94d271345",
+      "testSha256": "157acae6fcacf3dba45b2ded31818609d034e190d721ac6a060a4adc013a98eb",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.359594,
+      "counts": {
+        "passed": 0,
+        "failed": 3,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "failed"
+        },
+        {
+          "name": "test2",
+          "outcome": "failed"
+        },
+        {
+          "name": "test3",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "topological_ordering",
+      "variant": "reference",
+      "sourceSha256": "2810a67f52b693609fbad18a4784b99b1b76e23c9ef9a7e0ed021feb64073d77",
+      "testSha256": "157acae6fcacf3dba45b2ded31818609d034e190d721ac6a060a4adc013a98eb",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.371633,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test1",
+          "outcome": "passed"
+        },
+        {
+          "name": "test2",
+          "outcome": "passed"
+        },
+        {
+          "name": "test3",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "program": "wrap",
+      "variant": "buggy",
+      "sourceSha256": "eb76433536ae58fa2955fbe053a8f9e45e7deb7d3894048acb7cdab13f1f5282",
+      "testSha256": "c23a0d457eeec036cedb3296a935231d0d92a5e6334d93172fc8dd79f9abe5e9",
+      "outcome": "failure",
+      "exitCode": 1,
+      "seconds": 0.372257,
+      "counts": {
+        "passed": 0,
+        "failed": 5,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_wrap[input_data0-expected0]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_wrap[input_data1-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_wrap[input_data2-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_wrap[input_data3-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "name": "test_wrap[input_data4-expected4]",
+          "outcome": "failed"
+        }
+      ]
+    },
+    {
+      "program": "wrap",
+      "variant": "reference",
+      "sourceSha256": "19dba14cdf9fe3380abf4dd3b2d5726f38bbd4af39e0f19e725f9f3bdd236bc6",
+      "testSha256": "c23a0d457eeec036cedb3296a935231d0d92a5e6334d93172fc8dd79f9abe5e9",
+      "outcome": "success",
+      "exitCode": 0,
+      "seconds": 0.318597,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "timeout": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "tests": [
+        {
+          "name": "test_wrap[input_data0-expected0]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_wrap[input_data1-expected1]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_wrap[input_data2-expected2]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_wrap[input_data3-expected3]",
+          "outcome": "passed"
+        },
+        {
+          "name": "test_wrap[input_data4-expected4]",
+          "outcome": "passed"
+        }
+      ]
+    }
+  ]
+}
