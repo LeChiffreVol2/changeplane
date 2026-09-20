@@ -158,3 +158,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory map and focused tests. 
 ## License
 
 [Apache License 2.0](LICENSE), for individual and commercial use. See [third-party notices](THIRD_PARTY_NOTICES.md). Software licensing does not grant hosted-service access or trademark rights.
+
+## Inspect work in ChatGPT or the website
+
+The signed-in website includes a live PR workspace with current evidence, responsible role and the next action. The optional [ChatGPT connection](docs/chatgpt-app.md) exposes the same read-only assessment and prepares a handoff for your existing coding agent. Hosted rollout restrictions and live-client qualification remain explicit; the local Open Source path continues to work independently.

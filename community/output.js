@@ -1,5 +1,10 @@
+import { presentAssessment } from '../src/lib/pr-workspace.js';
+
 /** Optional views never replace the complete JSON evidence or confer authority. */
 export function formatReport(report, format = 'json') {
+  if (report.observation?.source === 'github-api' && report.observation.repository && report.observation.pullRequest) {
+    report = { ...report, workspace: presentAssessment(report, { repository: report.observation.repository, number: report.observation.pullRequest }) };
+  }
   if (format === 'json') return JSON.stringify(report, null, 2) + '\n';
   const clean = value => String(value).replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ');
   if (format === 'text' && report.kind === 'changeplane.setup-check') return [
@@ -25,6 +30,7 @@ export function formatReport(report, format = 'json') {
   const revisions = binding?.revisions;
   const summary = {
     schemaVersion: 1, kind: 'changeplane.assessment-summary', decision: report.decision,
+    ...(report.workspace ? { workspace: report.workspace } : {}),
     ...(report.code ? { code: report.code } : {}),
     headSha: revisions?.head ?? report.headSha ?? null,
     currentHeadSha: revisions?.currentHead ?? report.currentHeadSha ?? null,

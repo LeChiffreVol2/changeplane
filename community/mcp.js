@@ -63,7 +63,7 @@ export const followTool = {
 };
 export const reviewTool = { ...followTool, name: 'changeplane_run_review',
   description: 'Run one explicitly operator-enabled, bounded model review in isolated local Docker containers, save its report and return fresh PR/CI evidence. Uses operator source, immutable image and BYOK only; callers cannot select paths, models, keys or commands. Reuses the current report on resume. No repository write or merge authority; may incur model cost.',
-  inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: { pullRequest } },
+  inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: { pullRequest, retryIncomplete: { type: 'boolean', description: 'Explicitly retry an incomplete or interrupted review after investigation. At most two invocations per request.' } } },
   annotations: { ...annotations, readOnlyHint: false, idempotentHint: false },
 };
 const toolsFor = configuration => [...assessmentTools, ...(configuration.CHANGEPLANE_STATE_DIR ? [followTool,
@@ -80,10 +80,11 @@ export async function callAssessmentTool(name, args, configuration = process.env
   }
   if ((['changeplane_inspect', 'changeplane_pipeline', 'changeplane_follow'].includes(name) || Object.hasOwn(args, 'pullRequest'))
     && (!Number.isSafeInteger(args.pullRequest) || args.pullRequest < 1)) throw new CollectionError('INPUT_INVALID');
+  if (args.retryIncomplete !== undefined && typeof args.retryIncomplete !== 'boolean') throw new CollectionError('INPUT_INVALID');
   const token = configuration.GH_TOKEN || configuration.GITHUB_TOKEN;
   if (Object.hasOwn(args, 'waitSeconds') && (!Number.isSafeInteger(args.waitSeconds) || args.waitSeconds < 1 || args.waitSeconds > 60)) throw new CollectionError('INPUT_INVALID');
   if (['changeplane_follow', 'changeplane_run_review'].includes(name)) return followPipeline({ repository, number: args.pullRequest, token, read,
-    waitSeconds: args.waitSeconds, runReview: name === 'changeplane_run_review' }, { directory: configuration.CHANGEPLANE_STATE_DIR,
+    waitSeconds: args.waitSeconds, runReview: name === 'changeplane_run_review', retryReview: args.retryIncomplete === true }, { directory: configuration.CHANGEPLANE_STATE_DIR,
     runReview: configuredReviewRunner(configuration) });
   if (name === 'changeplane_pipeline') return inspectPipeline({ repository, number: args.pullRequest, token, read,
     review: args.review, requestId: args.requestId, waitSeconds: args.waitSeconds });

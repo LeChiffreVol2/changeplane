@@ -29,7 +29,7 @@ paths = [
     'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md',
     'bin/changeplane.js', 'bin/install.mjs', 'community/install.test.js', 'community/README.md', 'docs/README.md', 'docs/community.md',
     'skills/changeplane/SKILL.md',
-    'community/setup.js', 'community/setup.test.js', 'community/output.js',
+    'community/setup.js', 'community/setup.test.js', 'community/output.js', 'src/lib/pr-workspace.js',
     'community/mcp.js', 'community/mcp-transport.js', 'community/mcp-transport.test.js', 'community/entrypoints.test.js',
     'community/core.js', 'community/github.js', 'community/cli.js',
     'community/pipeline.js', 'community/pipeline.test.js', 'docs/opencode-review.md',

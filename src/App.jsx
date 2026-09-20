@@ -1,4 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import LiveWorkspace from './LiveWorkspace.jsx';
+import ChatgptConnect from './ChatgptConnect.jsx';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -363,6 +365,7 @@ function AgentSetupDrawer({ onClose }) {
         <summary>What your agent can do</summary>
         <p>CLI and read-only MCP return the revision, findings and next action. Assessments grant no source-write or merge authority. You choose meaningful tests and review changes to policy, workflows and permissions.</p>
         <p>CLI and MCP protocol tests do not qualify every agent client. Your agent needs repository and tool access; client setup varies.</p>
+        <p><a href="/?chatgpt=about">Use the read-only ChatGPT connection</a> to inspect PR evidence and prepare an agent handoff. Hosted rollout restrictions apply.</p>
         <a className="text-action" href="https://github.com/LeChiffreVol2/changeplane/blob/main/docs/community.md#use-with-an-agent" target="_blank" rel="noreferrer">Read CLI and MCP setup <ArrowUpRight size={14} /></a>
       </details>
     </Drawer>
@@ -923,7 +926,7 @@ function RuntimeFunding({
 }
 
 function GitHubSetup({ onboarding, onOpenWorkspace, onSignOut, onSettings }) {
-  const { account: { session }, inventory, repository, actions } = onboarding;
+  const { account: { session, signingOut }, inventory, repository, actions } = onboarding;
   const { items: repositories, status: repositoryStatus, error: repositoryError } = inventory;
   const { name: selectedRepository } = repository;
   const { status: preflightStatus, data: preflight, error: preflightError } = repository.preflight;
@@ -1122,6 +1125,7 @@ function GitHubSetup({ onboarding, onOpenWorkspace, onSignOut, onSettings }) {
                       )}
                     </div>
 
+                    {selected && !session.isPreview && !signingOut && <LiveWorkspace key={selected.fullName} repository={selected.fullName} />}
                     <div className="install-summary">
                       <div>
                         <span>Selected repository</span>
@@ -2597,6 +2601,8 @@ export function App() {
   const settingsDrawer = settingsOpen && <SettingsDrawer usage={usage} onUsage={setUsage} draft={settingsDrafts[usage]} onDraft={(draft) => setSettingsDrafts(current => ({ ...current, [usage]: draft }))} onClose={() => setSettingsOpen(false)} />;
 
   const agentSetupDrawer = agentSetupOpen && <AgentSetupDrawer onClose={() => setAgentSetupOpen(false)} />;
+
+  if (PAGE_QUERY.get('chatgpt') === 'about') return <ChatgptConnect />;
 
   if (!session) {
     return (

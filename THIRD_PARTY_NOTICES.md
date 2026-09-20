@@ -10,6 +10,8 @@ ChangePlane uses third-party packages under their respective licenses. The autho
 | libsodium-wrappers | GitHub Actions Secret sealed-box encryption | ISC |
 | pg (node-postgres) | Hosted PostgreSQL connectivity | MIT |
 | Playwright Test | End-to-end verification | Apache-2.0 |
+| `@modelcontextprotocol/sdk` | Authenticated remote MCP transport; adapted stateless HTTP example | MIT |
+| Zod | Remote MCP tool input validation | MIT |
 
 The deep-teal paper texture under `src/assets` is a ChangePlane project asset. The product does not ship third-party logos, music, customer screenshots, map imagery, or production RouteThai data.
 

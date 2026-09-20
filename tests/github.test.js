@@ -27,6 +27,8 @@ import {
   githubRetryDelayMs,
   managedVersionSnapshot,
   prepareAutonomousHarness,
+  productReadAccess,
+  productRepositories,
   seal,
   unseal,
   validateAutonomousBranchProtection,
@@ -360,6 +362,40 @@ async function withGitHubAppEnvironment(callback) {
     return callback();
   });
 }
+
+test("product readers retain live installation binding and never access a different repository", async () => {
+  await withGitHubAppEnvironment(async () => {
+    const session = { token: "ghu-test", authMode: "github_app", installationIds: ["123"] };
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    let installed = true;
+    globalThis.fetch = async (url, options) => {
+      calls.push(String(url)); assert.equal(options.method ?? "GET", "GET");
+      if (String(url).includes("/user/installations/123/repositories")) return githubJsonResponse({ repositories: installed ? [
+        { full_name: "alice/project", private: true, permissions: { push: true } },
+        { full_name: "alice/readonly", permissions: { push: false, admin: false } },
+      ] : [] });
+      if (String(url).includes("/repos/alice/project/pulls")) return new Response("[]", { headers: { "content-type": "application/json" } });
+      throw new Error("Unexpected repository access");
+    };
+    try {
+      assert.deepEqual(await productRepositories(session), [{ repository: "alice/project", private: true, url: "https://github.com/alice/project" }]);
+      const access = await productReadAccess("alice/project", session);
+      assert.equal(access.target.installationId, "123");
+      await access.read("/repos/alice/project/pulls?state=open");
+      const count = calls.length;
+      await assert.rejects(() => access.read("/repos/alice/project-else/pulls"), error => error.status === 403);
+      assert.equal(calls.length, count);
+      await assert.rejects(() => productReadAccess("alice/readonly", session), error => error.status === 403);
+      installed = false;
+      await assert.rejects(() => productReadAccess("alice/project", session), error => error.status === 404);
+      process.env.VERCEL = "1"; process.env.VERCEL_ENV = "preview";
+      const before = calls.length;
+      await assert.rejects(() => productReadAccess("alice/project", session));
+      assert.equal(calls.length, before);
+    } finally { globalThis.fetch = originalFetch; }
+  });
+});
 
 test("sealed sessions decrypt before expiry without exposing plaintext", () => {
   const token = seal({ token: "github-secret-token", login: "octocat" }, SECRET, {
@@ -2412,7 +2448,7 @@ test("managed autonomous harness keeps OpenAI proposal access separate from forg
   const includedFiles = vercelConfig.functions["api/github.js"].includeFiles;
   assert.equal(
     includedFiles,
-    "{action.yml,action/**,src/lib/**,server/**,examples/changeplane-*.{js,yml}}",
+    "{action.yml,action/**,src/lib/**,server/**,community/**,examples/changeplane-*.{js,yml}}",
     "the Vercel installer must bundle every managed harness source",
   );
   for (const managedExample of [

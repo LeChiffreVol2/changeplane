@@ -2079,3 +2079,80 @@ test("a failed sign-out refreshes account inventory and still rejects the earlie
   await expect(page.getByText("Managed files installed. Finish activation.")).toBeVisible();
   expect(externalRequests).toEqual([]);
 });
+
+function liveView(repository, head = 'a'.repeat(40)) {
+  return { kind: 'changeplane.pr-workspace', repository, number: 7, headSha: head, observedAt: '2026-09-20T00:00:00Z',
+    status: 'ci_pending', title: 'Waiting for CI', owner: 'CI runner', nextAction: 'Wait for the current test run.',
+    consequence: 'Completion has not been established.', evidence: [], blockers: [],
+    review: { status: 'not_collected', findings: [], coverage: null, quality: 'Advisory evidence only.' },
+    humanReview: null, continuation: 'Refresh for current evidence. A stopped coding agent must be resumed in its own client.',
+    actions: { reviewUrl: `https://github.com/${repository}/pull/7/files`, checksUrl: `https://github.com/${repository}/pull/7/checks`, handoff: `Inspect ${repository} PR 7 at ${head}. No merge authority.` } };
+}
+
+test('live PR journey assesses a real target, refreshes changed heads and prepares a handoff', async ({ page }) => {
+  let count = 0;
+  await mockOnboardingLifetimes(page, (route, url) => {
+    const action = url.searchParams.get('action'), repository = url.searchParams.get('repository');
+    if (action === 'pulls') return liveJson(route, { repository, page: 1, nextPage: null, pulls: [{ number: 7, title: 'Improve empty input handling' }] });
+    if (action === 'workspace') return liveJson(route, liveView(repository, (++count === 1 ? 'a' : 'b').repeat(40)));
+  });
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.liveCopied = value; } } }); });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await page.getByRole('button', { name: 'Open live pull requests' }).click();
+  await page.getByRole('button', { name: /Improve empty input handling/u }).click();
+  await expect(page.getByRole('heading', { name: 'Waiting for CI', exact: true })).toBeVisible();
+  await expect(page.locator('.live-result')).toContainText('aaaaaaaaaaaa');
+  await page.getByRole('button', { name: 'Copy task for your agent' }).click();
+  expect(await page.evaluate(() => window.liveCopied)).toContain('a'.repeat(40));
+  await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
+  await expect(page.locator('.live-result')).toContainText('bbbbbbbbbbbb');
+  await expect(page.locator('.live-result')).not.toContainText('aaaaaaaaaaaa');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('switching repositories discards a late PR response and errors never keep old readiness', async ({ page }) => {
+  let pending, shouldFail = false;
+  await mockOnboardingLifetimes(page, (route, url) => {
+    const action = url.searchParams.get('action'), repository = url.searchParams.get('repository');
+    if (action === 'pulls') return liveJson(route, { repository, page: 1, nextPage: null, pulls: [{ number: 7, title: 'Current work' }] });
+    if (action === 'workspace' && repository === 'acme/first') { pending = route; return true; }
+    if (action === 'workspace') return shouldFail ? liveJson(route, { error: 'GitHub is unavailable' }, 503) : liveJson(route, liveView(repository));
+  });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await page.getByRole('button', { name: 'Open live pull requests' }).click();
+  await page.getByRole('button', { name: /Current work/u }).click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.getByRole('radio', { name: /acme\/second/u }).click();
+  await json(pending, liveView('acme/first'));
+  await expect(page.locator('.live-result')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open live pull requests' }).click();
+  await page.getByRole('button', { name: /Current work/u }).click();
+  await expect(page.getByRole('heading', { name: 'Waiting for CI', exact: true })).toBeVisible();
+  shouldFail = true; await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
+  await expect(page.locator('.live-workspace [role="alert"]')).toContainText('GitHub is unavailable');
+  await expect(page.locator('.live-result')).toHaveCount(0);
+});
+
+test('human decision preparation requires reasons and does not submit approval', async ({ page }) => {
+  const mutations = [];
+  await mockOnboardingLifetimes(page, (route, url) => {
+    if (route.request().method() !== 'GET') mutations.push(url.href);
+    const action = url.searchParams.get('action'), repository = url.searchParams.get('repository');
+    if (action === 'pulls') return liveJson(route, { repository, pulls: [{ number: 7, title: 'Review test change' }] });
+    if (action === 'workspace') return liveJson(route, { ...liveView(repository), status: 'human_review_required', title: 'A person needs to review this change', owner: 'Repository reviewer', humanReview: {
+      unreviewedPaths: ['tests/behavior.test.js'], nextAction: 'Submit this exact-head review yourself on GitHub.',
+      reviewBody: '<!-- changeplane:review-decision:v1\n' + JSON.stringify({ requestId: '1'.repeat(64), reportDigest: null, reviewedPaths: [{ path: 'tests/behavior.test.js', reason: 'REPLACE_WITH_YOUR_REASON' }], dismissedFindings: [] }) + '\n-->',
+    } });
+  });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await page.getByRole('button', { name: 'Open live pull requests' }).click(); await page.getByRole('button', { name: /Review test change/u }).click();
+  await page.getByText('Prepare your human review', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Copy review draft' })).toBeDisabled();
+  await page.getByLabel('tests/behavior.test.js').fill('Verified expected behavior against the task.');
+  await expect(page.getByRole('button', { name: 'Copy review draft' })).toBeEnabled();
+  await expect(page.getByLabel('Human review draft', { exact: true })).toContainText('Verified expected behavior');
+  expect(mutations).toEqual([]);
+});
+
+async function liveJson(...args) { await json(...args); return true; }

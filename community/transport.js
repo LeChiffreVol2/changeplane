@@ -1,6 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
 const messages = Object.freeze({
+  REVIEW_RETRY_REQUIRED: ['RETRY_REVIEW_EXPLICITLY', 'A prior review invocation stopped without a receipt. Investigate it, then use follow --run-review --retry-review to permit one bounded retry.'],
+  REVIEW_RETRY_NOT_NEEDED: ['FOLLOW_CURRENT_REVIEW', 'The current report is complete or has findings to address. Follow that result; no additional model call was started.'],
+  REVIEW_RETRY_EXHAUSTED: ['INSPECT_REVIEW_FAILURE', 'Two review invocations have already been started for this request. Investigate the failure before deliberately replacing the stopped private session. No additional model call was started.'],
   PERMISSION_DENIED: ['CHECK_READ_PERMISSIONS', 'Check read access to the selected repository.'],
   NOT_FOUND: ['CHECK_TARGET_AND_POLICY', 'Check the target and its trusted default-branch policy.'],
   RATE_LIMITED: ['WAIT_FOR_RATE_LIMIT', 'Wait for the provider rate limit before reassessing.'],
