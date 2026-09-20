@@ -22,7 +22,19 @@ def git(root, *args):
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def case_outcome(case):
+    failure, error, skipped = case.find('failure'), case.find('error'), case.find('skipped')
+    if error is not None:
+        return 'error'
+    if skipped is not None:
+        return 'skipped'
+    if failure is not None:
+        message = failure.get('message', '')
+        return 'timeout' if message.startswith('Failed: Timeout (') and 'from pytest-timeout.' in message else 'failed'
+    return 'passed'
+
 def collect(root, output):
+    runner_hash = sha(Path(__file__))
     if output.exists():
         raise SystemExit('Use a new output path; recorded experiments are not overwritten.')
     if git(root, 'rev-parse', 'HEAD') != PIN or git(root, 'status', '--porcelain', '--untracked-files=all'):
@@ -53,11 +65,7 @@ def collect(root, output):
                 cases = []
                 if junit.exists():
                     for case in ET.parse(junit).getroot().iter('testcase'):
-                        failure, error, skipped = case.find('failure'), case.find('error'), case.find('skipped')
-                        outcome = 'error' if error is not None else 'skipped' if skipped is not None else 'passed'
-                        if failure is not None:
-                            outcome = 'timeout' if 'Timeout >' in (failure.get('message', '') + (failure.text or '')) else 'failed'
-                        cases.append({'name': case.get('name'), 'outcome': outcome})
+                        cases.append({'name': case.get('name'), 'outcome': case_outcome(case)})
                 counts = {name: sum(case['outcome'] == name for case in cases)
                           for name in ['passed', 'failed', 'timeout', 'error', 'skipped']}
                 if exit_code is None:
@@ -82,7 +90,7 @@ def collect(root, output):
     result = {'schemaVersion': 1, 'benchmark': 'QuixBugs Python upstream suites', 'source': SOURCE, 'sourceCommit': PIN,
               'python': platform.python_version(), 'platform': platform.system(), 'architecture': platform.machine(),
               'packages': {name: importlib.metadata.version(name) for name in ['pytest', 'pytest-timeout', 'iniconfig', 'packaging', 'pluggy', 'Pygments']},
-              'runnerSha256': sha(Path(__file__)), 'perTestTimeoutSeconds': 2, 'perSuiteTimeoutSeconds': 60,
+              'runnerSha256': runner_hash, 'perTestTimeoutSeconds': 2, 'perSuiteTimeoutSeconds': 60,
               'slowTests': 'Upstream defaults; knapsack and levenshtein slow cases remain explicitly skipped.',
               'seconds': round(time.monotonic() - started, 6), 'rows': rows}
     output.parent.mkdir(parents=True, exist_ok=True)
