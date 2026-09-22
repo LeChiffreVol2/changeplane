@@ -9,6 +9,7 @@ import { configuredReviewRunner } from './review-runner.js';
 import { CollectionError } from './transport.js';
 import { inspectSetup, planSetup, setupFailure } from './setup.js';
 import { mcpRpc, serveMcp } from './mcp-transport.js';
+import { onboard } from './onboard.js';
 
 const outputSchema = decisions => ({ type: 'object', required: ['decision', 'authority'], properties: {
   decision: { type: 'string', enum: [...decisions, 'UNAVAILABLE'] },
@@ -19,6 +20,14 @@ const outputSchema = decisions => ({ type: 'object', required: ['decision', 'aut
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 const pullRequest = { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER };
 export const assessmentTools = [{
+  name: 'changeplane_onboard',
+  description: 'Start here: check prerequisites and obtain current PR evidence in one call. Missing policy returns CI candidates or protected setup file contents for review. The owner selects check/workflow. Repeat this tool after the configuration PR merges; it then assesses the current PR. No writes, model calls or permission grants.',
+  inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: {
+    pullRequest, check: { type: 'string', minLength: 1, maxLength: 100 }, workflow: { type: 'string', minLength: 1, maxLength: 200 },
+    waitSeconds: { type: 'integer', minimum: 1, maximum: 60 },
+  } },
+  outputSchema: outputSchema(['SELECTION_REQUIRED', 'EVIDENCE_SATISFIED', 'REVIEW_REQUIRED', 'BLOCKED']), annotations,
+}, {
   name: 'changeplane_inspect',
   description: 'Read current GitHub PR evidence against trusted default-branch policy. Returns the observed revision, findings and next action. No checkout, writes, model calls, Guard or merge authority. Reassess after changes.',
   inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: {
@@ -78,11 +87,13 @@ export async function callAssessmentTool(name, args, configuration = process.env
     || typeof repository !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository)) {
     throw new CollectionError('INPUT_INVALID');
   }
-  if ((['changeplane_inspect', 'changeplane_pipeline', 'changeplane_follow'].includes(name) || Object.hasOwn(args, 'pullRequest'))
+  if ((['changeplane_onboard', 'changeplane_inspect', 'changeplane_pipeline', 'changeplane_follow'].includes(name) || Object.hasOwn(args, 'pullRequest'))
     && (!Number.isSafeInteger(args.pullRequest) || args.pullRequest < 1)) throw new CollectionError('INPUT_INVALID');
   if (args.retryIncomplete !== undefined && typeof args.retryIncomplete !== 'boolean') throw new CollectionError('INPUT_INVALID');
   const token = configuration.GH_TOKEN || configuration.GITHUB_TOKEN;
   if (Object.hasOwn(args, 'waitSeconds') && (!Number.isSafeInteger(args.waitSeconds) || args.waitSeconds < 1 || args.waitSeconds > 60)) throw new CollectionError('INPUT_INVALID');
+  if (name === 'changeplane_onboard') return onboard({ repository, number: args.pullRequest, token, read, runtime,
+    check: args.check, workflow: args.workflow, waitSeconds: args.waitSeconds }, { inspect, wait });
   if (['changeplane_follow', 'changeplane_run_review'].includes(name)) return followPipeline({ repository, number: args.pullRequest, token, read,
     waitSeconds: args.waitSeconds, runReview: name === 'changeplane_run_review', retryReview: args.retryIncomplete === true }, { directory: configuration.CHANGEPLANE_STATE_DIR,
     runReview: configuredReviewRunner(configuration) });

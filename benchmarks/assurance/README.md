@@ -17,6 +17,8 @@ Verification checks artifact SHA-256 hashes, both measured runs' per-test outcom
 
 ## Rerun the public Python experiments
 
+Security update (2026-09-23): the current installation requirements use pytest 9.0.3, which fixes [CVE-2025-71176](https://github.com/pytest-dev/pytest/releases/tag/9.0.3). The historical 2026-09-20 records retain their actual pytest 8.4.2 environment and are not rewritten. Runs using the current requirements are new replications; record their package versions and outcomes separately. Offline verification of published records does not execute pytest.
+
 The recorded runs use Python 3.14.6 on macOS/arm64. The signal timeout runner supports macOS/Linux; other Python/platform versions are new replications and must report their environment. Upstream programs run locally with a stripped environment, disabled automatic pytest plugins and bounded time. This is not a security sandbox for arbitrary repositories. Use a disposable environment for the named public source.
 
 ```sh

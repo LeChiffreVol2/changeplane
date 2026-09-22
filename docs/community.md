@@ -10,6 +10,8 @@ Current source adds read-only prerequisite checks, setup planning through MCP, b
 
 ## Start with your agent
 
+Current source supports `onboard OWNER/REPO PR_NUMBER` and read-only `changeplane_onboard` MCP: one entry point checks prerequisites and returns either setup work or a current assessment. Repeat it after configuration merge. For optional notifications to an existing Codex task, follow [bounded continuation](agent-continuation.md).
+
 From the website, choose **Set up with your agent**, copy the prompt and paste it into your coding agent with the target repository open. The [README prompt](../README.md#start-with-your-agent) works too. An agent with repository/tool access follows the [consumer skill](../skills/changeplane/SKILL.md) using your installed CLI or a trusted runtime checkout. MCP is optional.
 
 The agent first identifies your repository, existing policy and CI. If policy exists, it can inspect a current PR with read-only access. If setup is needed, it discovers candidate jobs and prepares one configuration PR after you identify the meaningful behavioral check. Review protected changes before merging. Credentials stay in your operator environment, not in the setup prompt or chat.

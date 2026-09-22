@@ -4,6 +4,8 @@ Give your coding agent revision-bound PR findings through the CLI or read-only M
 
 | Task | Entry point |
 | --- | --- |
+| Start from setup and reach a current PR assessment | `node bin/changeplane.js onboard OWNER/REPO PR_NUMBER` |
+| Notify an existing authorized Codex task after CI/setup progress | [Bounded operator watch](../docs/agent-continuation.md); queue acceptance is not agent execution |
 | Try an offline assessment | `node bin/changeplane.js evaluate examples/community/satisfied.json --format text` from the runtime root |
 | Check read-only prerequisites | `node bin/changeplane.js doctor OWNER/REPO` (current source) |
 | Prepare one repository | `node bin/changeplane.js init OWNER/REPO --dry-run` |

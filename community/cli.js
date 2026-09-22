@@ -14,11 +14,15 @@ import { githubReader } from './github.js';
 import { formatReport } from './output.js';
 import { inspectSetup, planSetup, setupFailure, SetupError, writeSetupPlan, setupRuntime } from './setup.js';
 import { runTeamCli, teamFailure } from './team-cli.js';
+import { onboard } from './onboard.js';
+import { watchPullRequest, codexNotifier } from './watch.js';
 
 const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
 Usage:
   changeplane evaluate snapshot.json [--format json|text|compact]
   changeplane doctor OWNER/REPO [--format json|text]
+  changeplane onboard OWNER/REPO PR_NUMBER [--check JOB --workflow PATH] [--wait SECONDS]
+  changeplane watch OWNER/REPO PR_NUMBER --codex-thread UUID [--seconds 1–900] [--renew]
   changeplane inspect OWNER/REPO PR_NUMBER [--wait SECONDS] [--format json|text|compact]
   changeplane inspect https://github.com/OWNER/REPO/pull/123
   changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait SECONDS]
@@ -102,7 +106,7 @@ try {
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
   else if (command === 'runtime' && args.length === 0) process.stdout.write(JSON.stringify({
     version: COMMUNITY_VERSION, sourceRevision: setupRuntime().revision,
-    capabilities: ['inspect', 'doctor', 'init', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
+    capabilities: ['inspect', 'doctor', 'init', 'onboard', 'watch-codex', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
     nextAction: 'Use doctor for repository setup. Model review requires separate Docker image, source scope and explicit BYOK enablement.',
   }, null, 2) + '\n');
   else if (command === 'mcp') {
@@ -111,6 +115,32 @@ try {
       if (args.length || index !== -1) throw new Error('USAGE_INVALID');
       const { serveAssessment } = await import('./mcp.js');
       await serveAssessment();
+    }
+  } else if (command === 'onboard' && args.length === 1 && args[0] === '--help') {
+    process.stdout.write('changeplane onboard OWNER/REPO PR_NUMBER [--check JOB --workflow PATH] [--wait 1–60] [--format json|text|compact]\nCheck prerequisites and either discover/review setup files or assess the current PR in one invocation. The owner chooses behavioral CI; no repository writes. Repeat the same command after the configuration PR merges.\n');
+  } else if (command === 'watch') {
+    if (args.length === 1 && args[0] === '--help') process.stdout.write('changeplane watch OWNER/REPO PR_NUMBER --codex-thread UUID [--seconds 1–900] [--renew]\nExplicitly queue bounded notifications to one existing authorized Codex task using CHANGEPLANE_CODEX_BIN (absolute trusted executable). At most two notifications and 600 reader calls within one immutable 15-minute maximum window. Private state survives restart; uncertain delivery is not retried. No exec/resume, model or permission overrides. Native client execution is not confirmed by queue acceptance. JSONL output only; Ctrl-C stops this process. See docs/agent-continuation.md.\n');
+    else {
+      if (index !== -1) throw new Error('USAGE_INVALID');
+      const [repository, rawNumber, ...rest] = args;
+      if (!/^[1-9][0-9]*$/u.test(rawNumber ?? '')) throw new Error('USAGE_INVALID');
+      const options = { repository, number: Number(rawNumber) };
+      for (let i = 0; i < rest.length; i++) {
+        const key = { '--codex-thread': 'thread', '--seconds': 'seconds', '--renew': 'renew' }[rest[i]];
+        if (!key || Object.hasOwn(options, key)) throw new Error('USAGE_INVALID');
+        if (key === 'renew') options[key] = true;
+        else { const value = rest[++i]; if (!value || value.startsWith('--')) throw new Error('USAGE_INVALID');
+          options[key] = key === 'seconds' && /^[1-9][0-9]*$/u.test(value) ? Number(value) : value; }
+      }
+      const controller = new AbortController(), cancel = () => controller.abort();
+      process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+      try {
+        const report = await watchPullRequest({ ...options, signal: controller.signal,
+          token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+          directory: process.env.CHANGEPLANE_STATE_DIR || join(homedir(), '.local', 'state', 'changeplane') },
+        { notify: codexNotifier(process.env.CHANGEPLANE_CODEX_BIN), emit: event => process.stdout.write(JSON.stringify(event) + '\n') });
+        process.stdout.write(JSON.stringify(report) + '\n'); process.exitCode = report.status === 'completed' ? 0 : 1;
+      } finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
     }
   } else if (command === 'follow' && args.length === 1 && args[0] === '--help') {
     process.stdout.write('changeplane follow OWNER/REPO PR_NUMBER [--run-review] [--review FILE --request-id ID] [--wait 1–60]\nSave and resume a private local PR session. CHANGEPLANE_STATE_DIR selects an absolute operator-owned directory; the default is ~/.local/state/changeplane. Every call collects fresh GitHub state and invalidates stale review. --run-review explicitly enables one bounded Docker review using CHANGEPLANE_REVIEW_IMAGE, CHANGEPLANE_REVIEW_REPOSITORY and OPENAI_API_KEY from the operator environment. Current reports are reused. After investigating an incomplete report or interrupted invocation, --run-review --retry-review permits a deliberate retry, with at most two runner invocations per request in this private session. An existing isolated job can write {requestId, review} to session.resultPath; follow imports it automatically. session.humanReviewPath contains a draft for human repository review, never automatic approval. No daemon or agent wakeup. See docs/opencode-review.md.\n');
@@ -152,8 +182,15 @@ try {
       catch { throw new Error('INPUT_INVALID'); }
       report = { ...(snapshot.schemaVersion === 2 ? assessObservation(snapshot) : assess(snapshot)),
         observation: { source: 'provided-snapshot', authenticated: false } };
-    } else if (['inspect', 'pipeline', 'follow'].includes(command)) {
+    } else if (['inspect', 'pipeline', 'follow', 'onboard'].includes(command)) {
       let review, requestId, runReview = false, retryReview = false;
+      const setupSelection = {};
+      if (command === 'onboard') for (const [flag, key] of [['--check', 'check'], ['--workflow', 'workflow']]) {
+        const i = args.indexOf(flag);
+        if (i !== -1) { const value = args[i + 1]; args.splice(i, 2);
+          if (!value || value.startsWith('--') || args.includes(flag)) throw new Error('USAGE_INVALID');
+          setupSelection[key] = value; }
+      }
       if (command === 'follow' && args.includes('--run-review')) {
         args.splice(args.indexOf('--run-review'), 1); runReview = true;
         if (args.includes('--run-review')) throw new Error('USAGE_INVALID');
@@ -162,7 +199,7 @@ try {
         args.splice(args.indexOf('--retry-review'), 1); retryReview = true;
         if (!runReview || args.includes('--retry-review')) throw new Error('USAGE_INVALID');
       }
-      if (command !== 'inspect') {
+      if (['pipeline', 'follow'].includes(command)) {
         const take = flag => {
           const i = args.indexOf(flag);
           if (i === -1) return undefined;
@@ -195,11 +232,12 @@ try {
       } else if (args.length !== 2) throw new Error('USAGE_INVALID');
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
       const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };
-      if (command !== 'inspect') Object.assign(options, { review, requestId });
+      if (['pipeline', 'follow'].includes(command)) Object.assign(options, { review, requestId });
+      if (command === 'onboard') Object.assign(options, setupSelection);
       const follow = options => followPipeline({ ...options, runReview, retryReview }, {
         directory: process.env.CHANGEPLANE_STATE_DIR || join(homedir(), '.local', 'state', 'changeplane'), runReview: configuredReviewRunner() });
-      const inspect = command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : inspectPullRequest;
-      const wait = command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : waitForPullRequest;
+      const inspect = command === 'onboard' ? onboard : command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : inspectPullRequest;
+      const wait = command === 'onboard' ? onboard : command === 'follow' ? follow : command === 'pipeline' ? inspectPipeline : waitForPullRequest;
       if (waitSeconds === undefined && command !== 'follow') report = await inspect(options);
       else {
         const controller = new AbortController();
@@ -216,7 +254,7 @@ try {
   }
 } catch (error) {
   // Never print filesystem paths, provider bodies, tokens or arbitrary exception text.
-  const setup = ['init', 'doctor'].includes(command);
+  const setup = ['init', 'doctor', 'onboard'].includes(command);
   const report = setup ? setupFailure(error) : unavailable(error);
   process.stderr.write(formatReport(report, format === 'text' || (format === 'compact' && !setup) ? format : 'json'));
   process.exitCode = 2;

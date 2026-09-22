@@ -5,12 +5,12 @@ import { inspectPipeline, REVIEW_BYTES } from './pipeline.js';
 import { CollectionError } from './transport.js';
 
 const hex = /^[a-f0-9]{64}$/u;
-const privateDirectory = path => {
+export const privateDirectory = path => {
   try { mkdirSync(path, { recursive: true, mode: 0o700 }); } catch { throw new CollectionError('SESSION_UNAVAILABLE'); }
   const stat = lstatSync(path);
   if (!stat.isDirectory() || stat.isSymbolicLink() || process.platform !== 'win32' && (stat.mode & 0o077)) throw new CollectionError('SESSION_UNAVAILABLE');
 };
-function readJson(path, limit) {
+export function readJson(path, limit) {
   let fd;
   try {
     if (lstatSync(path).isSymbolicLink()) throw new CollectionError('SESSION_UNAVAILABLE');
@@ -26,7 +26,7 @@ function writePrivate(path, text) {
   try { writeFileSync(temporary, text, { mode: 0o600, flag: 'wx' }); renameSync(temporary, path); }
   finally { rmSync(temporary, { force: true }); }
 }
-const writeJson = (path, value) => writePrivate(path, JSON.stringify(value) + '\n');
+export const writeJson = (path, value) => writePrivate(path, JSON.stringify(value) + '\n');
 
 /** Local continuation only. Every result re-reads GitHub; saved state has no approval authority. */
 export async function followPipeline(options, { directory, inspect = inspectPipeline, runReview } = {}) {

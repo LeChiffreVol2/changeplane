@@ -21,7 +21,7 @@ Open your repository in your existing coding agent and paste:
 Set up ChangePlane for this repository.
 Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
 If no current runtime is installed, use its CI-verified installer in a separate directory and retain the returned source revision.
-Start with read-only PR/CI assessment. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review.
+Use onboard for one current PR to check prerequisites and obtain read-only PR/CI evidence. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review. After it merges, repeat onboard to obtain the first assessment.
 Return the assessed revision, findings and next action. Keep credentials in my existing environment, never in this chat.
 ```
 
@@ -61,6 +61,8 @@ These are synthetic inputs for learning the report format. Exit 2 indicates inva
 Prefer a command on your PATH? Download [ChangePlane 0.4.1](https://github.com/LeChiffreVol2/changeplane/releases/latest) and follow the [local installation guide](docs/community.md#install-the-command). The dependency-free bundle includes the CLI, setup generator, MCP and agent skill. No npm-registry package is required.
 
 ## Inspect a real pull request
+
+Current source combines setup discovery and the first assessment in `changeplane onboard OWNER/REPO PR_NUMBER`. If setup is needed, it returns CI candidates and configuration files for review; after merge, the same command assesses the current PR. Optional operator-enabled `watch` queues bounded notifications to one existing Codex task. [Onboarding and continuation →](docs/agent-continuation.md)
 
 Start by discovering your CI jobs and preparing one reviewed configuration PR:
 
