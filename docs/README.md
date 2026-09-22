@@ -5,6 +5,7 @@ Start with your existing coding agent and obtain one useful PR assessment. You r
 | I want to… | Read |
 | --- | --- |
 | Start with my coding agent | [Agent setup](community.md#start-with-your-agent) and [consumer skill](../skills/changeplane/SKILL.md) |
+| Reach the first assessment and notify my existing agent | [Onboarding and bounded continuation](agent-continuation.md) |
 | Try the product without credentials | [One-minute quickstart](../README.md#try-it-in-one-minute) |
 | Install the command and inspect a repository | [Public setup guide](community.md) |
 | Use ChangePlane from an agent | [Read-only MCP and skill](community.md#use-with-an-agent) |

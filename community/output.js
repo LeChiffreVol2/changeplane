@@ -30,6 +30,7 @@ export function formatReport(report, format = 'json') {
   const revisions = binding?.revisions;
   const summary = {
     schemaVersion: 1, kind: 'changeplane.assessment-summary', decision: report.decision,
+    ...(report.onboarding ? { onboarding: report.onboarding, candidates: report.candidates, files: report.files } : {}),
     ...(report.workspace ? { workspace: report.workspace } : {}),
     ...(report.code ? { code: report.code } : {}),
     headSha: revisions?.head ?? report.headSha ?? null,

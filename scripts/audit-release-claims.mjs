@@ -10,6 +10,7 @@ const paths = [
   "skills/changeplane/SKILL.md",
   "CONTRIBUTING.md",
   "docs/community.md",
+  "docs/agent-continuation.md",
   "docs/opencode-review.md",
   "docs/chatgpt-app.md",
   "docs/review-quality.md",

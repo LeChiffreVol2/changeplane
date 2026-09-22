@@ -1,6 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
 const messages = Object.freeze({
+  WATCH_CLIENT_UNAVAILABLE: ['CONFIGURE_CODEX_CLIENT', 'Set CHANGEPLANE_CODEX_BIN to the absolute trusted Codex executable with queue support. Read-only onboard remains available.'],
+  WATCH_DELIVERY_UNKNOWN: ['INSPECT_NATIVE_QUEUE', 'Delivery to the existing Codex task is uncertain. Inspect its native queue and stop the watcher before clearing the private watch record; no automatic retry was made.'],
+  WATCH_STILL_ACTIVE: ['RESUME_EXISTING_WATCH', 'The current watch still has time remaining. Resume it without --renew; its original deadline and notification budget are retained.'],
   REVIEW_RETRY_REQUIRED: ['RETRY_REVIEW_EXPLICITLY', 'A prior review invocation stopped without a receipt. Investigate it, then use follow --run-review --retry-review to permit one bounded retry.'],
   REVIEW_RETRY_NOT_NEEDED: ['FOLLOW_CURRENT_REVIEW', 'The current report is complete or has findings to address. Follow that result; no additional model call was started.'],
   REVIEW_RETRY_EXHAUSTED: ['INSPECT_REVIEW_FAILURE', 'Two review invocations have already been started for this request. Investigate the failure before deliberately replacing the stopped private session. No additional model call was started.'],
