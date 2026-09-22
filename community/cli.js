@@ -15,6 +15,7 @@ import { formatReport } from './output.js';
 import { inspectSetup, planSetup, setupFailure, SetupError, writeSetupPlan, setupRuntime } from './setup.js';
 import { runTeamCli, teamFailure } from './team-cli.js';
 import { onboard } from './onboard.js';
+import { parsePullRequestUrl } from '../src/lib/pr-workspace.js';
 import { watchPullRequest, codexNotifier } from './watch.js';
 
 const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
@@ -107,7 +108,7 @@ try {
   else if (command === 'runtime' && args.length === 0) process.stdout.write(JSON.stringify({
     version: COMMUNITY_VERSION, sourceRevision: setupRuntime().revision,
     capabilities: ['inspect', 'doctor', 'init', 'onboard', 'watch-codex', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
-    nextAction: 'Use doctor for repository setup. Model review requires separate Docker image, source scope and explicit BYOK enablement.',
+    nextAction: 'Start with onboard OWNER/REPO PR_NUMBER --format text. It checks setup and returns current PR evidence or a specific setup step. Model review is optional and separately enabled.',
   }, null, 2) + '\n');
   else if (command === 'mcp') {
     if (args[0] === '--help' && args.length === 1) process.stdout.write('Set CHANGEPLANE_REPOSITORY=OWNER/REPO in the operator environment, then run changeplane mcp. Read-only GitHub setup checks, plans and assessment; use a read-only credential for private access.\n');
@@ -226,9 +227,9 @@ try {
       }
       let [repository, number] = args;
       if (args.length === 1) {
-        const match = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)\/?$/u.exec(repository);
-        if (!match) throw new Error('USAGE_INVALID');
-        [, repository, number] = match;
+        const target = parsePullRequestUrl(repository);
+        if (!target) throw new Error('USAGE_INVALID');
+        ({ repository, number } = target);
       } else if (args.length !== 2) throw new Error('USAGE_INVALID');
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
       const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };

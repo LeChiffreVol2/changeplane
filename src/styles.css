@@ -376,6 +376,11 @@ button {
 .agent-setup-steps strong, .agent-setup-steps span { display: block; }
 .agent-setup-steps span { margin-top: var(--space-1); color: var(--muted); line-height: var(--leading-relaxed); }
 .agent-prompt-label { display: block; margin-bottom: var(--space-2); font-size: var(--text-meta); font-weight: var(--weight-strong); }
+.agent-prompt-label span { color: var(--muted); font-weight: var(--weight-regular); }
+.agent-pr-url { width: 100%; min-height: var(--control-touch); padding: var(--space-3); border: 1px solid var(--line-dark); border-radius: var(--radius-control); background: var(--paper-soft); color: var(--ink); font: inherit; }
+.agent-pr-url:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.agent-pr-url[aria-invalid="true"] { border-color: #9b4138; }
+.agent-pr-help { margin: var(--space-2) 0 var(--space-5); color: var(--muted); font-size: var(--text-meta); line-height: var(--leading-relaxed); }
 .agent-setup-prompt { display: block; width: 100%; min-height: 220px; resize: vertical; padding: var(--space-3); border: 1px solid var(--line-dark); border-radius: var(--radius-control); background: var(--paper-soft); color: var(--ink); font: var(--text-meta)/var(--leading-relaxed) var(--font-mono); }
 .agent-setup-prompt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .agent-setup-detail { margin-top: var(--space-5); border-top: 1px solid var(--line); }

@@ -75,9 +75,13 @@ export default function LiveWorkspace({ repository }) {
         <span className="live-eyebrow">PR #{view.number} · {view.headSha ? view.headSha.slice(0, 12) : 'Revision not verified'}</span>
         <h3>{view.title}</h3><p><strong>Next: {view.nextAction}</strong></p>
         <p>Responsible: {view.owner}. {view.consequence}</p>
-        <div className="live-toolbar"><a href={view.actions.reviewUrl} target="_blank" rel="noreferrer">Review on GitHub</a>
-          <a href={view.actions.checksUrl} target="_blank" rel="noreferrer">Open CI checks</a>
-          <button type="button" onClick={() => copy(view.actions.handoff, 'Agent handoff copied')}>Copy task for your agent</button></div>
+        {view.blockers.length > 0 && <ul>{view.blockers.slice(0, 3).map((item, index) => <li key={index}>{item.path && <code>{item.path}: </code>}{item.message}</li>)}</ul>}
+        {view.blockers.length > 3 && <p>{view.blockers.length - 3} more findings under Evidence and coverage.</p>}
+        <div className="live-toolbar">
+          {view.actions.primary?.kind === 'refresh' ? <button className="primary-action" type="button" disabled={busy} onClick={() => load(number)}>Refresh this PR</button>
+            : ['review', 'checks'].includes(view.actions.primary?.kind) ? <a className="live-primary" href={view.actions.primary.kind === 'review' ? view.actions.reviewUrl : view.actions.checksUrl} target="_blank" rel="noreferrer">{view.actions.primary.label}</a>
+              : <button className="primary-action" type="button" onClick={() => copy(view.actions.handoff, 'Agent handoff copied')}>Copy task for your agent</button>}
+        </div>
         <p>{view.continuation}</p>
         {view.status === 'unavailable' && <p>Finish repository setup above if policy or read permissions are missing, then reassess this PR.</p>}
         <details><summary>Evidence and coverage</summary>
@@ -94,7 +98,11 @@ export default function LiveWorkspace({ repository }) {
           <button type="button" disabled={!draft} onClick={() => copy(draft, 'Human review draft copied')}>Copy review draft</button>
           {draft && <textarea aria-label="Human review draft" readOnly value={draft} />}
           <p>{view.humanReview.nextAction}</p></details>}
-        <details><summary>Resume with your coding agent</summary><textarea aria-label="Agent handoff" readOnly value={view.actions.handoff} /></details>
+        <details><summary>Other ways to continue</summary>
+          <div className="live-toolbar"><a href={view.actions.reviewUrl} target="_blank" rel="noreferrer">Review on GitHub</a>
+            <a href={view.actions.checksUrl} target="_blank" rel="noreferrer">Open CI checks</a>
+            {view.actions.primary && view.actions.primary.kind !== 'handoff' && <button type="button" onClick={() => copy(view.actions.handoff, 'Agent handoff copied')}>Copy task for your agent</button>}</div>
+          <textarea aria-label="Agent handoff" readOnly value={view.actions.handoff} /></details>
         <details><summary>Optional model review: data, limits and control</summary>
           <p>This page reads evidence only. Enable model review in your own runtime with your own key. The isolated runner sends permitted changed-file context and bounded review evidence to OpenAI. Never paste keys into ChatGPT.</p>
           <p>Default: GPT-5.6 Luna, high reasoning, at most 24 requests, 4,096 output tokens per request, a 100,000 reported-token cutoff and a 330-second job limit. An in-flight call can cross the cutoff; this is not a guaranteed dollar cap.</p>

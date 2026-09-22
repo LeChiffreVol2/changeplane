@@ -12,6 +12,23 @@ This checks the runtime, repository access and trusted policy, then assesses the
 
 After the configuration PR merges, repeat the original command without selection flags. It reads the new default-branch policy and assesses the current PR. `onboarding.assessed: true` means current-PR evidence was collected, including failing assessments; it does not mean CI passed. A configuration plan is pending setup. The same entry point is `changeplane_onboard` in read-only stdio MCP. `inspect`, `doctor`, `init` and optional review `follow` remain available.
 
+## Read the next step
+
+You can supply `https://github.com/OWNER/REPO/pull/NUMBER` instead of the repository and number. The website's **Set up with your agent** prompt accepts the same link; it only fills the task locally, without connecting an account or inspecting a repository.
+
+Text output leads with the current state, responsible role and one action. CLI JSON, stdio MCP and the hosted workspace share that presentation; the complete evidence and authority fields remain available.
+
+| Observation | Next step |
+| --- | --- |
+| CI is pending | Wait for it to finish, then refresh the assessment. |
+| A check failed | The assigned agent diagnoses the check before proposing a code change. |
+| CI permission/configuration needs attention | The repository operator investigates the CI setup. |
+| Protected files changed | A repository reviewer inspects them on GitHub. |
+| Evidence is stale | Read current evidence before acting on any previous result. |
+| Declared evidence is current | Continue through GitHub's existing review and merge requirements. |
+
+An ordinary assessment hands back to `onboard`. `follow` is reserved for a selected review pipeline; reading CI does not require enabling model review. These are presentation and routing behaviors covered by local tests, not measured reductions in user effort or broader hosted qualification.
+
 ## Notify the existing Codex task
 
 This is opt-in operator work. Identify the exact **existing task UUID** assigned to this repository/PR and authorize notifications for its existing scope. A UUID is a destination, not proof of assignment or edit permission. Keep the reader and its credentials outside the coding sandbox; this bridge does not create that isolation.
