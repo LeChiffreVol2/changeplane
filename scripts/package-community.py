@@ -87,10 +87,10 @@ The root source Action is the managed Guard; use the public `/community` Action 
 
 Expected exits: 0, 1, 1. Invalid input exits 2. Assessments are advisory;
 they do not publish a Guard, authorize repair or approve a merge.
-After merging a reviewed default-branch policy, inspect your own open PR:
+Start with your own open PR. Missing policy returns setup for review; repeat after that configuration merges:
 
 ```sh
-node bin/changeplane.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123
+node bin/changeplane.js onboard YOUR_ACCOUNT/YOUR_REPOSITORY 123 --format text
 ```
 
 Use GH_TOKEN or GITHUB_TOKEN via your environment for private GitHub read access.

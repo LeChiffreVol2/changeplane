@@ -12,6 +12,25 @@ const init = async rpc => {
   await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } });
   await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' });
 };
+test('CLI and MCP lead with the same current next step while preserving evidence and authority', async () => {
+  const report = { decision: 'REVIEW_REQUIRED', headSha: 'a'.repeat(40), currentHeadSha: 'a'.repeat(40),
+    observation: { source: 'github-api', repository: 'example/project', pullRequest: 7 },
+    handback: { binding: { currentHeadSha: 'a'.repeat(40) } },
+    findings: [{ code: 'EVIDENCE_DIAGNOSIS_REQUIRED', path: 'check:Behavior' }],
+    nextActionCode: 'INSPECT_FAILURE_EVIDENCE', nextAction: 'Resolve the findings.',
+    authority: { advisory: true, guardPublished: false, repairAuthorized: false, mergeAuthorized: false } };
+  const text = formatReport(report, 'text'), json = JSON.parse(formatReport(report)), compact = JSON.parse(formatReport(report, 'compact'));
+  assert.ok(text.startsWith('CI needs attention\nPR: https://github.com/example/project/pull/7\nNext: Open the failed CI check'));
+  assert.ok(text.indexOf('Who: Assigned coding agent') < text.indexOf('Assessed revision:'));
+  assert.match(text, /check:Behavior — This check failed; its cause still needs diagnosis/);
+  assert.match(text, /Resume: changeplane onboard example\/project 7/);
+  assert.ok(text.includes(report.headSha)); assert.deepEqual(json.findings, report.findings);
+  assert.deepEqual(compact.workspace, json.workspace);
+  const rpc = assessmentRpc(async () => report); await init(rpc);
+  const result = await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'changeplane_inspect', arguments: { pullRequest: 7 } } });
+  assert.deepEqual(result.result.structuredContent.workspace, json.workspace);
+  assert.deepEqual(result.result.structuredContent.authority, report.authority);
+});
 test('stable command preserves complete assessment JSON and exit codes; alternate views retain authority and revision', () => {
   for (const [name, exit] of [['satisfied', 0], ['failed', 1], ['stale', 1]]) {
     const legacy = spawnSync(process.execPath, ['community/cli.js', 'evaluate', `examples/community/${name}.json`], { encoding: 'utf8' });

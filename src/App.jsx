@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import LiveWorkspace from './LiveWorkspace.jsx';
 import ChatgptConnect from './ChatgptConnect.jsx';
+import { parsePullRequestUrl } from './lib/pr-workspace.js';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -330,17 +331,24 @@ function SettingsDrawer({ usage, onUsage, draft, onDraft, onClose }) {
   );
 }
 
-const AGENT_SETUP_PROMPT = `Set up ChangePlane for the repository I am working in.
+const agentSetupPrompt = target => `${target ? `Assess ${target.url} with ChangePlane in the matching repository.` : 'Set up ChangePlane for the repository I am working in. Use the current PR from my task; ask if the target is ambiguous.'}
 Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
 If no current runtime is installed, use its CI-verified installer in a separate directory and retain the returned source revision.
 Use a trusted runtime and start with read-only PR and CI assessment. Discover existing policy and behavioral CI, then propose one configuration PR if setup is needed. Preserve existing rules and let me review protected policy/workflow changes and any permission expansion. Keep credentials in my existing environment, never in this chat.
-Use onboard for a current PR to check prerequisites and get its assessment. After the configuration PR merges, repeat onboard without selection flags and return the assessed revision, findings and next action. Reassess after new commits or CI reruns. Add parallel coordination or native task notifications only if I ask for them.`;
+Start with ${target ? `onboard ${target.repository} ${target.number}` : 'onboard for the current PR'} to check prerequisites and get its assessment. After a needed configuration PR merges, repeat onboard without selection flags.
+Lead with what needs attention, who should act and one next action. Include the assessed revision and evidence below that. If setup or access is blocked, say what is missing and the one step that resolves it. Do not report a copied prompt, installation or configuration plan as a completed assessment.
+Use onboard again after new commits or CI reruns. Keep model review, parallel coordination and native task notifications optional; add them only if I ask for them.`;
 
 function AgentSetupDrawer({ onClose }) {
   const [copyStatus, setCopyStatus] = useState("");
+  const [pullRequestUrl, setPullRequestUrl] = useState("");
+  const target = parsePullRequestUrl(pullRequestUrl.trim());
+  const invalidTarget = Boolean(pullRequestUrl.trim()) && !target;
+  const prompt = invalidTarget ? '' : agentSetupPrompt(target);
   async function copyPrompt() {
+    if (invalidTarget) return;
     try {
-      await navigator.clipboard.writeText(AGENT_SETUP_PROMPT);
+      await navigator.clipboard.writeText(prompt);
       setCopyStatus("Copied. Paste it into your agent with your repository open.");
     } catch {
       setCopyStatus("Clipboard unavailable. Select and copy the prompt above.");
@@ -349,18 +357,25 @@ function AgentSetupDrawer({ onClose }) {
   return (
     <Drawer title="Set up with your agent" titleId="agent-setup-title" eyebrow="Start in your repository"
       className="agent-setup-drawer" closeLabel="Close agent setup" onClose={onClose}
-      description="Give this prompt to your coding agent. No ChangePlane account or model key needed."
+      description="Get a next step for one PR using your existing coding agent. No ChangePlane account or model key needed."
       footer={<>
-        <button className="primary-action guide-primary" type="button" onClick={copyPrompt}><Copy size={17} /> Copy setup prompt</button>
+        <button className="primary-action guide-primary" type="button" disabled={invalidTarget} onClick={copyPrompt}><Copy size={17} /> Copy setup prompt</button>
         <p className="agent-copy-status" role="status">{copyStatus}</p>
       </>}>
+      <label className="agent-prompt-label" htmlFor="agent-pr-url">GitHub pull request link <span>(optional)</span></label>
+      <input id="agent-pr-url" className="agent-pr-url" type="url" value={pullRequestUrl} maxLength={300}
+        onChange={event => { setPullRequestUrl(event.target.value); setCopyStatus(''); }}
+        placeholder="https://github.com/owner/repo/pull/123" autoComplete="off" spellCheck={false}
+        aria-invalid={invalidTarget} aria-describedby="agent-pr-help" />
+      <p id="agent-pr-help" className="agent-pr-help">{invalidTarget
+        ? 'Use a GitHub PR link ending in /pull/123, without a query, fragment or credentials. Correct it before copying a new task.'
+        : 'This only fills in your prompt in this tab. Leave blank to use the PR in your agent’s current task.'}</p>
       <ol className="agent-setup-steps">
-        <li><strong>Open your repository.</strong><span>Use your existing coding agent and development environment.</span></li>
-        <li><strong>Paste the setup prompt.</strong><span>Your agent installs the runtime if needed, then checks existing policy and CI.</span></li>
-        <li><strong>Review one configuration PR.</strong><span>Your agent can then use the same onboarding command to assess a current PR and follow its findings.</span></li>
+        <li><strong>Paste into your coding agent.</strong><span>Open the matching repository. Your agent checks setup and current PR evidence.</span></li>
+        <li><strong>Get the next step.</strong><span>See what needs attention and who should act. If policy is missing, review one configuration PR first.</span></li>
       </ol>
       <label className="agent-prompt-label" htmlFor="agent-setup-prompt">Prompt for your agent</label>
-      <textarea id="agent-setup-prompt" className="agent-setup-prompt" value={AGENT_SETUP_PROMPT} readOnly spellCheck={false} rows={10} />
+      <textarea id="agent-setup-prompt" className="agent-setup-prompt" value={prompt} readOnly spellCheck={false} rows={10} />
       <details className="agent-setup-detail">
         <summary>What your agent can do</summary>
         <p>CLI and read-only MCP return the revision, findings and next action. Assessments grant no source-write or merge authority. You choose meaningful tests and review changes to policy, workflows and permissions.</p>
@@ -396,7 +411,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
           <div className="auth-message">
             <p className="auth-kicker"><span /> Open source for coding agents</p>
             <h1>Keep GitHub.<br />Let agents ship.</h1>
-            <p>Give your coding agent current PR evidence and a clear next action. Keep your tests, your workflow, and control of what merges.</p>
+            <p>Find what needs attention in your agent’s PR and who should act next. Keep your existing tests and GitHub review process.</p>
           </div>
 
           <div className="auth-signal" aria-label="Your existing agent workflow">
@@ -406,7 +421,7 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
             </div>
             <div className="auth-signal-row">
               <div>
-                <strong>Agent opens PR → CI runs → ChangePlane returns findings</strong>
+                <strong>One PR → Current CI evidence → A next step</strong>
                 <span>GitHub keeps review and merge authority.</span>
               </div>
               <span className="auth-pass-label">CLI · MCP · Actions</span>
@@ -417,8 +432,8 @@ function LoginScreen({ authStatus, configured, authMode, rolloutMode, ownerEntry
         <div className="auth-access">
           <div className="auth-form">
             <p className="auth-eyebrow">Open Source · Apache-2.0</p>
-            <h2 id="sign-in-title">Give your agent a clear next step.</h2>
-            <p>Start in the repository you already use. Your agent reads PR evidence; you review policy and permissions.</p>
+            <h2 id="sign-in-title">Start with one pull request.</h2>
+            <p>Get the current CI state, what needs attention, and who should act next.</p>
             <button className="github-sign-in community-start" type="button" onClick={onAgentSetup}>
               <Robot size={21} aria-hidden="true" /><span>Set up with your agent</span><ArrowRight size={18} aria-hidden="true" />
             </button>

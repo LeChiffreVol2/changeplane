@@ -12,7 +12,7 @@ Current source adds read-only prerequisite checks, setup planning through MCP, b
 
 Current source supports `onboard OWNER/REPO PR_NUMBER` and read-only `changeplane_onboard` MCP: one entry point checks prerequisites and returns either setup work or a current assessment. Repeat it after configuration merge. For optional notifications to an existing Codex task, follow [bounded continuation](agent-continuation.md).
 
-From the website, choose **Set up with your agent**, copy the prompt and paste it into your coding agent with the target repository open. The [README prompt](../README.md#start-with-your-agent) works too. An agent with repository/tool access follows the [consumer skill](../skills/changeplane/SKILL.md) using your installed CLI or a trusted runtime checkout. MCP is optional.
+From the website, choose **Set up with your agent**. Optionally paste your GitHub PR link to scope the task, then copy the prompt into your coding agent with the matching repository open. The link fills the prompt locally; it is not sent to a repository API or saved across closing the drawer. The [README prompt](../README.md#start-with-your-agent) works too. An agent with repository/tool access follows the [consumer skill](../skills/changeplane/SKILL.md) using your installed CLI or a trusted runtime checkout. MCP is optional.
 
 The agent first identifies your repository, existing policy and CI. If policy exists, it can inspect a current PR with read-only access. If setup is needed, it discovers candidate jobs and prepares one configuration PR after you identify the meaningful behavioral check. Review protected changes before merging. Credentials stay in your operator environment, not in the setup prompt or chat.
 
@@ -53,7 +53,7 @@ node /ABSOLUTE/NEW/changeplane-runtime/bin/changeplane.js runtime
 node /ABSOLUTE/NEW/changeplane-runtime/bin/changeplane.js evaluate /ABSOLUTE/NEW/changeplane-runtime/examples/community/satisfied.json
 ```
 
-The destination must be new, with an existing parent. The installer does not touch your target repository, run its code, install dependencies or configure credentials. It ignores inherited Git configuration, creates no remote, and removes only the new incomplete directory on failure. If current main CI has not finished, retry after it succeeds. A successful installation records the exact CI run; it is not repository setup or a live assessment. Give the returned runtime and skill paths to your agent and continue with `doctor`.
+The destination must be new, with an existing parent. The installer does not touch your target repository, run its code, install dependencies or configure credentials. It ignores inherited Git configuration, creates no remote, and removes only the new incomplete directory on failure. If current main CI has not finished, retry after it succeeds. A successful installation records the exact CI run; it is not repository setup or a live assessment. Give the returned runtime and skill paths to your agent and continue with `onboard OWNER/REPO PR_NUMBER --format text`.
 
 Use a new runtime directory for upgrades. Keep active coordination operators and their workflows on one reviewed revision, and preserve sessions and worktrees. To uninstall a runtime, stop its processes and remove that runtime directory; session data is separate.
 

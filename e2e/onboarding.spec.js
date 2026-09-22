@@ -134,7 +134,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "Give your agent a clear next step." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Start with one pull request." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Set up with your agent" })).toBeVisible();
   await expect(page.getByRole("radio")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /synthetic Origin|Origin boundary proof/u })).toHaveCount(0);
@@ -1902,6 +1902,41 @@ test("agent setup keeps its prompt selectable when clipboard access is unavailab
   expect(externalRequests).toEqual([]);
 });
 
+test('a PR link scopes the agent task locally and invalid links cannot reach the copied prompt', async ({ page }) => {
+  const requests = [];
+  const externalRequests = await mockLocalApi(page, (route, url) => {
+    requests.push(url.searchParams.get('action'));
+    return json(route, { configured: false, authenticated: false });
+  });
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true,
+    value: { writeText: async text => { window.agentSetupCopied = text; } } }); });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Set up with your agent', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Set up with your agent', exact: true });
+  const input = drawer.getByLabel('GitHub pull request link'), prompt = drawer.getByLabel('Prompt for your agent');
+  const copy = drawer.getByRole('button', { name: 'Copy setup prompt' });
+  await input.fill('https://github.com/example/project/pull/7/');
+  await expect(prompt).toHaveValue(/Start with onboard example\/project 7/);
+  await copy.click();
+  const copied = await page.evaluate(() => window.agentSetupCopied);
+  expect(copied).toContain('Assess https://github.com/example/project/pull/7');
+  expect(copied).toContain('who should act and one next action');
+  expect(copied).toContain('Keep model review, parallel coordination and native task notifications optional');
+  for (const invalid of ['https://secret@github.com/example/project/pull/7', 'https://github.com.evil.test/example/project/pull/7',
+    'https://github.com/example/project/pull/7?token=secret']) {
+    await input.fill(invalid); await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(copy).toBeDisabled(); await expect(prompt).toHaveValue('');
+    expect(await page.evaluate(() => window.agentSetupCopied)).toBe(copied);
+  }
+  await input.fill(''); await expect(copy).toBeEnabled();
+  await expect(prompt).toHaveValue(/ask if the target is ambiguous/);
+  await input.fill('https://github.com/example/another/pull/9');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Set up with your agent', exact: true }).click();
+  await expect(page.getByLabel('GitHub pull request link')).toHaveValue('');
+  expect(requests).toEqual(['session']); expect(externalRequests).toEqual([]);
+});
+
 test("agent setup survives a delayed authenticated session without losing dialog focus", async ({ page }) => {
   let pendingSession;
   const externalRequests = await mockLocalApi(page, (route, url) => {
@@ -2052,7 +2087,7 @@ test("sign-out invalidates an in-flight installation before the server acknowled
   await expect(page.getByRole("button", { name: "Creating installation pull request…" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toHaveCount(0);
   await settleBrowserResponse(page, logout, { authenticated: false });
-  await expect(page.getByRole("heading", { name: "Give your agent a clear next step." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Start with one pull request." })).toBeVisible();
   await expect(page.getByRole("radio", { name: /acme\/first/u })).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
@@ -2086,7 +2121,7 @@ function liveView(repository, head = 'a'.repeat(40)) {
     consequence: 'Completion has not been established.', evidence: [], blockers: [],
     review: { status: 'not_collected', findings: [], coverage: null, quality: 'Advisory evidence only.' },
     humanReview: null, continuation: 'Refresh for current evidence. A stopped coding agent must be resumed in its own client.',
-    actions: { reviewUrl: `https://github.com/${repository}/pull/7/files`, checksUrl: `https://github.com/${repository}/pull/7/checks`, handoff: `Inspect ${repository} PR 7 at ${head}. No merge authority.` } };
+    actions: { primary: { kind: 'refresh', label: 'Refresh this PR' }, reviewUrl: `https://github.com/${repository}/pull/7/files`, checksUrl: `https://github.com/${repository}/pull/7/checks`, handoff: `Inspect ${repository} PR 7 at ${head}. No merge authority.` } };
 }
 
 test('live PR journey assesses a real target, refreshes changed heads and prepares a handoff', async ({ page }) => {
@@ -2102,6 +2137,8 @@ test('live PR journey assesses a real target, refreshes changed heads and prepar
   await page.getByRole('button', { name: /Improve empty input handling/u }).click();
   await expect(page.getByRole('heading', { name: 'Waiting for CI', exact: true })).toBeVisible();
   await expect(page.locator('.live-result')).toContainText('aaaaaaaaaaaa');
+  await expect(page.locator('.live-result .primary-action')).toHaveText('Refresh this PR');
+  await page.getByText('Other ways to continue', { exact: true }).click();
   await page.getByRole('button', { name: 'Copy task for your agent' }).click();
   expect(await page.evaluate(() => window.liveCopied)).toContain('a'.repeat(40));
   await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
@@ -2140,13 +2177,14 @@ test('human decision preparation requires reasons and does not submit approval',
     if (route.request().method() !== 'GET') mutations.push(url.href);
     const action = url.searchParams.get('action'), repository = url.searchParams.get('repository');
     if (action === 'pulls') return liveJson(route, { repository, pulls: [{ number: 7, title: 'Review test change' }] });
-    if (action === 'workspace') return liveJson(route, { ...liveView(repository), status: 'human_review_required', title: 'A person needs to review this change', owner: 'Repository reviewer', humanReview: {
+    if (action === 'workspace') return liveJson(route, { ...liveView(repository), status: 'human_review_required', title: 'A person needs to review this change', owner: 'Repository reviewer', actions: { ...liveView(repository).actions, primary: { kind: 'review', label: 'Continue on GitHub' } }, humanReview: {
       unreviewedPaths: ['tests/behavior.test.js'], nextAction: 'Submit this exact-head review yourself on GitHub.',
       reviewBody: '<!-- changeplane:review-decision:v1\n' + JSON.stringify({ requestId: '1'.repeat(64), reportDigest: null, reviewedPaths: [{ path: 'tests/behavior.test.js', reason: 'REPLACE_WITH_YOUR_REASON' }], dismissedFindings: [] }) + '\n-->',
     } });
   });
   await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
   await page.getByRole('button', { name: 'Open live pull requests' }).click(); await page.getByRole('button', { name: /Review test change/u }).click();
+  await expect(page.locator('.live-result .live-primary')).toHaveText('Continue on GitHub');
   await page.getByText('Prepare your human review', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Copy review draft' })).toBeDisabled();
   await page.getByLabel('tests/behavior.test.js').fill('Verified expected behavior against the task.');

@@ -1,10 +1,8 @@
-import { presentAssessment } from '../src/lib/pr-workspace.js';
+import { withWorkspace } from '../src/lib/pr-workspace.js';
 
 /** Optional views never replace the complete JSON evidence or confer authority. */
 export function formatReport(report, format = 'json') {
-  if (report.observation?.source === 'github-api' && report.observation.repository && report.observation.pullRequest) {
-    report = { ...report, workspace: presentAssessment(report, { repository: report.observation.repository, number: report.observation.pullRequest }) };
-  }
+  report = withWorkspace(report);
   if (format === 'json') return JSON.stringify(report, null, 2) + '\n';
   const clean = value => String(value).replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ');
   if (format === 'text' && report.kind === 'changeplane.setup-check') return [
@@ -16,12 +14,14 @@ export function formatReport(report, format = 'json') {
     'Prerequisites only. No PR assessment, Guard, repair or merge authority.',
   ].map(clean).join('\n') + '\n';
   if (format === 'text' && report.kind === 'changeplane.setup-plan') return [
+    report.decision === 'SELECTION_REQUIRED' ? 'Choose the CI check that matters for this repository.' : 'Review the proposed repository setup.',
+    `Next: ${report.nextAction}`, 'Who: Repository owner',
+    'Setup only. Assess the PR after the reviewed policy is available.',
     `ChangePlane setup: ${report.decision}`,
     `Default revision: ${report.baseSha ?? 'unavailable'}`,
     ...(report.decision === 'SELECTION_REQUIRED' ? report.candidates ?? [] : []).map(item => `Candidate: ${item.name} | ${item.workflowPath}`),
     ...(report.selectedCheck ? [`Selected: ${report.selectedCheck.name} | ${report.selectedCheck.workflowPath}`] : []),
     ...(report.files ?? []).map(item => `${item.change}: ${item.path}`),
-    `Next: ${report.nextAction}`,
     report.staged ? 'Files staged locally for review. No repository changes.' : 'Plan only. No files or repository changes.',
   ].map(clean).join('\n') + '\n';
   // Keep the supplied binding intact: a policy revision, target revision and diff
@@ -54,6 +54,11 @@ export function formatReport(report, format = 'json') {
   if (format === 'compact') return JSON.stringify(summary) + '\n';
   if (format !== 'text') throw new Error('USAGE_INVALID');
   return [
+    ...(report.workspace ? [report.workspace.title, `PR: ${report.workspace.url}`,
+      `Next: ${report.workspace.nextAction}`, `Who: ${report.workspace.owner}`, report.workspace.consequence,
+      ...report.workspace.blockers.slice(0, 5).map(item => `Attention: ${item.path ? `${item.path} — ` : ''}${item.message}`),
+      ...(report.workspace.blockers.length > 5 ? [`${report.workspace.blockers.length - 5} more findings in the evidence details below.`] : []),
+      `Resume: ${report.workspace.actions.resume}`, '', 'Evidence details'] : []),
     `ChangePlane: ${report.decision}`,
     `Assessed revision: ${summary.headSha ?? 'unavailable'}`,
     `Current revision: ${summary.currentHeadSha ?? 'unavailable'}`,
@@ -87,9 +92,9 @@ export function formatReport(report, format = 'json') {
     ...(report.code ? [`Reason: ${report.code}`] : []),
     ...(report.wait ? [`Wait: ${report.wait.outcome}; ${report.wait.inspections} inspections within ${report.wait.secondsRequested} seconds requested`] : []),
     ...((report.findings ?? []).map(item => `Finding: ${item.code}`)),
-    `Next: ${summary.nextActionCode === 'REOBSERVE_REVISION'
+    ...(!report.workspace ? [`Next: ${summary.nextActionCode === 'REOBSERVE_REVISION'
       ? 'Read the current PR revision and workflow attempt, then reassess fresh evidence.'
-      : report.message ?? report.nextAction}`,
+      : report.message ?? report.nextAction}`] : []),
     'No Guard, repair or merge authority. Use --format json for complete evidence.',
   ].map(clean).join('\n') + '\n';
 }

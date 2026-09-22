@@ -2,9 +2,7 @@
 
 **Keep GitHub. Let agents ship.**
 
-ChangePlane gives your coding agent current PR evidence and a clear next action. Run it through the CLI, read-only MCP or GitHub Actions in the repository you already use. It checks whether CI results apply to the current revision and returns findings to the writer. You choose the policy and permissions; GitHub keeps review and merge control.
-
-Add the optional [OpenCodeReview pipeline](docs/opencode-review.md) to carry review findings through your existing agent's fix → CI → reassessment cycle. One report combines review coverage, current CI and the next action; a new commit starts a fresh review request. The review engine runs separately with operator-enabled model access.
+Find what needs attention in your coding agent’s pull request and who should act next. ChangePlane checks current CI evidence against repository policy, then gives your existing agent or reviewer a next step. You keep your tests, GitHub workflow and merge decisions.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -18,11 +16,11 @@ Add the optional [OpenCodeReview pipeline](docs/opencode-review.md) to carry rev
 Open your repository in your existing coding agent and paste:
 
 ```text
-Set up ChangePlane for this repository.
+Assess the current PR in this repository with ChangePlane. Ask me to identify it if the target is ambiguous.
 Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
 If no current runtime is installed, use its CI-verified installer in a separate directory and retain the returned source revision.
 Use onboard for one current PR to check prerequisites and obtain read-only PR/CI evidence. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review. After it merges, repeat onboard to obtain the first assessment.
-Return the assessed revision, findings and next action. Keep credentials in my existing environment, never in this chat.
+Lead with what needs attention, who should act and one next action; include the assessed revision and evidence below that. Keep model review and coordination optional. Keep credentials in my existing environment, never in this chat.
 ```
 
 The [consumer skill](skills/changeplane/SKILL.md) tells the agent how to find a trusted runtime, inspect existing policy and CI, and return an assessment or a specific setup blocker. CLI use needs repository/tool access in your agent's environment; the [MCP guide](docs/community.md#use-with-an-agent) covers clients with stdio support. Client integration is qualified separately; a skill link does not install tools or grant access.
@@ -62,23 +60,19 @@ Prefer a command on your PATH? Download [ChangePlane 0.4.1](https://github.com/L
 
 ## Inspect a real pull request
 
-Current source combines setup discovery and the first assessment in `changeplane onboard OWNER/REPO PR_NUMBER`. If setup is needed, it returns CI candidates and configuration files for review; after merge, the same command assesses the current PR. Optional operator-enabled `watch` queues bounded notifications to one existing Codex task. [Onboarding and continuation →](docs/agent-continuation.md)
-
-Start by discovering your CI jobs and preparing one reviewed configuration PR:
+Use a [CI-verified current-source runtime](docs/community.md#install-the-command), then start with your PR link:
 
 ```sh
-node bin/changeplane.js init YOUR_ACCOUNT/YOUR_REPOSITORY --dry-run --format text
+node bin/changeplane.js onboard https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY/pull/123 --format text
 ```
 
-Choose a job that tests meaningful behavior, then use the [setup generator](docs/community.md#prepare-setup-files) to stage policy and workflow files. It preserves existing policy and never writes to GitHub. Once the configuration PR is merged and your PR's CI has run:
+Replace the link with yours. This one command checks setup and returns current evidence when policy is present. If policy is missing, choose the meaningful CI job from the returned candidates and review one configuration PR; repeat the original command after it merges. Existing policy is preserved. The [setup guide](docs/agent-continuation.md) covers that decision.
 
-```sh
-node bin/changeplane.js inspect YOUR_ACCOUNT/YOUR_REPOSITORY 123 --format text
-```
+The result leads with **what needs attention, who should act and one next step**. Revision and evidence details follow. Failed CI needs diagnosis; protected changes need a person’s review; pending CI needs a later assessment. Current evidence still follows GitHub review and merge requirements.
 
-Replace the repository and PR number with yours. Public repositories can use unauthenticated GitHub API access within its rate limit. For private access, supply `GH_TOKEN` or `GITHUB_TOKEN` through your environment or secret manager with **Contents, Pull requests, Checks and Actions read** permissions. Keep tokens out of command arguments and source files; organization approval or SSO may apply.
+Public repositories can use unauthenticated GitHub API access within its rate limit. For private access, supply `GH_TOKEN` or `GITHUB_TOKEN` through your environment or secret manager with **Contents, Pull requests, Checks and Actions read** permissions. Keep tokens out of command arguments and source files; organization approval or SSO may apply.
 
-The report includes the observed revision, findings and a next action. The reader uses GitHub API reads, executes no PR code and publishes no Checks or comments. See the [complete setup and troubleshooting guide](docs/community.md).
+The reader executes no PR code and publishes no Checks or comments. Use `onboard` again after commits or CI reruns. Optional operator-enabled `watch` can queue bounded notifications to an existing Codex task. [Setup, continuation and limits →](docs/agent-continuation.md)
 
 ## Use it in your workflow
 
@@ -95,7 +89,7 @@ node bin/changeplane.js team next YOUR_ACCOUNT/YOUR_REPOSITORY
 
 Each task has a defined scope and its own worktree. Existing agents perform development and respond to findings; ChangePlane records coordination in the repository. Doctor reports setup problems without changing branches. A stopped agent still needs its existing runtime to resume it.
 
-**Agents:** use the [read-only MCP and consumer skill](docs/community.md#use-with-an-agent) to inspect a PR without configuring coordination writes. Current source adds `changeplane_check_setup`, `changeplane_setup` and bounded waiting through `changeplane_inspect`; the CLI equivalents are `doctor`, `init` and `inspect --wait 30`. These help the agent check access, prepare a reviewed configuration and follow pending CI through the same runtime. Use a verified current-source build and check its help/tool list; immutable tagged bundles may expose fewer capabilities. The [separate team MCP](docs/repository-team.md#cursor-and-other-mcp-clients) adds scoped tasks and workspaces after operator setup. [Agent instructions →](skills/changeplane/SKILL.md)
+**Agents:** use the [read-only MCP and consumer skill](docs/community.md#use-with-an-agent) to inspect a PR without configuring coordination writes. Start with `changeplane_onboard` for setup and the first assessment. `changeplane_check_setup`, `changeplane_setup` and bounded `changeplane_inspect` waiting remain available for targeted work. Use a verified current-source build and check its help/tool list; immutable tagged bundles may expose fewer capabilities. The [separate team MCP](docs/repository-team.md#cursor-and-other-mcp-clients) adds scoped tasks and workspaces after operator setup. [Agent instructions →](skills/changeplane/SKILL.md)
 
 ## Choose how you work
 
