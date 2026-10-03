@@ -76,6 +76,29 @@ function fixture({ baseSha = base } = {}) {
     setAttempt: value => { f.attempt = value; }, setComparison: value => { f.comparison = value; }, setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
 }
 const run = (f, command) => operateTeam({ api: f.api, command });
+test('accepted work resumes before its first PR and holds when the issue goal changes', async () => {
+  const f = fixture(), revision = issueRevision(f.issue);
+  await run(f, { action: 'accept-issue', issue: 1, issueRevision: revision,
+    tasks: [{ id: 'draft', title: 'Draft the API', paths: ['src/api/**'], acceptanceCriteria: ['The API returns the accepted response.'] }] });
+  f.issue.body = 'A different goal.';
+  const writes = f.writes.length;
+  await assert.rejects(run(f, { action: 'claim', task: 'draft', owner: 'alice' }), { code: 'TEAM_ISSUE_CHANGED' });
+  assert.equal(f.writes.length, writes);
+  f.issue.body = 'Deliver the requested behavior.';
+  await run(f, { action: 'claim', task: 'draft', owner: 'alice' });
+  await run(f, { action: 'workspace', task: 'draft', owner: 'alice', workspaceId: '11111111-1111-1111-1111-111111111111' });
+  const resumed = await nextTeamHandoffs({ api: f.api, owner: 'alice' });
+  assert.equal(resumed.work[0].outcome, 'CREATE_TASK_PR');
+  assert.equal(resumed.work[0].issueRevision, revision);
+  assert.deepEqual(resumed.work[0].acceptanceCriteria, ['The API returns the accepted response.']);
+  assert.equal(resumed.handoffs.length, 0);
+  assert.equal(resumed.nextAction, 'CONTINUE_ASSIGNED_WORK');
+  f.issue.body = 'Another changed goal.';
+  const held = await nextTeamHandoffs({ api: f.api, owner: 'alice' });
+  assert.equal(held.work.length, 0);
+  assert.deepEqual(held.unavailable, ['draft']);
+  assert.equal((await run(f, { action: 'status' })).tasks[0].workspaceId, '11111111-1111-1111-1111-111111111111');
+});
 test('MCP claims an accepted issue task by ID without resubmitting or changing its contract', async () => {
   const f = fixture(), goal = issueRevision(f.issue);
   await run(f, { action: 'accept-issue', issue: 1, issueRevision: goal,
