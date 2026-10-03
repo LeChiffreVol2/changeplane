@@ -22,9 +22,9 @@ const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
 Usage:
   changeplane evaluate snapshot.json [--format json|text|compact]
   changeplane doctor OWNER/REPO [--format json|text]
-  changeplane onboard OWNER/REPO PR_NUMBER [--check JOB --workflow PATH] [--wait SECONDS]
+  changeplane onboard OWNER/REPO PR_NUMBER [--with-feedback] [--check JOB --workflow PATH] [--wait SECONDS]
   changeplane watch OWNER/REPO PR_NUMBER --codex-thread UUID [--seconds 1–900] [--renew]
-  changeplane inspect OWNER/REPO PR_NUMBER [--wait SECONDS] [--format json|text|compact]
+  changeplane inspect OWNER/REPO PR_NUMBER [--with-feedback] [--wait SECONDS] [--format json|text|compact]
   changeplane inspect https://github.com/OWNER/REPO/pull/123
   changeplane pipeline OWNER/REPO PR_NUMBER [--review FILE --request-id ID] [--wait SECONDS]
   changeplane follow OWNER/REPO PR_NUMBER [--run-review [--retry-review]] [--wait SECONDS]
@@ -46,6 +46,8 @@ Team coordination is opt-in; team --help documents its separate operator.
 
 The core has zero dependencies and needs no model key. Optional pipeline review is
 run separately with the operator's enabled OpenCodeReview engine and model access.
+Use --with-feedback on onboard/inspect to read existing GitHub reviews and inline
+comments alongside CI. No new review is started; coverage and resolution are unknown.
 GitHub readers use fixed-origin GET requests only. See pipeline --help.
 Set GH_TOKEN or GITHUB_TOKEN in the process environment for private read access.
 The GitLab reader is a candidate; live qualification and enforcement are separate.
@@ -107,7 +109,7 @@ try {
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
   else if (command === 'runtime' && args.length === 0) process.stdout.write(JSON.stringify({
     version: COMMUNITY_VERSION, sourceRevision: setupRuntime().revision,
-    capabilities: ['inspect', 'doctor', 'init', 'onboard', 'watch-codex', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
+    capabilities: ['inspect', 'native-feedback', 'doctor', 'init', 'onboard', 'watch-codex', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
     nextAction: 'Start with onboard OWNER/REPO PR_NUMBER --format text. It checks setup and returns current PR evidence or a specific setup step. Model review is optional and separately enabled.',
   }, null, 2) + '\n');
   else if (command === 'mcp') {
@@ -118,7 +120,7 @@ try {
       await serveAssessment();
     }
   } else if (command === 'onboard' && args.length === 1 && args[0] === '--help') {
-    process.stdout.write('changeplane onboard OWNER/REPO PR_NUMBER [--check JOB --workflow PATH] [--wait 1–60] [--format json|text|compact]\nCheck prerequisites and either discover/review setup files or assess the current PR in one invocation. The owner chooses behavioral CI; no repository writes. Repeat the same command after the configuration PR merges.\n');
+    process.stdout.write('changeplane onboard OWNER/REPO PR_NUMBER [--with-feedback] [--check JOB --workflow PATH] [--wait 1–60] [--format json|text|compact]\nCheck prerequisites and either discover/review setup files or assess the current PR in one invocation. The owner chooses behavioral CI; no repository writes. Repeat the same command after the configuration PR merges.\n');
   } else if (command === 'watch') {
     if (args.length === 1 && args[0] === '--help') process.stdout.write('changeplane watch OWNER/REPO PR_NUMBER --codex-thread UUID [--seconds 1–900] [--renew]\nExplicitly queue bounded notifications to one existing authorized Codex task using CHANGEPLANE_CODEX_BIN (absolute trusted executable). At most two notifications and 600 reader calls within one immutable 15-minute maximum window. Private state survives restart; uncertain delivery is not retried. No exec/resume, model or permission overrides. Native client execution is not confirmed by queue acceptance. JSONL output only; Ctrl-C stops this process. See docs/agent-continuation.md.\n');
     else {
@@ -184,7 +186,11 @@ try {
       report = { ...(snapshot.schemaVersion === 2 ? assessObservation(snapshot) : assess(snapshot)),
         observation: { source: 'provided-snapshot', authenticated: false } };
     } else if (['inspect', 'pipeline', 'follow', 'onboard'].includes(command)) {
-      let review, requestId, runReview = false, retryReview = false;
+      let review, requestId, runReview = false, retryReview = false, includeFeedback = false;
+      if (['onboard', 'inspect'].includes(command) && args.includes('--with-feedback')) {
+        args.splice(args.indexOf('--with-feedback'), 1); includeFeedback = true;
+        if (args.includes('--with-feedback')) throw new Error('USAGE_INVALID');
+      }
       const setupSelection = {};
       if (command === 'onboard') for (const [flag, key] of [['--check', 'check'], ['--workflow', 'workflow']]) {
         const i = args.indexOf(flag);
@@ -233,6 +239,7 @@ try {
       } else if (args.length !== 2) throw new Error('USAGE_INVALID');
       if (!/^[1-9][0-9]*$/u.test(number)) throw new Error('USAGE_INVALID');
       const options = { repository, number: Number(number), token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN };
+      if (includeFeedback) options.includeFeedback = true;
       if (['pipeline', 'follow'].includes(command)) Object.assign(options, { review, requestId });
       if (command === 'onboard') Object.assign(options, setupSelection);
       const follow = options => followPipeline({ ...options, runReview, retryReview }, {

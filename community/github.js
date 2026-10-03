@@ -4,6 +4,7 @@ import { boundedReader, CollectionError } from './transport.js';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { collectHumanReviews, sameReviews } from './review-decisions.js';
+import { collectReviewFeedback } from './team-feedback.js';
 
 const SHA = /^[a-f0-9]{40}$/u;
 const positive = value => Number.isSafeInteger(value) && value > 0;
@@ -17,9 +18,9 @@ export function githubReader(token = '', fetchImpl = fetch, signal) {
 }
 
 /** Wait only on pending evidence, retaining one target and one collection budget. */
-export async function waitForPullRequest({ repository, number, token, plannedPaths, waitSeconds = 60, signal, read },
+export async function waitForPullRequest({ repository, number, token, plannedPaths, includeFeedback = false, waitSeconds = 60, signal, read },
   { now = Date.now, pause = (ms, signal) => delay(ms, undefined, { signal }), inspect = inspectPullRequest } = {}) {
-  if (!Number.isSafeInteger(waitSeconds) || waitSeconds < 1 || waitSeconds > 60) throw new CollectionError('INPUT_INVALID');
+  if (typeof includeFeedback !== 'boolean' || !Number.isSafeInteger(waitSeconds) || waitSeconds < 1 || waitSeconds > 60) throw new CollectionError('INPUT_INVALID');
   const deadline = now() + waitSeconds * 1000;
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), waitSeconds * 1000);
@@ -34,7 +35,7 @@ export async function waitForPullRequest({ repository, number, token, plannedPat
   try {
     for (;;) {
       checkStopped();
-      const report = await inspect({ repository, number, plannedPaths, read: collect });
+      const report = await inspect({ repository, number, plannedPaths, ...(includeFeedback ? { includeFeedback } : {}), read: collect });
       checkStopped();
       inspections++;
       const current = canonical({ identity: report.handback.binding.identity, head: report.headSha,
@@ -72,7 +73,8 @@ function target(pr, repo, defaultBranch) {
     sourceRepository: pr.head.repo.full_name, sourceRepositoryId: pr.head.repo.id, repositoryId: pr.base.repo.id, changeId: pr.id };
 }
 
-export async function inspectPullRequest({ repository, number, token, plannedPaths, signal, includeReviewContext = false, read = githubReader(token, fetch, signal) }) {
+export async function inspectPullRequest({ repository, number, token, plannedPaths, signal, includeFeedback = false, includeReviewContext = false, read = githubReader(token, fetch, signal) }) {
+  if (typeof includeFeedback !== 'boolean') throw new CollectionError('INPUT_INVALID');
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository)
     || !positive(number)) throw new Error('TARGET_INVALID: use owner/repository and a positive pull request number.');
   const root = `/repos/${repository}`;
@@ -159,8 +161,6 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
     return { checks, identities };
   };
   const first = await collect();
-  const second = await collect();
-  if (canonical(first) !== canonical(second)) throw new Error('EVIDENCE_CHANGED: a workflow changed during inspection; rerun the assessment.');
   let mergeBase, humanReviews;
   if (includeReviewContext) {
     const comparison = await read(`${root}/compare/${initial.baseSha}...${initial.headSha}?per_page=1`);
@@ -170,6 +170,14 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
     humanReviews = await collectHumanReviews(read, root, number, pr.user?.id, personalOwnerId);
     sameReviews(humanReviews, await collectHumanReviews(read, root, number, pr.user?.id, personalOwnerId));
   }
+  let feedback;
+  if (includeFeedback) {
+    feedback = await collectReviewFeedback(read, repository, number, initial.headSha);
+    const confirmed = await collectReviewFeedback(read, repository, number, initial.headSha);
+    if (feedback.digest !== confirmed.digest) throw new CollectionError('EVIDENCE_CHANGED');
+  }
+  const second = await collect();
+  if (canonical(first) !== canonical(second)) throw new Error('EVIDENCE_CHANGED: a workflow changed during inspection; rerun the assessment.');
   const finalRepo = await read(root);
   const finalBase = await read(`${root}/commits/${encodeURIComponent(repo.default_branch)}`);
   const finalPr = await read(`${root}/pulls/${number}`);
@@ -177,15 +185,26 @@ export async function inspectPullRequest({ repository, number, token, plannedPat
     || finalPr.number !== number || canonical(target(finalPr, repository, repo.default_branch)) !== canonical(initial)) {
     throw new Error('REVISION_CHANGED: the PR or trusted default branch changed; reassess.');
   }
-  const report = assess({ schemaVersion: 1, baseSha: base.sha, headSha: initial.headSha,
+  const ci = assess({ schemaVersion: 1, baseSha: base.sha, headSha: initial.headSha,
     currentHeadSha: finalPr.head.sha, policy, files, checks: second.checks, ...(plannedPaths ? { plannedPaths } : {}) });
+  const attention = feedback && (feedback.references.length > 0 || feedback.previousReferences.length > 0);
+  // CI failures and protected scope keep priority. Published feedback is an investigation task, not a verdict.
+  const feedbackFirst = attention && (ci.decision === 'EVIDENCE_SATISFIED'
+    || ci.findings.every(item => item.code === 'EVIDENCE_PENDING'));
+  const report = { ...ci, ...(feedback ? { ci, feedback } : {}), ...(attention ? {
+    decision: ci.decision === 'EVIDENCE_SATISFIED' ? 'REVIEW_REQUIRED' : ci.decision,
+    findings: [...ci.findings, { code: 'REVIEW_FEEDBACK_OBSERVED' }],
+    ...(feedbackFirst ? { nextActionCode: 'INSPECT_REVIEW_FEEDBACK',
+      nextAction: 'Inspect the linked GitHub discussions with your existing coding agent. Check whether each item still applies before proposing a change, then reassess.' } : {}),
+  } : {}) };
   const identity = { forge: 'github', origin: 'https://github.com', repositoryId: String(repo.id),
     sourceRepositoryId: String(initial.sourceRepositoryId), changeId: String(initial.changeId) };
   const binding = { ...report.handback.binding, identity, policyRevision: base.sha, targetRevision: initial.baseSha,
     observationDigest: createHash('sha256').update(canonical({ identity, initial, policyDigest: report.policyDigest,
-      inputDigest: report.inputDigest, executions: second.identities })).digest('hex') };
+      inputDigest: report.inputDigest, executions: second.identities, ...(feedback ? { feedbackDigest: feedback.digest } : {}) })).digest('hex') };
   return { ...report, ...(includeReviewContext ? { reviewContext: { mergeBase, files: reviewFiles, humanReviews } } : {}),
-    handback: { ...report.handback, binding, executions: second.identities },
+    handback: { ...report.handback, binding, executions: second.identities, findings: report.findings, nextAction: report.nextActionCode,
+      ...(feedback ? { feedback } : {}) },
     observation: { source: 'github-api', identity, repository, pullRequest: number,
     observedAt: new Date().toISOString(), workflowIdentities: second.identities,
     limitation: 'Point-in-time read-only assessment. GitHub may change immediately afterward; this is not a Guard or merge approval.' } };

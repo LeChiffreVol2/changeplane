@@ -5,11 +5,11 @@ import { presentAssessment } from '../src/lib/pr-workspace.js';
 
 /** The caller supplies a freshly authorized, repository-scoped GET reader. */
 export async function readWorkspace({ repository, number, mode = 'evidence', read }) {
-  if (!Number.isSafeInteger(number) || number < 1 || !['evidence', 'pipeline'].includes(mode)) throw new CollectionError('INPUT_INVALID');
+  if (!Number.isSafeInteger(number) || number < 1 || !['evidence', 'feedback', 'pipeline'].includes(mode)) throw new CollectionError('INPUT_INVALID');
   let report;
-  try { report = await (mode === 'pipeline' ? inspectPipeline : inspectPullRequest)({ repository, number, read }); }
+  try { report = await (mode === 'pipeline' ? inspectPipeline : inspectPullRequest)({ repository, number, read, includeFeedback: mode === 'feedback' }); }
   catch (error) { report = unavailable(error); }
-  return presentAssessment(report, { repository, number });
+  return presentAssessment(report, { repository, number, includeFeedback: mode === 'feedback' });
 }
 
 export async function listWorkspacePulls({ repository, page = 1, read }) {

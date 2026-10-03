@@ -20,11 +20,12 @@ const outputSchema = decisions => ({ type: 'object', required: ['decision', 'aut
 } });
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 const pullRequest = { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER };
+const includeFeedback = { type: 'boolean', description: 'Read already published GitHub reviews and inline comments alongside CI. No reviewer is started; private chats, review coverage and thread resolution are unavailable.' };
 export const assessmentTools = [{
   name: 'changeplane_onboard',
   description: 'Start here: check prerequisites and obtain current PR evidence in one call. Missing policy returns CI candidates or protected setup file contents for review. The owner selects check/workflow. Repeat this tool after the configuration PR merges; it then assesses the current PR. No writes, model calls or permission grants.',
   inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: {
-    pullRequest, check: { type: 'string', minLength: 1, maxLength: 100 }, workflow: { type: 'string', minLength: 1, maxLength: 200 },
+    pullRequest, includeFeedback, check: { type: 'string', minLength: 1, maxLength: 100 }, workflow: { type: 'string', minLength: 1, maxLength: 200 },
     waitSeconds: { type: 'integer', minimum: 1, maximum: 60 },
   } },
   outputSchema: outputSchema(['SELECTION_REQUIRED', 'EVIDENCE_SATISFIED', 'REVIEW_REQUIRED', 'BLOCKED']), annotations,
@@ -32,7 +33,7 @@ export const assessmentTools = [{
   name: 'changeplane_inspect',
   description: 'Read current GitHub PR evidence against trusted default-branch policy. Returns the observed revision, findings and next action. No checkout, writes, model calls, Guard or merge authority. Reassess after changes.',
   inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: {
-    pullRequest,
+    pullRequest, includeFeedback,
     waitSeconds: { type: 'integer', minimum: 1, maximum: 60, description: 'Optional bounded wait for pending CI only. Stops on actionable findings, target changes, timeout or provider failure.' },
   } },
   outputSchema: outputSchema(['EVIDENCE_SATISFIED', 'REVIEW_REQUIRED', 'BLOCKED']), annotations,
@@ -91,17 +92,19 @@ export async function callAssessmentTool(name, args, configuration = process.env
   if ((['changeplane_onboard', 'changeplane_inspect', 'changeplane_pipeline', 'changeplane_follow'].includes(name) || Object.hasOwn(args, 'pullRequest'))
     && (!Number.isSafeInteger(args.pullRequest) || args.pullRequest < 1)) throw new CollectionError('INPUT_INVALID');
   if (args.retryIncomplete !== undefined && typeof args.retryIncomplete !== 'boolean') throw new CollectionError('INPUT_INVALID');
+  if (Object.hasOwn(args, 'includeFeedback') && typeof args.includeFeedback !== 'boolean') throw new CollectionError('INPUT_INVALID');
+  const feedbackOption = Object.hasOwn(args, 'includeFeedback') ? { includeFeedback: args.includeFeedback } : {};
   const token = configuration.GH_TOKEN || configuration.GITHUB_TOKEN;
   if (Object.hasOwn(args, 'waitSeconds') && (!Number.isSafeInteger(args.waitSeconds) || args.waitSeconds < 1 || args.waitSeconds > 60)) throw new CollectionError('INPUT_INVALID');
   if (name === 'changeplane_onboard') return onboard({ repository, number: args.pullRequest, token, read, runtime,
-    check: args.check, workflow: args.workflow, waitSeconds: args.waitSeconds }, { inspect, wait });
+    check: args.check, workflow: args.workflow, waitSeconds: args.waitSeconds, ...feedbackOption }, { inspect, wait });
   if (['changeplane_follow', 'changeplane_run_review'].includes(name)) return followPipeline({ repository, number: args.pullRequest, token, read,
     waitSeconds: args.waitSeconds, runReview: name === 'changeplane_run_review', retryReview: args.retryIncomplete === true }, { directory: configuration.CHANGEPLANE_STATE_DIR,
     runReview: configuredReviewRunner(configuration) });
   if (name === 'changeplane_pipeline') return inspectPipeline({ repository, number: args.pullRequest, token, read,
     review: args.review, requestId: args.requestId, waitSeconds: args.waitSeconds });
   if (name === 'changeplane_inspect') {
-    const options = { repository, number: args.pullRequest, token, ...(read ? { read } : {}) };
+    const options = { repository, number: args.pullRequest, token, ...(read ? { read } : {}), ...feedbackOption };
     if (!Object.hasOwn(args, 'waitSeconds')) return inspect(options);
     return wait({ ...options, waitSeconds: args.waitSeconds });
   }

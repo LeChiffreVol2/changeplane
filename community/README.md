@@ -26,3 +26,5 @@ The repository-root Action is the managed Guard, not this public read-only Actio
 These entrypoints are available in current source and commit-addressed CI bundles. Older tagged assets stay immutable; check the bundled README and `SOURCE.json` before using a newer command. There is no published npm-registry installation route.
 
 For contributors: `core.js` adapts the shared evaluator; `github.js` and `gitlab.js` collect bounded observations; `pipeline.js` joins optional review coverage with the current GitHub assessment; `setup.js` prepares reviewed configuration; `team*.js` implement cooperative task/workspace state. CLI and MCP are adapters over those modules. Run `node --test community/*.test.js` from the runtime root.
+
+For feedback already published by Codex, people or other GitHub reviewers, use [existing reviewer mode](../docs/community.md#use-your-existing-reviewer): `onboard OWNER/REPO PR_NUMBER --with-feedback`. It reads references alongside CI without starting another review; coverage and discussion resolution remain unknown.

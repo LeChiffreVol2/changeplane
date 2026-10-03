@@ -42,6 +42,7 @@ export function formatReport(report, format = 'json') {
     capabilities: report.capabilities ?? null,
     observation: report.observation ?? null,
     ...(report.wait ? { wait: report.wait } : {}),
+    ...(report.feedback ? { feedback: report.feedback, ci: { decision: report.ci.decision, findings: report.ci.findings } } : {}),
     ...(report.pipeline ? { pipeline: report.pipeline, review: report.review, reviewRequest: report.reviewRequest,
       humanReview: report.humanReview, ...(report.session ? { session: report.session } : {}),
       ci: { decision: report.ci.decision, findings: report.ci.findings, nextAction: report.ci.nextAction } } : {}),
@@ -77,6 +78,9 @@ export function formatReport(report, format = 'json') {
     ...(summary.claim ? [`Claim: ${summary.claim}`] : []),
     ...(summary.capabilities ? [`Capabilities: ${JSON.stringify(summary.capabilities)}`] : []),
     `Evidence: ${report.observation?.source ?? 'unavailable'}; point-in-time advisory assessment`,
+    ...(report.feedback ? [`CI: ${report.ci.decision}`, `GitHub feedback: ${report.feedback.references.length} current comments or active change requests; ${report.feedback.previousReferences.length} older or outdated comments`,
+      report.feedback.limitation,
+      ...[...report.feedback.references, ...report.feedback.previousReferences].map(item => `Discussion: ${item.url} | reviewed revision: ${item.reviewedHead}`)] : []),
     ...(report.pipeline ? [
       `Pipeline: ${report.pipeline.status}; CI: ${report.ci.decision}`,
       `Review: ${report.review.status}; operator-supplied, unauthenticated advisory data`,

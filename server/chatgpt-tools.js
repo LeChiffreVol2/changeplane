@@ -39,11 +39,11 @@ export function createChatgptTools({ session, repositories, access }) {
   register('list_pull_requests', 'Use this to find open PRs in the selected repository. This inventory does not assess readiness; inspect a PR for current evidence.',
     { repository, page: z.number().int().min(1).max(100).optional() },
     async args => listWorkspacePulls({ ...args, ...await access(args.repository, session) }));
-  register('inspect_pull_request', 'Use this to explain a PR’s current CI evidence, blockers, responsible role and next action. Evidence mode needs no model key. Pipeline mode additionally prepares an optional review request; it does not execute a model or import a local review report.',
-    { repository, number, mode: z.enum(['evidence', 'pipeline']).default('evidence') },
+  register('inspect_pull_request', 'Use this to explain a PR’s current CI evidence, blockers, responsible role and next action. Feedback mode also reads published GitHub reviews and inline comments from existing reviewers; coverage and resolution remain unknown. Evidence and feedback modes need no model key. Pipeline mode prepares an optional review request; it does not execute a model or import a local review report.',
+    { repository, number, mode: z.enum(['evidence', 'feedback', 'pipeline']).default('evidence') },
     async args => readWorkspace({ ...args, ...await access(args.repository, session) }));
   register('prepare_agent_handoff', 'Use this to prepare a scoped handoff for the user’s existing coding agent. Reads fresh evidence and returns instructions to copy; it does not send a message, start an agent or modify a repository.',
-    { repository, number }, async args => {
+    { repository, number, mode: z.enum(['evidence', 'feedback', 'pipeline']).default('evidence') }, async args => {
       const view = await readWorkspace({ ...args, ...await access(args.repository, session) });
       return { repository: args.repository, number: args.number, headSha: view.headSha, status: view.status,
         nextAction: view.nextAction, handoff: view.actions.handoff, authority: view.authority };

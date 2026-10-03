@@ -45,6 +45,15 @@ test('HTTP MCP exposes only scoped read tools, rejects credential arguments and 
     assert.equal(catalog.result.tools.length, 5);
     assert.ok(catalog.result.tools.every(tool => tool.annotations.readOnlyHint && !tool.annotations.destructiveHint));
     assert.ok(catalog.result.tools.every(tool => !/merge|approve|run_review/u.test(tool.name)));
+    for (const name of ['inspect_pull_request', 'prepare_agent_handoff']) {
+      assert.ok(catalog.result.tools.find(tool => tool.name === name).inputSchema.properties.mode.enum.includes('feedback'));
+      const result = await (await call({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: {
+        name, arguments: { repository: 'alice/project', number: 7, mode: 'feedback' },
+      } })).json();
+      const value = result.result.structuredContent;
+      assert.equal(value.status, 'unavailable');
+      assert.match(value.handoff ?? value.actions.handoff, /--with-feedback/);
+    }
     for (const login of ['alice', 'bob']) {
       const result = await (await call({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_repositories', arguments: {} } }, login)).json();
       assert.equal(result.result.structuredContent.repositories[0].repository, login + '/project');
