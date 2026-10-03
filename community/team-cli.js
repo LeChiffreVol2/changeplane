@@ -9,6 +9,11 @@ export const teamHelp = `Repository teamwork (GitHub.com):
   node community/cli.js team doctor OWNER/REPO [TASK]
   node community/cli.js team status OWNER/REPO
   node community/cli.js team plan OWNER/REPO tasks.json
+  node community/cli.js team accept-issue OWNER/REPO plan.json --human-reviewed
+  node community/cli.js team delivery OWNER/REPO ISSUE_NUMBER
+  node community/cli.js team confirm-delivery OWNER/REPO acceptance.json --human-reviewed
+  node community/cli.js team close-issue OWNER/REPO ISSUE_NUMBER DELIVERY_DIGEST --human-reviewed
+  node community/cli.js team sync-project OWNER/REPO ISSUE_NUMBER DELIVERY_DIGEST --human-reviewed
   node community/cli.js team start OWNER/REPO task.json OWNER
   node community/cli.js team claim OWNER/REPO TASK OWNER
   node community/cli.js team worktree OWNER/REPO TASK DESTINATION
@@ -26,11 +31,37 @@ Merge a reviewed default-branch policy with team.enabled=true and team.maxActive
 Writes require CHANGEPLANE_TEAM_WRITE=true and CHANGEPLANE_TEAM_REPOSITORY=OWNER/REPO.
 Use a scoped GH_TOKEN/GITHUB_TOKEN in the trusted operator process, never in task JSON.
 Set CHANGEPLANE_TEAM_CHECKOUT to the trusted target checkout when running from the runtime bundle.
-The coordinator writes only its metadata branch. Your coding agent owns source changes;
+Plan acceptance and delivery confirmation are trusted operator commands, not model tools.
+They require CHANGEPLANE_TEAM_OPERATOR=true and --human-reviewed. Issue closure also
+requires CHANGEPLANE_ISSUE_WRITE=true and trusted team.issueCloseEnabled=true.
+The coordinator normally writes only its metadata branch. Your coding agent owns source changes;
 GitHub owns review and merge. Owner labels are attribution, not authentication.
 `;
 const actions = {
   TEAM_COMMAND_INVALID: 'Run team --help and use a supported command with its documented arguments.',
+  TEAM_OPERATOR_REQUIRED: 'Have the human repository operator review this exact plan or delivery receipt and run the explicit operator command.',
+  PROJECT_WRITES_DISABLED: 'The human operator must explicitly enable Project writes and supply a separate Project-scoped credential outside the coding process.',
+  PROJECT_INPUT_INVALID: 'Configure the exact existing Project, single-select field and target option IDs in the trusted operator environment.',
+  PROJECT_POLICY_DISABLED: 'Review and merge team.projectSyncEnabled in the trusted repository policy before syncing delivery.',
+  PROJECT_DELIVERY_CHANGED: 'Read fresh delivery evidence and have the operator accept its current digest before updating the Project.',
+  PROJECT_COLLECTION_INCOMPLETE: 'The Project exceeds the bounded reader. Inspect it directly; no field was updated from incomplete input.',
+  PROJECT_TARGET_INVALID: 'Select the existing issue item and a valid single-select field/option in the intended open Project.',
+  PROJECT_ITEM_CHANGED: 'The issue Project item changed during collection. Read its current state before retrying.',
+  PROJECT_SOURCE_UNAVAILABLE: 'Check the separate Project credential and GitHub availability, then retry the read.',
+  PROJECT_WRITE_UNCERTAIN: 'The Project update may have succeeded. Inspect its current field value before another explicit invocation; no automatic write retry was made.',
+  TEAM_ISSUE_MISMATCH: 'Select a real issue in the configured repository; pull requests cannot stand in for issues.',
+  TEAM_ISSUE_CHANGED: 'The agreed goal changed. Restore the accepted issue goal after review or create a new issue and plan; existing task scopes and writers are retained.',
+  TEAM_ISSUE_CLOSED: 'Review the closed issue and deliberately reopen it before accepting new work.',
+  TEAM_ISSUE_PLAN_IMMUTABLE: 'Keep the accepted scope unchanged. Use a new issue and task IDs for changed work; existing reservations remain held.',
+  TEAM_ISSUE_PLAN_MISSING: 'Inspect the issue and have the human operator review and accept its scoped plan.',
+  TEAM_ACCEPTANCE_REQUIRED: 'Have the human operator review and explicitly acknowledge every acceptance criterion exactly once.',
+  TEAM_DELIVERY_STALE: 'Read delivery again and review its new digest before confirming or updating metadata.',
+  TEAM_DELIVERY_INCOMPLETE: 'Resolve the delivery blockers and read fresh delivery evidence before acceptance.',
+  TEAM_DELIVERY_RECEIPT_IMMUTABLE: 'Inspect the retained delivery receipt and coordination history; never overwrite a conflicting receipt.',
+  TEAM_ISSUE_CLOSE_DISABLED: 'The operator must enable trusted team.issueCloseEnabled and CHANGEPLANE_ISSUE_WRITE for this repository before closure.',
+  TEAM_ISSUE_CLOSURE_CONFLICT: 'Inspect the existing GitHub closure reason. ChangePlane will not rewrite that decision automatically.',
+  TEAM_ISSUE_PLAN_LIMIT: 'Split this issue into bounded deliverables of at most 20 tasks before accepting a plan.',
+  TEAM_MERGE_NOT_ON_BASE: 'The merged commit is not on the current default branch. Inspect repository history with its owner before accepting delivery.',
   TEAM_INPUT_INVALID: 'Check the task ID, owner and immutable contract shape in the team setup guide.',
   TEAM_REPOSITORY_MISMATCH: 'Set CHANGEPLANE_TEAM_REPOSITORY to the exact OWNER/REPO being operated on.',
   TEAM_REPOSITORY_INVALID: 'Provide a GitHub.com repository as OWNER/REPO.',
@@ -93,7 +124,9 @@ export function configuredTeam(repository, configuration = process.env) {
   requireTeam(typeof repository === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository), 'TEAM_REPOSITORY_INVALID');
   const enabled = configuration.CHANGEPLANE_TEAM_WRITE === 'true';
   requireTeam(!enabled || configuration.CHANGEPLANE_TEAM_REPOSITORY === repository, 'TEAM_REPOSITORY_MISMATCH');
-  return teamGitHub({ repository, token: configuration.GH_TOKEN || configuration.GITHUB_TOKEN, writeEnabled: enabled });
+  const issueWriteEnabled = configuration.CHANGEPLANE_ISSUE_WRITE === 'true';
+  requireTeam(!issueWriteEnabled || enabled && configuration.CHANGEPLANE_TEAM_REPOSITORY === repository, 'TEAM_REPOSITORY_MISMATCH');
+  return teamGitHub({ repository, token: configuration.GH_TOKEN || configuration.GITHUB_TOKEN, writeEnabled: enabled, issueWriteEnabled });
 }
 export function teamMember(configuration = process.env) {
   const member = configuration.CHANGEPLANE_TEAM_MEMBER;
@@ -139,7 +172,25 @@ export async function runTeamCli(args) {
     return { kind: 'changeplane.team-watch', outcome: 'WATCH_WINDOW_ENDED', nextAction: 'Run the trusted scheduled reconciliation template for unattended observation.' };
   }
   let command = { action };
-  if (action === 'plan' && rest.length === 1) {
+  if (['accept-issue', 'confirm-delivery', 'close-issue', 'sync-project'].includes(action)) {
+    requireTeam(process.env.CHANGEPLANE_TEAM_OPERATOR === 'true' && rest.at(-1) === '--human-reviewed', 'TEAM_OPERATOR_REQUIRED');
+    if (action === 'close-issue' || action === 'sync-project') {
+      requireTeam(rest.length === 3 && /^[1-9][0-9]*$/u.test(rest[0]) && /^[a-f0-9]{64}$/u.test(rest[1]), 'TEAM_COMMAND_INVALID');
+      command = { action, issue: Number(rest[0]), digest: rest[1] };
+      if (action === 'sync-project') {
+        const { syncProjectDelivery } = await import('./repository-projects.js');
+        return syncProjectDelivery({ api, issue: command.issue, expectedDigest: command.digest,
+          project: { id: process.env.CHANGEPLANE_PROJECT_ID, fieldId: process.env.CHANGEPLANE_PROJECT_FIELD_ID, optionId: process.env.CHANGEPLANE_PROJECT_OPTION_ID },
+          token: process.env.CHANGEPLANE_PROJECT_TOKEN, writeEnabled: process.env.CHANGEPLANE_PROJECT_WRITE === 'true' });
+      }
+    } else {
+      requireTeam(rest.length === 2, 'TEAM_COMMAND_INVALID');
+      const data = taskFile(rest[0]);
+      command = action === 'accept-issue' ? { action, issue: data.issue, issueRevision: data.issueRevision, tasks: data.tasks }
+        : { action, issue: data.issue, digest: data.digest, acceptedCriteria: data.acceptedCriteria, owner: teamMember() };
+    }
+  } else if (action === 'delivery' && rest.length === 1 && /^[1-9][0-9]*$/u.test(rest[0])) command = { action, issue: Number(rest[0]) };
+  else if (action === 'plan' && rest.length === 1) {
     command.tasks = taskFile(rest[0]).tasks;
     requireTeam(Array.isArray(command.tasks) && command.tasks.length > 0 && command.tasks.length <= 50, 'TEAM_TASK_JSON_INVALID');
   } else if (action === 'start' && rest.length === 2) {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { TeamError } from './team.js';
+import { issueRevision } from './repository-issue.js';
 import { operateTeam, teamGitHub, nextTeamHandoffs, observeTeam } from './team-github.js';
 import { CollectionError } from './transport.js';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
@@ -22,20 +23,24 @@ function fixture({ baseSha = base } = {}) {
   const pr = { id: 91, number: 9, state: 'open', merged: false, merge_commit_sha: null, changed_files: 1, draft: false, mergeable: true,
     head: { sha: head, ref: 'changeplane/work/api-1', repo: { id: 7, full_name: 'example/repo' } },
     base: { sha: base, ref: 'main', repo: { id: 7, full_name: 'example/repo' } } };
-  const f = { policy: structuredClone(policy), pr, fail: null, writes, files: [{ filename: 'src/api/a.js', status: 'modified' }], conclusion: 'success', attempt: 1, comparison: 'ahead', reviews: [], comments: [] };
+  const f = { policy: structuredClone(policy), pr, baseSha: base, fail: null, writes,
+    issue: { id: 101, number: 1, title: 'Make the API useful', body: 'Deliver the requested behavior.', labels: [], state: 'open', state_reason: null,
+      repository_url: 'https://api.github.com/repos/example/repo' },
+    files: [{ filename: 'src/api/a.js', status: 'modified' }], conclusion: 'success', attempt: 1, comparison: 'ahead', reviews: [], comments: [] };
   const api = { repository: 'example/repo', root: '/repos/example/repo', request: async (method, path, body) => {
     if (f.fail?.(method, path)) throw new TeamError('TEAM_WRITE_UNCERTAIN');
     const suffix = path.replace(api.root, '');
     if (method === 'GET') {
       if (!suffix) return { id: 7, full_name: api.repository, default_branch: 'main' };
-      if (suffix === '/commits/main') return { sha: base };
+      if (suffix === '/commits/main') return { sha: f.baseSha };
+      if (suffix === '/issues/1') return structuredClone(f.issue);
       if (suffix.startsWith('/contents/.changeplane.json?ref=')) return file(f.policy);
       if (suffix === '/git/ref/heads/changeplane/team-state') {
         if (!tip) throw new CollectionError('NOT_FOUND', { provider: 'github', status: 404 });
         return { ref: 'refs/heads/changeplane/team-state', object: { type: 'commit', sha: tip } };
       }
       if (suffix.startsWith('/git/commits/')) return { tree: { sha: commits.get(suffix.split('/').at(-1)).tree } };
-      if (suffix.startsWith('/contents/team.json?ref=') || suffix.startsWith('/contents/archives/')) {
+      if (suffix.startsWith('/contents/team.json?ref=') || suffix.startsWith('/contents/archives/') || suffix.startsWith('/contents/deliveries/')) {
         const path = suffix.split('?')[0].slice('/contents/'.length);
         const content = trees.get(commits.get(suffix.split('=')[1]).tree)?.[path];
         if (!content) throw new CollectionError('NOT_FOUND', { provider: 'github', status: 404 });
@@ -55,6 +60,7 @@ function fixture({ baseSha = base } = {}) {
       throw new Error(`Unexpected read: ${suffix}`);
     }
     writes.push({ method, path, body });
+    if (method === 'PATCH' && suffix === '/issues/1') { Object.assign(f.issue, body); return structuredClone(f.issue); }
     if (suffix === '/git/trees') { const id = sha(JSON.stringify(body)); trees.set(id, { ...(trees.get(body.base_tree) ?? {}), ...Object.fromEntries(body.tree.map(item => [item.path,item.content])) }); return { sha: id }; }
     if (suffix === '/git/commits') { const id = sha(JSON.stringify(body) + ++counter); commits.set(id, body); return { sha: id }; }
     if (suffix === '/git/refs' || suffix === '/git/refs/heads/changeplane/team-state') {
@@ -65,7 +71,7 @@ function fixture({ baseSha = base } = {}) {
     throw new Error(`Unexpected mutation: ${suffix}`);
   } };
   return { ...f, get policy() { return f.policy; }, pr, api, setFailure: failure => { f.fail = failure; },
-    setReviews: value => { f.reviews = value; }, setComments: value => { f.comments = value; },
+    setBase: value => { f.baseSha = value; }, setReviews: value => { f.reviews = value; }, setComments: value => { f.comments = value; },
     setAttempt: value => { f.attempt = value; }, setComparison: value => { f.comparison = value; }, setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
 }
 const run = (f, command) => operateTeam({ api: f.api, command });
@@ -355,4 +361,204 @@ test('coordination-only capacity changes do not strand active tasks but assuranc
   const adopted=await run(f,{action:'adopt-policy',task:'api',owner:'alice',policySha:newBase});
   assert.equal(adopted.task.policySha,newBase);
   assert.deepEqual(adopted.task.paths,['src/api/**']);
+});
+
+const issueContract = () => ({ id: 'api', title: 'API', paths: ['src/api/**'], acceptanceCriteria: ['The API returns the requested result.', 'The documented error is actionable.'] });
+const acceptIssue = (f, tasks = [issueContract()]) => run(f, { action: 'accept-issue', issue: 1, issueRevision: issueRevision(f.issue), tasks });
+async function mergedIssue(f) {
+  await acceptIssue(f);
+  await run(f, { action: 'claim', task: 'api', owner: 'alice' });
+  await run(f, { action: 'bind', task: 'api', pullRequest: 9 });
+  f.pr.state = 'closed'; f.pr.merged = true; f.pr.merge_commit_sha = 'c'.repeat(40);
+  await run(f, { action: 'reconcile' });
+  return run(f, { action: 'delivery', issue: 1 });
+}
+const confirmIssue = (f, report, extra = {}) => run(f, { action: 'confirm-delivery', issue: 1, digest: report.digest,
+  owner: 'operator', acceptedCriteria: report.tasks.flatMap(task => task.acceptanceCriteria.map((_, criterion) => ({ task: task.task, criterion }))), ...extra });
+
+test('accepted issue plans bind the normalized goal and complete immutable task contracts', async () => {
+  const f = fixture();
+  const originalRevision = issueRevision(f.issue);
+  assert.equal(issueRevision({ ...f.issue, state: 'closed', updated_at: 'later', assignees: [{ login: 'alice' }] }), originalRevision);
+  const report = await acceptIssue(f), writes = f.writes.length;
+  assert.equal(report.schemaVersion, 3);
+  assert.equal(report.issuePlan.issueRevision, originalRevision);
+  assert.deepEqual(report.tasks[0].acceptanceCriteria, issueContract().acceptanceCriteria);
+  assert.deepEqual((await acceptIssue(f)).issuePlan, report.issuePlan);
+  assert.equal(f.writes.length, writes, 'replayed acceptance must not duplicate metadata');
+  await assert.rejects(acceptIssue(f, [{ ...issueContract(), acceptanceCriteria: ['A different accepted requirement.'] }]), /TEAM_ISSUE_PLAN_IMMUTABLE/);
+  await assert.rejects(run(f, { action: 'plan', tasks: [{ id: 'extra', title: 'Extra task', paths: ['src/extra.js'], issue: 1 }] }), /TEAM_ISSUE_PLAN_IMMUTABLE/);
+  f.issue.body = 'The requested behavior changed.';
+  await assert.rejects(run(f, { action: 'delivery', issue: 1 }), /TEAM_ISSUE_CHANGED/);
+  await assert.rejects(run(f, { action: 'accept-issue', issue: 1, issueRevision: originalRevision, tasks: [issueContract()] }), /TEAM_ISSUE_CHANGED/);
+});
+
+test('accepting stale, closed, PR-shaped or criterion-free issue plans never writes', async () => {
+  for (const mutation of [f => { f.issue.state = 'closed'; }, f => { f.issue.pull_request = {}; }, f => { delete f.issue.repository_url; }, f => { f.issue.repository_url = 'https://api.github.com/repos/other/repo'; }]) {
+    const f = fixture(); mutation(f); await assert.rejects(acceptIssue(f)); assert.equal(f.writes.length, 0);
+  }
+  for (const acceptanceCriteria of [[], ['x'], ['        '], ['One criterion.', 'One criterion.']]) {
+    const f = fixture(); await assert.rejects(acceptIssue(f, [{ ...issueContract(), acceptanceCriteria }])); assert.equal(f.writes.length, 0);
+  }
+  const f = fixture();
+  await assert.rejects(acceptIssue(f, Array.from({ length: 21 }, (_, i) => ({ ...issueContract(), id: `task-${i}` }))), /TEAM_ISSUE_PLAN_LIMIT/);
+  await assert.rejects(run(f, { action: 'accept-issue', issue: 1, issueRevision: 'd'.repeat(64), tasks: [issueContract()] }), /TEAM_ISSUE_CHANGED/);
+  assert.equal(f.writes.length, 0);
+  const original = f.api.request; let reads = 0;
+  f.api.request = async (method, path, body) => {
+    if (method === 'GET' && path.endsWith('/issues/1') && ++reads === 2) f.issue.body = 'Edited while accepting.';
+    return original(method, path, body);
+  };
+  await assert.rejects(acceptIssue(f), /TEAM_ISSUE_CHANGED/);
+  assert.equal(f.writes.length, 0);
+});
+
+test('delivery requires every planned task and explicit acceptance even when GitHub merged green work', async () => {
+  const f = fixture(); await acceptIssue(f);
+  let report = await run(f, { action: 'delivery', issue: 1 });
+  assert.equal(report.readyForAcceptance, false); assert.equal(report.confirmed, false);
+  await assert.rejects(confirmIssue(f, report), /TEAM_DELIVERY_INCOMPLETE/);
+  await run(f, { action: 'claim', task: 'api', owner: 'alice' }); await run(f, { action: 'bind', task: 'api', pullRequest: 9 });
+  await run(f, { action: 'reconcile' });
+  report = await run(f, { action: 'delivery', issue: 1 });
+  assert.equal(report.readyForAcceptance, false, 'green CI and open PR do not prove delivery');
+  f.pr.state = 'closed'; f.pr.merged = true; f.pr.merge_commit_sha = 'c'.repeat(40);
+  report = await run(f, { action: 'delivery', issue: 1 });
+  assert.equal(report.readyForAcceptance, true); assert.equal(report.confirmed, false);
+  await assert.rejects(confirmIssue(f, report, { acceptedCriteria: [{ task: 'api', criterion: 0 }] }), /TEAM_ACCEPTANCE_REQUIRED/);
+  await assert.rejects(confirmIssue(f, report, { acceptedCriteria: [{ task: 'api', criterion: 0 }, { task: 'api', criterion: 0 }] }), /TEAM_ACCEPTANCE_REQUIRED/);
+  const confirmed = await confirmIssue(f, report), writes = f.writes.length;
+  assert.equal(confirmed.confirmed, true); assert.equal(confirmed.receipt.confirmedBy, 'operator');
+  assert.ok(Object.values(confirmed.authority).every(value => value === false));
+  assert.equal(f.issue.state, 'open', 'confirmation is a receipt, not an issue mutation');
+  assert.ok(f.writes.some(item => Array.isArray(item.body.tree) && item.body.tree.some(entry => entry.path === `deliveries/1/${report.digest}.json`)));
+  await confirmIssue(f, report); assert.equal(f.writes.length, writes);
+});
+
+test('archived issue tasks remain in delivery and no cancelled task silently disappears', async () => {
+  const f = fixture(); await mergedIssue(f);
+  await run(f, { action: 'archive', task: 'api' });
+  assert.equal((await run(f, { action: 'status' })).tasks.length, 0);
+  const report = await run(f, { action: 'delivery', issue: 1 });
+  assert.equal(report.readyForAcceptance, true); assert.equal(report.tasks[0].mergeCommitSha, 'c'.repeat(40));
+  await confirmIssue(f, report);
+  const cancelled = fixture(); await acceptIssue(cancelled);
+  await run(cancelled, { action: 'cancel', task: 'api' }); await run(cancelled, { action: 'archive', task: 'api' });
+  const blocked = await run(cancelled, { action: 'delivery', issue: 1 });
+  assert.equal(blocked.readyForAcceptance, false); assert.equal(blocked.blockers[0].code, 'TEAM_TASK_CANCELLED');
+});
+
+test('delivery rejects changing heads, removed merge ancestry and moving default revisions', async () => {
+  const f = fixture(); const report = await mergedIssue(f);
+  f.pr.head.sha = 'd'.repeat(40);
+  assert.equal((await run(f, { action: 'delivery', issue: 1 })).blockers[0].code, 'TEAM_MERGE_RECEIPT_CHANGED');
+  f.pr.head.sha = head; f.setComparison('diverged');
+  assert.equal((await run(f, { action: 'delivery', issue: 1 })).blockers[0].code, 'TEAM_MERGE_NOT_ON_BASE');
+  f.setComparison('ahead'); f.setBase('e'.repeat(40));
+  await assert.rejects(confirmIssue(f, report), /TEAM_DELIVERY_STALE/);
+  const original = f.api.request; let reads = 0;
+  f.api.request = async (method, path, body) => {
+    if (method === 'GET' && path.endsWith('/commits/main') && ++reads === 2) f.setBase('f'.repeat(40));
+    return original(method, path, body);
+  };
+  await assert.rejects(run(f, { action: 'delivery', issue: 1 }), /TEAM_POLICY_CHANGED/);
+});
+
+test('new default revision requires renewed acceptance while old delivery receipts remain immutable', async () => {
+  const f = fixture(); const report = await mergedIssue(f); await confirmIssue(f, report);
+  f.setBase('e'.repeat(40));
+  const changed = await run(f, { action: 'delivery', issue: 1 });
+  assert.equal(changed.confirmed, false); assert.notEqual(changed.digest, report.digest);
+  await confirmIssue(f, changed);
+  const status = await run(f, { action: 'status' });
+  for (const digest of [report.digest, changed.digest]) {
+    const record = await f.api.request('GET', `${f.api.root}/contents/deliveries/1/${digest}.json?ref=${status.revision}`);
+    assert.equal(JSON.parse(Buffer.from(record.content, 'base64')).digest, digest);
+  }
+});
+
+test('issue close requires a fresh confirmed receipt plus separate controller and trusted policy enables', async () => {
+  const f = fixture(); const report = await mergedIssue(f);
+  const close = () => run(f, { action: 'close-issue', issue: 1, digest: report.digest });
+  await assert.rejects(close(), /TEAM_ACCEPTANCE_REQUIRED/);
+  await confirmIssue(f, report);
+  await assert.rejects(close(), /TEAM_ISSUE_CLOSE_DISABLED/);
+  f.api.issueWriteEnabled = true;
+  await assert.rejects(close(), /TEAM_ISSUE_CLOSE_DISABLED/);
+  f.policy.team.issueCloseEnabled = true;
+  const result = await close(); assert.equal(result.closed, true); assert.equal(f.issue.state_reason, 'completed');
+  const writes = f.writes.length; await close(); assert.equal(f.writes.length, writes);
+  assert.ok(f.writes.filter(item => !item.path.includes('/git/')).every(item => item.method === 'PATCH' && item.path.endsWith('/issues/1')));
+});
+
+test('ambiguous issue close is reconciled by a new read and never blindly repeated', async () => {
+  const f = fixture(); const report = await mergedIssue(f); await confirmIssue(f, report);
+  f.api.issueWriteEnabled = true; f.policy.team.issueCloseEnabled = true;
+  const original = f.api.request; let closes = 0;
+  f.api.request = async (method, path, body) => {
+    const result = await original(method, path, body);
+    if (method === 'PATCH' && path.endsWith('/issues/1')) { closes++; throw new TeamError('TEAM_WRITE_UNCERTAIN'); }
+    return result;
+  };
+  const command = { action: 'close-issue', issue: 1, digest: report.digest };
+  await assert.rejects(run(f, command), /TEAM_WRITE_UNCERTAIN/);
+  assert.equal((await run(f, command)).closed, true); assert.equal(closes, 1);
+  f.issue.state_reason = 'not_planned';
+  await assert.rejects(run(f, command), /TEAM_ISSUE_CLOSURE_CONFLICT/);
+});
+
+test('coordination changed during delivery observation prevents issue closure', async () => {
+  const f = fixture(); const report = await mergedIssue(f); await confirmIssue(f, report);
+  f.api.issueWriteEnabled = true; f.policy.team.issueCloseEnabled = true;
+  const original = f.api.request; let reads = 0;
+  f.api.request = async (method, path, body) => {
+    const result = await original(method, path, body);
+    if (method === 'GET' && path.endsWith('/git/ref/heads/changeplane/team-state') && ++reads === 2) result.object.sha = 'f'.repeat(40);
+    return result;
+  };
+  await assert.rejects(run(f, { action: 'close-issue', issue: 1, digest: report.digest }), /TEAM_CONCURRENT_UPDATE/);
+  assert.equal(f.issue.state, 'open');
+});
+
+test('a maximum accepted issue with archived tasks confirms within the shared 200-read budget', async () => {
+  const f = fixture(), original = f.api.request, prs = new Map();
+  let reads = 0;
+  f.api.request = async (method, path, body) => {
+    if (method === 'GET') reads++;
+    const number = /^\/repos\/example\/repo\/pulls\/([1-9][0-9]*)$/u.exec(path)?.[1];
+    if (method === 'GET' && number && prs.has(Number(number))) return structuredClone(prs.get(Number(number)));
+    return original(method, path, body);
+  };
+  const contracts = Array.from({ length: 20 }, (_, i) => ({ id: `task-${i}`, title: `Task ${i}`,
+    paths: [`src/task-${i}.js`], acceptanceCriteria: [`The result for task ${i} is verified.`] }));
+  await acceptIssue(f, contracts);
+  for (const [i, contract] of contracts.entries()) {
+    const number = i + 100;
+    const pr = structuredClone(f.pr); pr.number = number; pr.id = number + 1000; pr.head.ref = `changeplane/work/${contract.id}-1`;
+    prs.set(number, pr);
+    await run(f, { action: 'claim', task: contract.id, owner: 'alice' });
+    await run(f, { action: 'bind', task: contract.id, pullRequest: number });
+    Object.assign(pr, { state: 'closed', merged: true, merge_commit_sha: 'c'.repeat(40) });
+    await run(f, { action: 'reconcile' });
+    await run(f, { action: 'archive', task: contract.id });
+  }
+  const report = await run(f, { action: 'delivery', issue: 1 });
+  assert.equal(report.tasks.length, 20); assert.equal(report.readyForAcceptance, true);
+  reads = 0;
+  const confirmed = await confirmIssue(f, report);
+  assert.equal(confirmed.confirmed, true); assert.ok(reads <= 200, `Expected <=200 reads, got ${reads}`);
+});
+
+test('HTTP issue writer allows only explicit issue closure, never arbitrary metadata, source or merge writes', async () => {
+  let calls = 0;
+  const api = teamGitHub({ repository: 'example/repo', token: 'synthetic', issueWriteEnabled: true,
+    fetchImpl: async () => { calls++; throw new Error('uncertain'); } });
+  for (const body of [{ state: 'closed' }, { state: 'closed', state_reason: 'completed', body: 'Injected comment' }, { state: 'open', state_reason: 'reopened' }]) {
+    await assert.rejects(api.request('PATCH', '/repos/example/repo/issues/1', body), /TEAM_OPERATION_DENIED/);
+  }
+  await assert.rejects(api.request('POST', '/repos/example/repo/git/trees', {}), /TEAM_WRITES_DISABLED/);
+  await assert.rejects(api.request('PATCH', '/repos/example/repo/issues/1?unexpected=true', {}));
+  assert.equal(calls, 0);
+  await assert.rejects(api.request('PATCH', '/repos/example/repo/issues/1', { state: 'closed', state_reason: 'completed' }), /TEAM_WRITE_UNCERTAIN/);
+  assert.equal(calls, 1);
 });

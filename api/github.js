@@ -1,5 +1,5 @@
 import { HttpError, GitHubError } from "../server/http-errors.js";
-import { readWorkspace, listWorkspacePulls } from "../server/product-workspace.js";
+import { readWorkspace, listWorkspacePulls, readRepositoryWorkspace } from "../server/product-workspace.js";
 import { githubReader } from "../community/github.js";
 import { createChatgptAuth } from "../server/chatgpt-auth.js";
 import { createGuardLifecycle } from "../server/guard-lifecycle.js";
@@ -528,6 +528,7 @@ const ROUTE_METHODS = new Map([
   ["repos", ["GET"]],
   ["pulls", ["GET"]],
   ["workspace", ["GET"]],
+  ["repository", ["GET"]],
   ["preflight", ["GET"]],
   ["ruleset-plan", ["GET"]],
   ["ruleset-apply", ["POST"]],
@@ -542,6 +543,7 @@ const ROUTE_METHODS = new Map([
   ["logout", ["POST"]],
 ]);
 const EXTERNAL_ACCESS_ACTIONS = new Set([
+  "repository",
   "pulls",
   "workspace",
   "login",
@@ -3545,6 +3547,15 @@ async function productWorkspace(req, res, list = false) {
   sendJson(res, 200, payload);
 }
 
+async function repositoryWorkspace(req, res) {
+  const access = await productReadAccess(queryValue(req, "repository"), requireSession(req));
+  const rawIssue = queryValue(req, "issue");
+  if (rawIssue != null && (typeof rawIssue !== "string" || !/^[1-9][0-9]*$/u.test(rawIssue))) {
+    throw new HttpError(400, "Choose a valid issue number.");
+  }
+  sendJson(res, 200, await readRepositoryWorkspace({ ...access, ...(rawIssue == null ? {} : { issue: Number(rawIssue) }) }));
+}
+
 async function readByokStatus(repository, token) {
   const encodedRepository = encodeRepository(repository);
   try {
@@ -5218,6 +5229,7 @@ async function handleRequest(req, res, suppliedJournal, suppliedPilotAdmission) 
     if (method === "GET" && action === "repos") return await repositories(req, res);
     if (method === "GET" && action === "pulls") return await productWorkspace(req, res, true);
     if (method === "GET" && action === "workspace") return await productWorkspace(req, res);
+    if (method === "GET" && action === "repository") return await repositoryWorkspace(req, res);
     if (method === "GET" && action === "preflight") return await preflight(req, res);
     if (method === "GET" && action === "ruleset-plan") return await rulesetPlanStatus(req, res);
     if (method === "POST" && action === "ruleset-apply") return await applyRulesetPlan(req, res);

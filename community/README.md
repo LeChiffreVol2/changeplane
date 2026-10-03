@@ -1,9 +1,11 @@
 # ChangePlane public runtime
 
-Give your coding agent revision-bound PR findings through the CLI or read-only MCP, or assess them in GitHub Actions. Start with the [consumer skill](../skills/changeplane/SKILL.md); add repository coordination when needed. The CLI, public Action and MCP servers use Node built-ins; they share the deterministic evaluator with the managed runtime.
+Connect issue intake, accepted plans, assigned people/agent work, PR evidence and verified delivery in your repository. Start with the [consumer skill](../skills/changeplane/SKILL.md) and [repository lifecycle guide](../docs/repository-lifecycle.md). The CLI, public Action and MCP servers use Node built-ins; they share the deterministic evaluator with the managed runtime.
 
 | Task | Entry point |
 | --- | --- |
+| See what needs attention across a repository | `node bin/changeplane.js repository OWNER/REPO --format text` |
+| Plan and verify an issue's delivery | [Repository lifecycle](../docs/repository-lifecycle.md); `repository OWNER/REPO --issue NUMBER` |
 | Start from setup and reach a current PR assessment | `node bin/changeplane.js onboard OWNER/REPO PR_NUMBER` |
 | Notify an existing authorized Codex task after CI/setup progress | [Bounded operator watch](../docs/agent-continuation.md); queue acceptance is not agent execution |
 | Try an offline assessment | `node bin/changeplane.js evaluate examples/community/satisfied.json --format text` from the runtime root |

@@ -13,6 +13,7 @@ Connect GitHub, select an installed repository, check setup, list open PRs, insp
 | `list_repositories` | List only the user's accessible App repositories inside the hosted rollout scope. |
 | `check_repository_setup` | Check trusted policy and workflow prerequisites before the first real assessment. |
 | `list_pull_requests` | Page through open PRs; inventory entries are explicitly unassessed. |
+| `inspect_repository` | Read bounded issue intake, task progress, maintenance candidates and release preparation; optional issue selects revision-bound planning context. No writes or acceptance. |
 | `inspect_pull_request` | Explain one fresh assessment and its limitations. |
 | `prepare_agent_handoff` | Return revision-bound instructions to the existing authorized writer. |
 

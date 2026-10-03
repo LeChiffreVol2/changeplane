@@ -5,6 +5,16 @@ export function formatReport(report, format = 'json') {
   report = withWorkspace(report);
   if (format === 'json') return JSON.stringify(report, null, 2) + '\n';
   const clean = value => String(value).replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ');
+  if (report.kind === 'changeplane.repository-overview' && format === 'text') return [
+    'What needs you today?', `Repository: ${report.repository}`,
+    `Observed default revision: ${report.binding?.baseSha ?? 'unavailable'}`,
+    ...(report.needsAttention ?? []).map(item => `${item.title ?? item.reason ?? item.kind}: ${item.nextAction ?? 'Inspect the linked work.'}`),
+    `Issues: ${report.issues?.status}; PR inventory: ${report.pullRequests?.status}; team: ${report.team?.status}`,
+    ...(report.selectedIssue ? [`Issue: #${report.selectedIssue.number} ${report.selectedIssue.title}`, `Issue revision: ${report.selectedIssue.revision}`] : []),
+    `Maintenance suggestions: ${report.maintenance?.suggestions?.length ?? 0}`,
+    'Bounded inventory only. Stored team outcomes require reconciliation; release text is an unpublished draft.',
+    'Next: Select an issue, agree acceptance criteria and allowed paths, then have the trusted operator accept the plan.',
+  ].map(clean).join('\n') + '\n';
   if (format === 'text' && report.kind === 'changeplane.setup-check') return [
     `ChangePlane prerequisites: ${report.decision}`,
     `Policy revision: ${report.baseSha}`,

@@ -1,6 +1,6 @@
 # Where ChangePlane fits
 
-**Keep GitHub. Let agents ship.** ChangePlane Open Source asks whether a pull request's declared evidence applies to the exact change being assessed. Its narrow entry point is useful when teams use multiple coding agents but keep GitHub and existing CI.
+**Keep GitHub. Let agents ship.** ChangePlane connects repository work from an accepted issue plan to assigned people/agent tasks, PR evidence and delivery verification. PR assurance remains the verification core. The [repository lifecycle](repository-lifecycle.md) uses existing GitHub state and coding clients; intake, maintenance and release preparation remain proposals until the appropriate operator decision.
 
 ## Compare responsibilities
 
@@ -27,7 +27,7 @@ The useful customer experiment is one existing behavioral job on one active repo
 
 ## Launch message
 
-Give your coding agent current PR evidence and a clear next action. ChangePlane Open Source is an Apache-2.0 CLI, read-only MCP and GitHub Action for evidence assessment on agent-authored PRs. It reads trusted default-branch policy, checks the latest observed workflow attempt on the exact head, flags changes to tests and evidence controls, and returns JSON findings to your existing agent. No model key, ChangePlane account, or hosted database is needed. GitHub keeps merge authority. Start with the [agent setup prompt](../README.md#start-with-your-agent), then obtain one real assessment. The agent consumes findings; the repository owner reviews policy and permissions.
+See what needs attention across your repository and who should act next. ChangePlane Open Source provides repository intake, scoped accepted plans, cooperative task workspaces, PR feedback and CI assessment, delivery receipts, and maintenance/release preparation. No model key, ChangePlane account or hosted database is needed for the core. The existing agent performs development; humans accept plans and criteria; GitHub keeps merge authority. Start with the [agent setup prompt](../README.md#start-with-your-agent). Bounded observations and synthetic tests establish specific behaviors, not a proven advantage over native GitHub workflows.
 
 ## Agent-first distribution, human-controlled authority
 

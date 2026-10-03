@@ -14,6 +14,7 @@ const contract = { type: 'object', additionalProperties: false, required: ['id',
   id: taskId, title: { type: 'string', minLength: 1, maxLength: 160 },
   paths: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string' } },
   dependsOn: { type: 'array', maxItems: 30, items: taskId }, issue: { type: 'integer', minimum: 1 },
+  acceptanceCriteria: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 500 } },
 } };
 const definition = (name, description, properties = {}, required = [], readOnly = false) => ({ name, description,
   inputSchema: { type: 'object', additionalProperties: false, properties, required },
@@ -21,6 +22,7 @@ const definition = (name, description, properties = {}, required = [], readOnly 
 export const teamTools = [
   definition('changeplane_doctor', 'Read-only setup checks and optional task recovery report. No writes, reservation release or proof of credential isolation.', { task: taskId }, [], true),
   definition('changeplane_status', 'Read the shared task board for the operator-configured repository. Stored PR outcomes may be stale; reconcile before relying on them.', {}, [], true),
+  definition('changeplane_delivery', 'Read fresh delivery evidence for an accepted issue plan. Merged PRs alone do not accept criteria. Returns blockers and a digest for the human operator; cannot confirm delivery or close an issue.', { issue: { type: 'integer', minimum: 1 } }, ['issue'], true),
   definition('changeplane_plan', 'Record immutable task contracts and dependencies. Does not start coding, execute instructions or grant write/merge authority.', { tasks: { type: 'array', minItems: 1, maxItems: 50, items: contract } }, ['tasks']),
   definition('changeplane_start', 'Reserve one scoped task for the configured member. Overlapping active tasks and unmet dependencies block the claim. Never retry an uncertain claim before reading status.', { contract }, ['contract']),
   definition('changeplane_worktree', 'Create a separate local worktree for a claimed task under the operator-configured workspace root. Refuses existing paths and branches; does not run tests or coding agents.', { task: taskId }, ['task']),
@@ -39,6 +41,7 @@ export async function callTeamTool(name, args, configuration = process.env) {
   const repository = configuration.CHANGEPLANE_TEAM_REPOSITORY;
   if (name === 'changeplane_doctor') return inspectTeamSetup({ repository, configuration, taskId: args.task, workspaceRootRequired: true });
   const api = configuredTeam(repository, configuration);
+  if (name === 'changeplane_delivery') return operateTeam({ api, command: { action: 'delivery', issue: args.issue } });
   if (name === 'changeplane_next') return nextTeamHandoffs({ api, owner: teamMember(configuration) });
   if (name === 'changeplane_worktree') {
     requireTeam(typeof args.task === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(args.task)

@@ -15,6 +15,7 @@ Start with your existing coding agent and obtain one useful PR assessment. You r
 | Continue feedback from my existing reviewer | [GitHub feedback + CI](community.md#use-your-existing-reviewer) |
 | Connect review findings, agent fixes and CI | [Optional OpenCodeReview pipeline](opencode-review.md) |
 | Diagnose coordination or an interrupted task | [Team doctor and recovery](team-operator.md#recover-an-interruption) |
+| Take an issue through repository work and delivery | [Repository lifecycle](repository-lifecycle.md) |
 | Understand supported platforms and authority | [Recovery contracts](recovery-core.md) and [coordination contract](repository-team.md) |
 | Contribute code | [Contributor guide](../CONTRIBUTING.md) |
 | Share setup feedback or measure repeat use | [First-use feedback](https://github.com/LeChiffreVol2/changeplane/issues/new?template=adoption_feedback.yml) and [adoption measurement](adoption-measurement.md) |

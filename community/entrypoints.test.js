@@ -153,9 +153,9 @@ test('read-only MCP advertises setup and inspection with structured authority an
   assert.equal((await rpc({ jsonrpc: '2.0', id: 0, method: 'tools/list' })).error.code, -32000);
   await init(rpc);
   const tools = (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).result.tools;
-  assert.deepEqual(tools.map(tool => tool.name), ['changeplane_onboard', 'changeplane_inspect', 'changeplane_check_setup', 'changeplane_setup', 'changeplane_pipeline']);
+  assert.deepEqual(tools.map(tool => tool.name), ['changeplane_repository', 'changeplane_onboard', 'changeplane_inspect', 'changeplane_check_setup', 'changeplane_setup', 'changeplane_pipeline']);
   assert.ok(tools.every(tool => tool.annotations.readOnlyHint === true));
-  assert.deepEqual(tools[0].outputSchema.required, ['decision', 'authority']);
+  assert.deepEqual(tools.find(tool => tool.name === 'changeplane_inspect').outputSchema.required, ['decision', 'authority']);
   const result = (await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'changeplane_inspect', arguments: { pullRequest: 7 } } })).result;
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.code, 'PERMISSION_DENIED');
@@ -174,7 +174,7 @@ test('installed-command MCP entry emits protocol frames without banners or crede
   assert.equal(child.status, 0); assert.equal(child.stderr, '');
   const replies = child.stdout.trim().split('\n').map(JSON.parse);
   assert.deepEqual(replies.map(reply => reply.id), [1, 2]);
-  assert.equal(replies[1].result.tools.length, 5);
+  assert.equal(replies[1].result.tools.length, 6);
 });
 
 test('MCP validates bounded waiting and alternate output preserves the wait outcome', async () => {
