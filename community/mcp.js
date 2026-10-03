@@ -11,6 +11,7 @@ import { inspectSetup, planSetup, setupFailure } from './setup.js';
 import { mcpRpc, serveMcp } from './mcp-transport.js';
 import { onboard } from './onboard.js';
 import { withWorkspace } from '../src/lib/pr-workspace.js';
+import { inspectRepository } from './repository-github.js';
 
 const outputSchema = decisions => ({ type: 'object', required: ['decision', 'authority'], properties: {
   decision: { type: 'string', enum: [...decisions, 'UNAVAILABLE'] },
@@ -22,6 +23,10 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 const pullRequest = { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER };
 const includeFeedback = { type: 'boolean', description: 'Read already published GitHub reviews and inline comments alongside CI. No reviewer is started; private chats, review coverage and thread resolution are unavailable.' };
 export const assessmentTools = [{
+  name: 'changeplane_repository',
+  description: 'Start a repository task here: read bounded issue intake, task owners/dependencies, PR inventory, maintenance suggestions and release preparation. Optional issue selects its revision-bound planning context. Stored team outcomes need reconciliation. No agent launch, plan acceptance, issue close or publication.',
+  inputSchema: { type: 'object', additionalProperties: false, properties: { issue: pullRequest } }, annotations,
+}, {
   name: 'changeplane_onboard',
   description: 'Start here: check prerequisites and obtain current PR evidence in one call. Missing policy returns CI candidates or protected setup file contents for review. The owner selects check/workflow. Repeat this tool after the configuration PR merges; it then assesses the current PR. No writes, model calls or permission grants.',
   inputSchema: { type: 'object', additionalProperties: false, required: ['pullRequest'], properties: {
@@ -95,6 +100,7 @@ export async function callAssessmentTool(name, args, configuration = process.env
   if (Object.hasOwn(args, 'includeFeedback') && typeof args.includeFeedback !== 'boolean') throw new CollectionError('INPUT_INVALID');
   const feedbackOption = Object.hasOwn(args, 'includeFeedback') ? { includeFeedback: args.includeFeedback } : {};
   const token = configuration.GH_TOKEN || configuration.GITHUB_TOKEN;
+  if (name === 'changeplane_repository') return inspectRepository({ api: { repository, root: `/repos/${repository}`, get: read ?? githubReader(token) }, ...args });
   if (Object.hasOwn(args, 'waitSeconds') && (!Number.isSafeInteger(args.waitSeconds) || args.waitSeconds < 1 || args.waitSeconds > 60)) throw new CollectionError('INPUT_INVALID');
   if (name === 'changeplane_onboard') return onboard({ repository, number: args.pullRequest, token, read, runtime,
     check: args.check, workflow: args.workflow, waitSeconds: args.waitSeconds, ...feedbackOption }, { inspect, wait });

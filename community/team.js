@@ -1,9 +1,11 @@
 import { canonical } from './core.js';
+import { createHash } from 'node:crypto';
 import { normalizeRepoPath } from '../src/lib/changeplane.js';
 
 export const TEAM_REF = 'changeplane/team-state';
 const id = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value);
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value);
+const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
 const text = (value, max = 160) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/u.test(value);
 const active = task => ['active', 'review', 'blocked'].includes(task.state);
 export class TeamError extends Error {
@@ -52,7 +54,16 @@ export function scopesOverlap(left, right) {
 }
 export function emptyTeam(repositoryId) {
   requireTeam(Number.isSafeInteger(repositoryId) && repositoryId > 0);
-  return { schemaVersion: 2, kind: 'changeplane.team', repositoryId, tasks: [], archivedTasks: [], observerCursor: null };
+  return { schemaVersion: 3, kind: 'changeplane.team', repositoryId, tasks: [], archivedTasks: [], observerCursor: null, issuePlans: [] };
+}
+export function taskContract(task) {
+  return { id: task.id, title: task.title, paths: scope(task.paths), dependsOn: [...(task.dependsOn ?? [])].sort(),
+    issue: task.issue ?? null, issueRevision: task.issueRevision ?? null, acceptanceCriteria: task.acceptanceCriteria ?? [] };
+}
+export function issuePlanDigest(repositoryId, plan, tasks) {
+  return createHash('sha256').update(canonical({ repositoryId, issue: plan.issue, issueId: plan.issueId,
+    issueRevision: plan.issueRevision, baseSha: plan.baseSha, policySha: plan.policySha,
+    tasks: tasks.map(taskContract).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) })).digest('hex');
 }
 function normalizeTask(task) {
   requireTeam(task && id(task.id) && text(task.title) && ['planned', 'active', 'review', 'blocked', 'merged', 'cancelled'].includes(task.state)
@@ -68,6 +79,12 @@ function normalizeTask(task) {
     && (task.branch === null || task.branch === `changeplane/work/${task.id}-${task.generation}`)
     && (task.outcome === null || text(task.outcome, 100)), 'TEAM_STATE_INVALID');
   const mergeCommitSha = task.mergeCommitSha ?? null;
+  const issueRevision = task.issueRevision ?? null, acceptanceCriteria = task.acceptanceCriteria ?? [];
+  requireTeam(issueRevision === null || task.issue !== null && digest(issueRevision), 'TEAM_STATE_INVALID');
+  requireTeam(Array.isArray(acceptanceCriteria) && acceptanceCriteria.length <= 20
+    && acceptanceCriteria.every(value => text(value, 500) && value.trim() === value && value.length >= 8)
+    && new Set(acceptanceCriteria).size === acceptanceCriteria.length, 'TEAM_ACCEPTANCE_REQUIRED');
+  requireTeam(issueRevision === null || acceptanceCriteria.length > 0, 'TEAM_ACCEPTANCE_REQUIRED');
   requireTeam(mergeCommitSha === null || task.state === 'merged' && sha(mergeCommitSha), 'TEAM_STATE_INVALID');
   const handoff = task.handoff ?? null;
   requireTeam(handoff === null || typeof handoff === 'object'
@@ -77,7 +94,7 @@ function normalizeTask(task) {
   return { id: task.id, title: task.title, paths: scope(task.paths), dependsOn: [...task.dependsOn].sort(),
     state: task.state, generation: task.generation, owner: task.owner, baseSha: task.baseSha, policySha: task.policySha,
     branch: task.branch, headSha: task.headSha, pullRequest: task.pullRequest, issue: task.issue, workspaceId: task.workspaceId, outcome: task.outcome,
-    mergeCommitSha,
+    mergeCommitSha, issueRevision, acceptanceCriteria: [...acceptanceCriteria],
     handoff: handoff && { id: handoff.id, headSha: handoff.headSha, baseSha: handoff.baseSha, outcome: handoff.outcome, status: handoff.status } };
 }
 
@@ -99,7 +116,7 @@ export function teamDependency(state, taskId) {
 }
 
 export function validateTeam(input, repositoryId = input?.repositoryId) {
-  requireTeam([1, 2].includes(input?.schemaVersion) && input.kind === 'changeplane.team'
+  requireTeam([1, 2, 3].includes(input?.schemaVersion) && input.kind === 'changeplane.team'
     && Number.isSafeInteger(repositoryId) && repositoryId > 0 && input.repositoryId === repositoryId
     && Array.isArray(input.tasks) && input.tasks.length <= 200
     && (input.observerCursor == null || id(input.observerCursor)), 'TEAM_STATE_INVALID');
@@ -122,7 +139,28 @@ export function validateTeam(input, repositoryId = input?.repositoryId) {
     visiting.delete(task.id); done.add(task.id);
   }
   tasks.forEach(visit);
-  return { schemaVersion: 2, kind: 'changeplane.team', repositoryId, tasks, archivedTasks, observerCursor: input.observerCursor ?? null };
+  const plans = input.issuePlans ?? [];
+  requireTeam(Array.isArray(plans) && plans.length <= 200 && new Set(plans.map(plan => plan?.issue)).size === plans.length, 'TEAM_STATE_INVALID');
+  const issuePlans = plans.map(plan => {
+    requireTeam(Number.isSafeInteger(plan?.issue) && plan.issue > 0 && Number.isSafeInteger(plan.issueId) && plan.issueId > 0
+      && digest(plan.issueRevision) && digest(plan.digest) && sha(plan.baseSha) && sha(plan.policySha)
+      && Array.isArray(plan.tasks) && plan.tasks.length > 0 && plan.tasks.length <= 20
+      && plan.tasks.every(id) && new Set(plan.tasks).size === plan.tasks.length, 'TEAM_STATE_INVALID');
+    const receipt = plan.receipt ?? null;
+    requireTeam(receipt === null || digest(receipt.digest) && text(receipt.confirmedBy, 80)
+      && sha(receipt.baseSha) && sha(receipt.policySha) && Array.isArray(receipt.acceptedCriteria)
+      && receipt.acceptedCriteria.length > 0 && receipt.acceptedCriteria.length <= 1000
+      && receipt.acceptedCriteria.every(item => plan.tasks.includes(item?.task)
+        && Number.isSafeInteger(item.criterion) && item.criterion >= 0 && item.criterion < 20)
+      && new Set(receipt.acceptedCriteria.map(item => `${item.task}:${item.criterion}`)).size === receipt.acceptedCriteria.length,
+    'TEAM_STATE_INVALID');
+    return { issue: plan.issue, issueId: plan.issueId, issueRevision: plan.issueRevision,
+      tasks: [...plan.tasks].sort(), digest: plan.digest, baseSha: plan.baseSha, policySha: plan.policySha,
+      receipt: receipt && { digest: receipt.digest, confirmedBy: receipt.confirmedBy,
+        acceptedCriteria: receipt.acceptedCriteria.map(({ task, criterion }) => ({ task, criterion })),
+        baseSha: receipt.baseSha, policySha: receipt.policySha } };
+  });
+  return { schemaVersion: 3, kind: 'changeplane.team', repositoryId, tasks, archivedTasks, observerCursor: input.observerCursor ?? null, issuePlans };
 }
 
 /** Load immutable file receipts before planning; transitions retain only referenced receipts. */
@@ -150,13 +188,14 @@ export function transitionTeam(input, command, context = {}) {
     requireTeam(new Set([...tasks.map(task => task.id), ...command.tasks.map(task => task.id)]).size <= 200, 'TEAM_CAPACITY');
     for (const item of command.tasks) {
       requireTeam(!state.archivedTasks.some(task => task.id === item.id), 'TEAM_TASK_ARCHIVED');
+      const accepted = state.issuePlans.find(plan => plan.issue === item.issue);
+      requireTeam(!accepted || accepted.tasks.includes(item.id), 'TEAM_ISSUE_PLAN_IMMUTABLE');
       const proposed = { id: item.id, title: item.title, paths: scope(item.paths), dependsOn: item.dependsOn ?? [],
         state: 'planned', generation: 0, owner: null, baseSha: null, policySha: null, branch: null,
-        headSha: null, pullRequest: null, issue: item.issue ?? null, workspaceId: null, outcome: null };
+        headSha: null, pullRequest: null, issue: item.issue ?? null, issueRevision: item.issueRevision ?? null,
+        acceptanceCriteria: item.acceptanceCriteria ?? [], workspaceId: null, outcome: null };
       const existing = tasks.find(task => task.id === item.id);
-      if (existing) requireTeam(canonical({ id: existing.id, title: existing.title, paths: existing.paths,
-        dependsOn: existing.dependsOn, issue: existing.issue }) === canonical({ id: proposed.id, title: proposed.title,
-        paths: proposed.paths, dependsOn: [...proposed.dependsOn].sort(), issue: proposed.issue }), 'TEAM_CONTRACT_IMMUTABLE');
+      if (existing) requireTeam(canonical(taskContract(existing)) === canonical(taskContract(proposed)), 'TEAM_CONTRACT_IMMUTABLE');
       else tasks.push(proposed);
     }
   } else {

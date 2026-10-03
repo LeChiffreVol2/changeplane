@@ -2,7 +2,7 @@
 
 **Keep GitHub. Let agents ship.**
 
-Find what needs attention in your coding agent’s pull request and who should act next. ChangePlane checks current CI evidence against repository policy, then gives your existing agent or reviewer a next step. You keep your tests, GitHub workflow and merge decisions.
+See what needs attention across your repository and who should act next. ChangePlane connects issue intake, accepted task plans, people and coding agents, PR/CI evidence and delivery verification. You keep your tests, GitHub workflow and merge decisions.
 
 [![CI](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml/badge.svg)](https://github.com/LeChiffreVol2/changeplane/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -16,20 +16,22 @@ Find what needs attention in your coding agent’s pull request and who should a
 Open your repository in your existing coding agent and paste:
 
 ```text
-Assess the current PR in this repository with ChangePlane. Ask me to identify it if the target is ambiguous.
+Read what needs attention in this repository with ChangePlane. Use the issue or PR from my task; ask if the target is ambiguous.
 Read https://raw.githubusercontent.com/LeChiffreVol2/changeplane/main/skills/changeplane/SKILL.md and follow its setup path.
 If no current runtime is installed, use its CI-verified installer in a separate directory and retain the returned source revision.
-Use onboard for one current PR to check prerequisites and obtain read-only PR/CI evidence. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review. After it merges, repeat onboard to obtain the first assessment.
-Lead with what needs attention, who should act and one next action; include the assessed revision and evidence below that. Keep model review and coordination optional. Keep credentials in my existing environment, never in this chat.
+Start with repository OWNER/REPO. For an issue, propose scoped tasks, acceptance criteria and dependencies bound to its returned revision, then let the human operator accept the plan. For a current PR, use onboard to check prerequisites and read PR/CI evidence. Preserve existing policy and prepare one configuration PR if needed, with protected changes and permissions left for my review.
+Lead with what needs attention, who should act and one next action. Follow accepted tasks through the existing agent, PR feedback and GitHub merge, then prepare delivery evidence for human acceptance. Keep model review optional and credentials in my existing environment, never in this chat.
 ```
 
 The [consumer skill](skills/changeplane/SKILL.md) tells the agent how to find a trusted runtime, inspect existing policy and CI, and return an assessment or a specific setup blocker. CLI use needs repository/tool access in your agent's environment; the [MCP guide](docs/community.md#use-with-an-agent) covers clients with stdio support. Client integration is qualified separately; a skill link does not install tools or grant access.
 
-**First useful result:** an assessment of your current PR with its revision and next action. If policy is missing, the first result is a configuration PR for review; assess the PR after that policy is merged and CI has run. Opening a workspace or copying a prompt is not activation.
+**First useful result:** a bounded repository inbox with a concrete next action, or a current PR assessment. A proposed plan needs human acceptance before coordinated work starts. Missing policy returns setup for review; opening a workspace or copying a prompt is not activation.
 
 Prefer to start yourself? Use the [CLI quickstart](#try-it-in-one-minute) below. The [website](https://changeplane.vercel.app/) provides an agent setup prompt and an optional browser setup path when hosted access is available.
 
 ## Try it in one minute
+
+For repository work, start with `changeplane repository OWNER/REPO --format text`, select an issue, and follow the [issue-to-delivery guide](docs/repository-lifecycle.md). Intake, maintenance suggestions and release drafts are read-only. Accepted plans and delivery receipts use the existing opt-in coordination branch; human decisions stay with the trusted operator.
 
 Requires Git and Node.js 22.18+; Node 22 and 24 are tested.
 

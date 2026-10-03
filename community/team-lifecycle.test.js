@@ -95,13 +95,13 @@ test('validation preserves observer progress independently of a subsequently arc
   assert.throws(() => validateTeam({ ...state, observerCursor: '../invalid' }), { code: 'TEAM_STATE_INVALID' });
 });
 
-test('legacy state upgrades to schema 2 so older writers fail closed before dropping archive files', () => {
+test('legacy state upgrades to schema 3 so older writers fail closed before dropping accepted issue plans', () => {
   const legacy = { schemaVersion: 1, kind: 'changeplane.team', repositoryId: 7, tasks: [] };
-  assert.equal(validateTeam(legacy).schemaVersion, 2);
+  assert.equal(validateTeam(legacy).schemaVersion, 3);
   assert.deepEqual(validateTeam(legacy), emptyTeam(7));
-  assert.equal(plan(legacy, [contract('new-task')]).schemaVersion, 2);
+  assert.equal(plan(legacy, [contract('new-task')]).schemaVersion, 3);
   assert.equal(legacy.schemaVersion, 1);
-  assert.throws(() => validateTeam({ ...legacy, schemaVersion: 3 }), { code: 'TEAM_STATE_INVALID' });
+  assert.throws(() => validateTeam({ ...legacy, schemaVersion: 4 }), { code: 'TEAM_STATE_INVALID' });
 });
 
 test('explicit policy adoption clears old handoffs while preserving the existing writer and immutable scope', () => {

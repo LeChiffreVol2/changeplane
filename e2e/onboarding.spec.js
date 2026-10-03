@@ -134,7 +134,7 @@ test("controlled-canary public root reconstructs the synthetic RouteThai contrac
 
   await page.goto("/?github=authorization_cancelled");
 
-  await expect(page.getByRole("heading", { name: "Start with one pull request." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Start with your repository." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Set up with your agent" })).toBeVisible();
   await expect(page.getByRole("radio")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /synthetic Origin|Origin boundary proof/u })).toHaveCount(0);
@@ -2092,7 +2092,7 @@ test("sign-out invalidates an in-flight installation before the server acknowled
   await expect(page.getByRole("button", { name: "Creating installation pull request…" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "One last step in GitHub" })).toHaveCount(0);
   await settleBrowserResponse(page, logout, { authenticated: false });
-  await expect(page.getByRole("heading", { name: "Start with one pull request." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Start with your repository." })).toBeVisible();
   await expect(page.getByRole("radio", { name: /acme\/first/u })).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
@@ -2237,4 +2237,124 @@ test('existing GitHub feedback stays read-only, keeps older comments separate an
   await expect(page.locator('.live-result')).toHaveCount(0);
   await expect(page.locator('.live-workspace [role="alert"]')).toContainText('Feedback changed');
   expect(modes).toEqual(['evidence', 'feedback', 'feedback', 'feedback']); expect(mutations).toEqual([]);
+});
+
+function repositoryView(repository, selected = null) {
+  const baseSha = 'a'.repeat(40), issueRevision = 'b'.repeat(64);
+  const issue = { number: 12, title: 'Clarify empty input handling', state: 'open', revision: issueRevision,
+    binding: { repositoryId: 42, issueNumber: 12, issueRevision, baseSha }, assignees: ['developer'],
+    missingInputs: [], duplicateCandidates: [], priority: { label: 'p2', source: 'repository-label' }, nextAction: 'PREPARE_ACCEPTANCE_PLAN' };
+  const task = { id: 'empty-input', title: 'Reject empty input', state: 'review', owner: 'developer', paths: ['src/input.js'],
+    dependsOn: [], acceptanceCriteria: ['An empty value produces the documented validation error.'],
+    issue: 12, issueRevision, pullRequest: 7, headSha: 'c'.repeat(40), outcome: 'AWAIT_GITHUB_REVIEW_AND_MERGE' };
+  return { schemaVersion: 1, kind: 'changeplane.repository-overview', repository,
+    binding: { repositoryId: 42, defaultBranch: 'main', baseSha }, observedAt: '2026-10-03T01:00:00Z',
+    issues: { status: 'available', coverage: 'complete', items: [issue] },
+    pullRequests: { status: 'available', coverage: 'bounded-window', items: [{ number: 7, title: 'Reject empty input', headSha: task.headSha, draft: false, assignees: ['developer'] }] },
+    team: { status: 'available', revision: 'd'.repeat(40), observationsFresh: false, tasks: [task],
+      issuePlans: [{ issue: 12, issueId: 120, issueRevision, tasks: [task.id], digest: 'e'.repeat(64), baseSha, policySha: baseSha, receipt: null }] },
+    selectedIssue: selected === 12 ? issue : null,
+    needsAttention: [{ kind: 'task', id: task.id, title: task.title, reason: 'Reconcile the task to obtain current PR, review and CI evidence.', nextAction: 'RECONCILE_TEAM' }],
+    maintenance: { status: 'available', coverage: { issues: 'complete', pullRequests: 'bounded-window', workflows: 'complete' },
+      suggestions: [{ kind: 'dependency', title: 'Review dependency update', reason: 'An existing dependency change still needs review.', url: `https://github.com/${repository}/pull/9` }] },
+    release: { status: 'available', coverage: 'bounded-window', published: false, draft: { title: 'Release preparation', body: 'Review merged change #6 against the repository release policy. This is a bounded preparation.', items: [{ number: 6 }] } } };
+}
+
+test('repository activity connects an issue plan to current PR evidence and prepares bounded release notes', async ({ page }, testInfo) => {
+  const mutations = [];
+  let accepted = false;
+  const external = await mockOnboardingLifetimes(page, (route, url) => {
+    if (route.request().method() !== 'GET') mutations.push(url.href);
+    const action = url.searchParams.get('action'), repository = url.searchParams.get('repository');
+    if (action === 'repository') {
+      const report = repositoryView(repository, Number(url.searchParams.get('issue')));
+      if (!accepted) { report.team.tasks = []; report.team.issuePlans = []; }
+      return liveJson(route, report);
+    }
+    if (action === 'workspace') return liveJson(route, liveView(repository));
+  });
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true,
+    value: { writeText: async value => { window.repositoryCopied = value; } } }); });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await expect(page.getByRole('heading', { name: 'What needs you today?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open repository activity', exact: true }).click();
+  await expect(page.getByText('Recorded coordination, not current assurance.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Plan issue #12', exact: true }).click();
+  const detail = page.getByRole('article', { name: 'Issue 12', exact: true });
+  await expect(detail.getByLabel('Issue lifecycle')).toContainText('Acceptance evidence needed');
+  await detail.getByRole('button', { name: 'Copy planning task' }).click();
+  const copied = await page.evaluate(() => window.repositoryCopied);
+  expect(copied).toContain('b'.repeat(64)); expect(copied).toContain('a'.repeat(40));
+  expect(copied).toContain('operator must accept the plan'); expect(copied).toContain('copying this request does not start an agent');
+  // The operator accepts outside this read-only page; a fresh read discovers the plan.
+  accepted = true; await page.getByRole('button', { name: 'Refresh repository', exact: true }).click();
+  await expect(detail.getByRole('heading', { name: 'Accepted task plan · recorded snapshot' })).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Copy planning task' })).toHaveCount(0);
+  await detail.getByRole('button', { name: 'Copy issue handoff' }).click();
+  expect(await page.evaluate(() => window.repositoryCopied)).toContain('Accepted task IDs: empty-input');
+  await detail.getByText('Scope and acceptance', { exact: true }).click();
+  await expect(detail.getByText('An empty value produces the documented validation error.', { exact: true })).toBeVisible();
+  await page.locator('.live-workspace').screenshot({ path: testInfo.outputPath('repository-issue-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.live-workspace').screenshot({ path: testInfo.outputPath('repository-issue-mobile.png') });
+  await detail.getByRole('button', { name: 'Inspect PR #7', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Waiting for CI', exact: true })).toBeVisible();
+  await expect(page.locator('.repository-issue')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Repository activity', exact: true }).click();
+  await page.getByText('Prepare release notes', { exact: true }).click();
+  await expect(page.getByLabel('Release notes draft')).toHaveValue(/bounded preparation/u);
+  await page.getByRole('button', { name: 'Copy release notes', exact: true }).click();
+  expect(await page.evaluate(() => window.repositoryCopied)).toContain('repository release policy');
+  expect(mutations).toEqual([]); expect(external).toEqual([]);
+});
+
+test('changed issue plans are not current work and missing inputs lead to clarification', async ({ page }) => {
+  let changed = false;
+  await mockOnboardingLifetimes(page, (route, url) => {
+    if (url.searchParams.get('action') !== 'repository') return false;
+    const value = repositoryView(url.searchParams.get('repository'), Number(url.searchParams.get('issue')));
+    if (value.selectedIssue) {
+      value.selectedIssue.missingInputs = ['acceptanceCriteria'];
+      value.selectedIssue.revision = value.selectedIssue.binding.issueRevision = 'f'.repeat(64);
+      if (changed) value.selectedIssue.binding.repositoryId = 777;
+    }
+    return liveJson(route, value);
+  });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await page.getByRole('button', { name: 'Open repository activity', exact: true }).click();
+  await page.getByRole('button', { name: 'Plan issue #12', exact: true }).click();
+  const detail = page.getByRole('article', { name: 'Issue 12', exact: true });
+  await expect(detail.getByText('The issue changed after its plan was accepted.', { exact: false })).toBeVisible();
+  await expect(detail.getByRole('link', { name: 'Clarify this issue on GitHub' })).toHaveAttribute('href', 'https://github.com/acme/first/issues/12');
+  await expect(detail.getByRole('button', { name: 'Copy planning task' })).toHaveCount(0);
+  await expect(detail.getByRole('heading', { name: 'Accepted task plan · recorded snapshot' })).toHaveCount(0);
+  changed = true; await page.getByRole('button', { name: 'Refresh repository', exact: true }).click();
+  await expect(page.locator('.repository-activity')).toHaveCount(0);
+  await expect(page.locator('.live-workspace [role="alert"]')).toContainText('does not match this repository and issue');
+});
+
+test('repository coverage distinguishes denied reads and disabled coordination and clears on a failed refresh', async ({ page }) => {
+  let unavailable = false;
+  await mockOnboardingLifetimes(page, (route, url) => {
+    if (url.searchParams.get('action') !== 'repository') return false;
+    if (unavailable) return liveJson(route, { error: 'GitHub access is unavailable' }, 503);
+    const value = repositoryView(url.searchParams.get('repository'));
+    value.issues = { status: 'unavailable', coverage: 'unknown', items: [], reasonCode: 'PERMISSION_DENIED' };
+    value.team = { status: 'not-enabled', coverage: 'complete', revision: null, observationsFresh: false, tasks: [], issuePlans: [] };
+    value.maintenance = { status: 'partial', coverage: { issues: 'unknown' }, suggestions: [] };
+    value.needsAttention = [{ kind: 'source', id: 'issues', title: 'Issues unavailable', reason: 'Issue permission is missing.', nextAction: 'RETRY_SOURCE' }];
+    return liveJson(route, value);
+  });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await page.getByRole('button', { name: 'Open repository activity', exact: true }).click();
+  await expect(page.getByText('Issue data could not be read.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No open issues were found in this read.', { exact: false })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Prepare team setup request', exact: true })).toBeVisible();
+  await page.getByText('Read coverage and permissions', { exact: true }).click();
+  await expect(page.locator('.repository-activity')).toContainText('permission denied');
+  await expect(page.locator('.repository-activity')).toContainText('bounded window');
+  unavailable = true; await page.getByRole('button', { name: 'Refresh repository', exact: true }).click();
+  await expect(page.locator('.repository-activity')).toHaveCount(0);
+  await expect(page.locator('.live-workspace [role="alert"]')).toContainText('GitHub access is unavailable');
 });

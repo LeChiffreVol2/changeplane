@@ -79,6 +79,7 @@ installed_skill = destination / 'consumer repository with spaces' / '.agents/ski
 shutil.copytree(root / 'skills/changeplane', installed_skill)
 verify_documentation(installed_skill)
 tests = sorted(str(path.relative_to(root)) for path in (root / 'community').glob('*.test.js'))
+tests += sorted(str(path.relative_to(root)) for path in (root / 'tests').glob('repository-*.test.js'))
 assert tests
 subprocess.run(['node', '--test', *tests], cwd=root, check=True)
 print('Release checksums, inventory, documentation links and isolated tests passed.')

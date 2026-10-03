@@ -2,6 +2,12 @@ import { inspectPullRequest } from '../community/github.js';
 import { inspectPipeline } from '../community/pipeline.js';
 import { unavailable, CollectionError } from '../community/transport.js';
 import { presentAssessment } from '../src/lib/pr-workspace.js';
+import { inspectRepository } from '../community/repository-github.js';
+
+/** Reuses the selected installation's fresh read access; never obtains a writer. */
+export async function readRepositoryWorkspace({ repository, issue, read }) {
+  return inspectRepository({ api: { repository, root: `/repos/${repository}`, get: read }, ...(issue === undefined ? {} : { issue }) });
+}
 
 /** The caller supplies a freshly authorized, repository-scoped GET reader. */
 export async function readWorkspace({ repository, number, mode = 'evidence', read }) {

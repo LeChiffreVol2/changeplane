@@ -17,9 +17,11 @@ import { runTeamCli, teamFailure } from './team-cli.js';
 import { onboard } from './onboard.js';
 import { parsePullRequestUrl } from '../src/lib/pr-workspace.js';
 import { watchPullRequest, codexNotifier } from './watch.js';
+import { inspectRepository } from './repository-github.js';
 
 const help = `ChangePlane Open Source ${COMMUNITY_VERSION}
 Usage:
+  changeplane repository OWNER/REPO [--issue NUMBER] [--format json|text]
   changeplane evaluate snapshot.json [--format json|text|compact]
   changeplane doctor OWNER/REPO [--format json|text]
   changeplane onboard OWNER/REPO PR_NUMBER [--with-feedback] [--check JOB --workflow PATH] [--wait SECONDS]
@@ -109,9 +111,19 @@ try {
   else if (command === '--version' && args.length === 0) process.stdout.write(`${COMMUNITY_VERSION}\n`);
   else if (command === 'runtime' && args.length === 0) process.stdout.write(JSON.stringify({
     version: COMMUNITY_VERSION, sourceRevision: setupRuntime().revision,
-    capabilities: ['inspect', 'native-feedback', 'doctor', 'init', 'onboard', 'watch-codex', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
+    capabilities: ['repository', 'issue-lifecycle', 'inspect', 'native-feedback', 'doctor', 'init', 'onboard', 'watch-codex', 'pipeline', 'follow', 'human-review', 'isolated-review', 'mcp', 'team'],
     nextAction: 'Start with onboard OWNER/REPO PR_NUMBER --format text. It checks setup and returns current PR evidence or a specific setup step. Model review is optional and separately enabled.',
   }, null, 2) + '\n');
+  else if (command === 'repository') {
+    if (args.length === 1 && args[0] === '--help') process.stdout.write('changeplane repository OWNER/REPO [--issue NUMBER] [--format json|text]\nRead bounded issue intake, team progress, PR inventory, maintenance suggestions and a release draft. Optional --issue returns the exact issue revision for an accepted plan. Uses read-only GitHub access; no agent launch, acceptance, publication or issue close.\n');
+    else {
+      const [repository, flag, rawIssue] = args;
+      if (![1, 3].includes(args.length) || args.length === 3 && (flag !== '--issue' || !/^[1-9][0-9]*$/u.test(rawIssue)) || format === 'compact') throw new Error('USAGE_INVALID');
+      const read = githubReader(process.env.GH_TOKEN || process.env.GITHUB_TOKEN);
+      const report = await inspectRepository({ api: { repository, root: `/repos/${repository}`, get: read }, ...(rawIssue ? { issue: Number(rawIssue) } : {}) });
+      process.stdout.write(formatReport(report, format));
+    }
+  }
   else if (command === 'mcp') {
     if (args[0] === '--help' && args.length === 1) process.stdout.write('Set CHANGEPLANE_REPOSITORY=OWNER/REPO in the operator environment, then run changeplane mcp. Read-only GitHub setup checks, plans and assessment; use a read-only credential for private access.\n');
     else {

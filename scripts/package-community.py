@@ -33,6 +33,8 @@ paths = [
     'community/onboard.js', 'community/watch.js', 'community/continuation.test.js', 'docs/agent-continuation.md',
     'community/mcp.js', 'community/mcp-transport.js', 'community/mcp-transport.test.js', 'community/entrypoints.test.js',
     'community/core.js', 'community/github.js', 'community/cli.js',
+    'community/repository-github.js', 'community/repository-issue.js', 'community/repository-projects.js', 'docs/repository-lifecycle.md',
+    'tests/repository-overview.test.js', 'tests/repository-projects.test.js',
     'community/pipeline.js', 'community/pipeline.test.js', 'docs/opencode-review.md',
     'community/session.js', 'community/review-decisions.js', 'community/review-runner.js',
     'community/review-runner.test.js', 'community/review-sandbox.js', 'examples/opencode-review.Dockerfile',

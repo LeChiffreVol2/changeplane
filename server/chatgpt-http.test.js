@@ -42,7 +42,7 @@ test('HTTP MCP exposes only scoped read tools, rejects credential arguments and 
     const init = await call({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
     assert.equal(init.status, 200); assert.equal((await init.json()).result.serverInfo.name, 'changeplane');
     const catalog = await (await call({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
-    assert.equal(catalog.result.tools.length, 5);
+    assert.equal(catalog.result.tools.length, 6);
     assert.ok(catalog.result.tools.every(tool => tool.annotations.readOnlyHint && !tool.annotations.destructiveHint));
     assert.ok(catalog.result.tools.every(tool => !/merge|approve|run_review/u.test(tool.name)));
     for (const name of ['inspect_pull_request', 'prepare_agent_handoff']) {

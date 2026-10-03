@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { readWorkspace, listWorkspacePulls } from './product-workspace.js';
+import { readWorkspace, listWorkspacePulls, readRepositoryWorkspace } from './product-workspace.js';
 import { inspectSetup, setupFailure } from '../community/setup.js';
 import { CollectionError, unavailable } from '../community/transport.js';
 
@@ -48,5 +48,7 @@ export function createChatgptTools({ session, repositories, access }) {
       return { repository: args.repository, number: args.number, headSha: view.headSha, status: view.status,
         nextAction: view.nextAction, handoff: view.actions.handoff, authority: view.authority };
     });
+  register('inspect_repository', 'Read what needs attention across a selected repository: issue intake, owners, dependencies, PR inventory, maintenance suggestions and release preparation. Optional issue returns revision-bound planning context. Stored team outcomes need reconciliation. No plan acceptance, agent launch or metadata writes.',
+    { repository, issue: number.optional() }, async args => readRepositoryWorkspace({ ...args, ...await access(args.repository, session) }));
   return server;
 }

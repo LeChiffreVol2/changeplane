@@ -1,12 +1,16 @@
-# ChangePlane Assurance
+# ChangePlane Repository Development
 
-ChangePlane's domain is independent behavioral assurance and recovery for change requests. Each change request has an authoritative forge that owns its repository state and merge decision.
+ChangePlane's domain is coordinated repository development from an issue to verified delivery, with independent behavioral assurance and recovery for change requests. The authoritative forge owns repository state and the merge decision.
 
 ## Market and product
 
+**Repository Lifecycle**:
+The connected progression of an issue through an accepted plan, assigned work, reviewed changes, delivery verification and subsequent maintenance. It belongs to one repository and retains the forge's review and merge authority.
+_Avoid_: General-purpose orchestrator, replacement Git host, autonomous merge service
+
 **Independent Behavioral Merge Assurance**:
 The product category in which an authority independent from the authoring agent verifies trusted behavioral evidence for one exact revision under the authoritative forge's merge policy.
-_Avoid_: Agentic SDLC platform, AI code review, agent workspace
+_Avoid_: AI code review, agent workspace, complete delivery acceptance
 
 **Customer Account**:
 A personal or organizational account that owns repositories assessed by ChangePlane on an authoritative forge. Its owner or authorized administrators choose the assurance and recovery policy.
@@ -46,8 +50,20 @@ _Avoid_: Open Source Core, prerequisite for open-source use
 
 ## Repository teamwork
 
+**Accepted Issue Plan**:
+An operator-reviewed, immutable set of task contracts and acceptance criteria bound to one issue revision. Suggestions from issue text or a model remain proposals until accepted.
+_Avoid_: Issue body, generated plan, approval for source changes
+
+**Delivery Receipt**:
+An explicit human acceptance of every agreed criterion bound to freshly observed merged task revisions and the repository's current policy. It records delivery acceptance without granting merge or source-write authority.
+_Avoid_: Green CI, closed issue, model certification
+
+**Repository Attention**:
+A bounded inventory of work needing a decision or continuation, with its responsible role, reason and next action. Missing or partial observations remain visible rather than implying a healthy repository.
+_Avoid_: Complete repository audit, live assurance for every task
+
 **Task Contract**:
-An immutable statement of a participating writer's intended work, permitted paths and prerequisite tasks within one repository.
+An immutable statement of a participating writer's intended work, permitted paths, acceptance criteria and prerequisite tasks within one repository.
 _Avoid_: Source-write grant, merge approval, arbitrary agent prompt
 
 **Task Reservation**:
