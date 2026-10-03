@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { TeamError } from './team.js';
 import { issueRevision } from './repository-issue.js';
+import { callTeamTool } from './team-mcp.js';
 import { operateTeam, teamGitHub, nextTeamHandoffs, observeTeam } from './team-github.js';
 import { CollectionError } from './transport.js';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
@@ -75,6 +76,31 @@ function fixture({ baseSha = base } = {}) {
     setAttempt: value => { f.attempt = value; }, setComparison: value => { f.comparison = value; }, setFiles: files => { f.files = files; }, setConclusion: value => { f.conclusion = value; } };
 }
 const run = (f, command) => operateTeam({ api: f.api, command });
+test('MCP claims an accepted issue task by ID without resubmitting or changing its contract', async () => {
+  const f = fixture(), goal = issueRevision(f.issue);
+  await run(f, { action: 'accept-issue', issue: 1, issueRevision: goal,
+    tasks: [{ id: 'api', title: 'API', paths: ['src/api/**'], acceptanceCriteria: ['The API returns the accepted response.'] }] });
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(input);
+    assert.equal(url.origin, 'https://api.github.com');
+    const value = await f.api.request(options.method ?? 'GET', url.pathname + url.search,
+      options.body ? JSON.parse(options.body) : undefined);
+    return new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await callTeamTool('changeplane_claim', { task: 'api' }, {
+      CHANGEPLANE_TEAM_REPOSITORY: 'example/repo', CHANGEPLANE_TEAM_WRITE: 'true',
+      CHANGEPLANE_TEAM_MEMBER: 'alice', GH_TOKEN: 'synthetic-operator-token',
+    });
+    assert.equal(result.task.state, 'active');
+    assert.equal(result.task.owner, 'alice');
+    assert.equal(result.task.issueRevision, goal);
+    assert.deepEqual(result.task.acceptanceCriteria, ['The API returns the accepted response.']);
+    assert.equal(result.nextAction, 'CREATE_ISOLATED_WORKTREE');
+    await assert.rejects(callTeamTool('changeplane_claim', { task: 'api', owner: 'someone-else' }, {}), { code: 'TEAM_COMMAND_INVALID' });
+  } finally { globalThis.fetch = oldFetch; }
+});
 async function planned(f) {
   return run(f, { action: 'plan', tasks: [
     { id: 'api', title: 'API', paths: ['src/api/**'] },

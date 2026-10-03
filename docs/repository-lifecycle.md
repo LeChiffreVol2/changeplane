@@ -49,7 +49,7 @@ Acceptance re-reads the issue and refuses a changed revision. The accepted plan 
 
 ## Assign, work and follow through GitHub
 
-Claim a ready accepted task with `team claim OWNER/REPO TASK OWNER`, then create its worktree once with `team worktree`. The existing team MCP supplies the same reservation and workspace path for operator-configured members. Dependencies and overlapping reservations hold conflicting work. See [repository teamwork](repository-team.md) for configuration and the observer template.
+Claim a ready accepted task with `team claim OWNER/REPO TASK OWNER` or team MCP `changeplane_claim({task:"TASK"})`, then create its worktree once with `team worktree` or `changeplane_worktree`. Claim uses the stored immutable contract; `changeplane_start` is only for a new standalone contract. Dependencies and overlapping reservations hold conflicting work. See [repository teamwork](repository-team.md) for configuration and the observer template.
 
 The assigned person or enabled coding agent develops in that workspace and opens its task PR. `team next` refreshes PR/CI/review handoffs and returns the same writer's unfinished work after a restart. Acknowledge the exact handoff, investigate feedback within scope, and reassess each new commit. Protected changes retain human review. GitHub's normal review and merge process controls integration. A reservation or copied prompt is not agent execution; use the existing client's authorized runtime to start or resume it.
 
