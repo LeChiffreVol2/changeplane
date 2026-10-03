@@ -381,6 +381,8 @@ button {
 .agent-pr-url:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .agent-pr-url[aria-invalid="true"] { border-color: #9b4138; }
 .agent-pr-help { margin: var(--space-2) 0 var(--space-5); color: var(--muted); font-size: var(--text-meta); line-height: var(--leading-relaxed); }
+.agent-feedback-choice { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--text-meta); line-height: var(--leading-relaxed); }
+.agent-feedback-choice input { flex: none; margin-top: 4px; accent-color: var(--ink); }
 .agent-setup-prompt { display: block; width: 100%; min-height: 220px; resize: vertical; padding: var(--space-3); border: 1px solid var(--line-dark); border-radius: var(--radius-control); background: var(--paper-soft); color: var(--ink); font: var(--text-meta)/var(--leading-relaxed) var(--font-mono); }
 .agent-setup-prompt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .agent-setup-detail { margin-top: var(--space-5); border-top: 1px solid var(--line); }

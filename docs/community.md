@@ -18,6 +18,22 @@ The agent first identifies your repository, existing policy and CI. If policy ex
 
 Setup is useful when the agent returns a real assessment with the observed revision, findings and next action. A missing policy, unavailable evidence or incomplete permission is a reported blocker, not a successful assessment. After a commit or CI rerun, request fresh evidence. Parallel coordination is a separate opt-in through [operator setup](team-operator.md).
 
+## Use your existing reviewer
+
+If people, Codex or another reviewer already publish feedback on your GitHub PR, select **Include existing GitHub review feedback** in the agent setup prompt, or run:
+
+```sh
+changeplane onboard OWNER/REPO PR_NUMBER --with-feedback --format text
+```
+
+`inspect --with-feedback` works once policy is configured. Read-only MCP exposes the same choice as `includeFeedback: true` on `changeplane_onboard` and `changeplane_inspect`. Hosted live PRs offer **GitHub feedback + CI**; the ChatGPT tools accept `mode: "feedback"`. Keep the selection when refreshing or copying a handoff. No new reviewer, model key, account connection or coordination setup is required by the local reader. Existing repository read permissions still apply.
+
+The result keeps deterministic `ci` separate from `feedback`. Published comments or active change requests return an investigation task (`REVIEW_REQUIRED`); CI failures, blocked paths and protected changes retain priority. Read the original discussion with your existing agent, change only what the task authorizes, then reassess. The feature never posts comments, starts Codex, approves, resolves discussions or merges.
+
+Only submitted GitHub reviews and inline review comments are collected. Private Codex chats and ordinary PR conversation comments are outside this collection. Coverage and thread resolution are **unknown**: empty feedback does not mean a review passed, and even a resolved discussion can remain in these REST records. Earlier or outdated comments remain separately visible; a new commit does not prove they were fixed. ChangePlane does not infer reviewer authenticity from a name or count native approval as its own protected-path approval.
+
+Each endpoint allows at most three pages of 100 records and requires a final partial page (at most 299 records per endpoint). Two collections must agree before the PR identity, head and trusted policy are rechecked. Changed, malformed, inaccessible or oversized feedback makes the requested assessment unavailable. Output contains record IDs, revision bindings, content digests and generated GitHub links, not comment bodies. This is tested response handling, not live qualification of every reviewer or native client. The [dated Codex comparison](research/codex-code-review-fit.md) explains the product boundary.
+
 ## Settings for Individual and Teams
 
 Open **Settings** from the website's public landing, hosted setup or synthetic workspace. **Individual** defaults to read-only assessment; enabling parallel agents starts at 2 active tasks. **Teams** starts with coordination enabled and 3 active tasks. Adjust coordination capacity from 1–20; each usage choice retains its own draft capacity.

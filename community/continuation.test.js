@@ -103,6 +103,14 @@ test('installed CLI accepts a PR URL, retains setup contents in compact output a
   f.install(); f.run.conclusion = f.job.conclusion = 'success';
   const ready = run(); assert.equal(ready.status, 0, ready.stderr);
   assert.equal(JSON.parse(ready.stdout).onboarding.assessed, true);
+  f.data[`${root}/pulls/7/reviews?per_page=100&page=1`] = [];
+  f.data[`${root}/pulls/7/comments?per_page=100&page=1`] = [{ id: 22, commit_id: head, original_commit_id: head,
+    position: 1, updated_at: '2026-10-03T12:00:00Z', body: 'Synthetic feedback' }];
+  const feedback = run('--with-feedback'); assert.equal(feedback.status, 1, feedback.stderr);
+  const joined = JSON.parse(feedback.stdout);
+  assert.equal(joined.ci.decision, 'EVIDENCE_SATISFIED'); assert.equal(joined.feedback.references[0].id, 22);
+  assert.match(joined.workspace.actions.resume, /--with-feedback/);
+  assert.equal(run('--with-feedback', '--with-feedback').status, 2);
 });
 
 function watchFixture(t) {

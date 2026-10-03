@@ -17,6 +17,7 @@ const paths = [
   "docs/technical-paper-plan.md",
   "docs/research/technical-report.md",
   "docs/research/benchmark-sources.md",
+  "docs/research/codex-code-review-fit.md",
   "benchmarks/assurance/README.md",
   "benchmarks/assurance/PROTOCOL.md",
   "docs/community-positioning.md",

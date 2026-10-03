@@ -15,6 +15,10 @@ These tools can be combined. The assessment does not replace behavioral tests, G
 
 For context, [GitHub documents required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches), [Semgrep describes its Community SAST engine](https://semgrep.dev/products/community-edition), and [StepSecurity describes Harden-Runner's network/file/process monitoring](https://docs.stepsecurity.io/harden-runner). This is a comparison of responsibilities, not a benchmark or a claim that those tools lack their own freshness or policy controls. Source review: 2026-09-09.
 
+## Work with native review
+
+Codex Code Review directly overlaps PR review, check investigation and follow-up fixes; a second review UI is not a defensible differentiation by itself. The current direction is to consume published GitHub feedback alongside ChangePlane’s revision-bound CI and protected-scope assessment, then return one next action to the existing agent. Use [existing reviewer mode](community.md#use-your-existing-reviewer) without starting another model. This is a product hypothesis, not a proven advantage over native controls. See the [2026-10-03 primary-source review and remaining qualification](research/codex-code-review-fit.md).
+
 ## Reproduce the useful differences
 
 Run `node --test community/core.test.js`. The suite covers satisfied evidence, failed/skipped/pending checks, a newer same-SHA run, stale heads, wrong publishers/workflows, protected-file renames, missing policy, incomplete API results, ambiguous jobs, revision drift and read-only transport. Offline fixtures are synthetic. Live release qualification is bounded to the exact fixtures and revisions recorded in release notes.

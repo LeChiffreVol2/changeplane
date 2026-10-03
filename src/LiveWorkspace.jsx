@@ -69,8 +69,10 @@ export default function LiveWorkspace({ repository }) {
         <div className="live-toolbar">{page > 1 && <button type="button" onClick={() => load(null, mode, page - 1)}>Previous page</button>}
           {nextPage && <button type="button" onClick={() => load(null, mode, nextPage)}>Next page</button>}</div>
       </>}
-      {number && <label className="live-mode">Assessment <select disabled={busy} value={mode} onChange={event => load(number, event.target.value)}>
-        <option value="evidence">CI evidence · no model key needed</option><option value="pipeline">Review handoff + CI</option></select></label>}
+      {number && <label className="live-mode">Assessment <select aria-label="Assessment" disabled={busy} value={mode} onChange={event => load(number, event.target.value)}>
+        <option value="evidence">CI evidence · no model key needed</option>
+        <option value="feedback">GitHub feedback + CI · no model key</option>
+        <option value="pipeline">Optional model review handoff + CI</option></select></label>}
       {view && <article className="live-result" aria-live="polite">
         <span className="live-eyebrow">PR #{view.number} · {view.headSha ? view.headSha.slice(0, 12) : 'Revision not verified'}</span>
         <h3>{view.title}</h3><p><strong>Next: {view.nextAction}</strong></p>
@@ -84,6 +86,18 @@ export default function LiveWorkspace({ repository }) {
         </div>
         <p>{view.continuation}</p>
         {view.status === 'unavailable' && <p>Finish repository setup above if policy or read permissions are missing, then reassess this PR.</p>}
+        {view.feedback && <div className="live-feedback"><h4>Existing GitHub feedback</h4>
+          <p>{view.feedback.limitation}</p>
+          {view.feedback.references.length === 0 && view.feedback.previousReferences.length === 0
+            ? <p>No published feedback references were found. This does not establish that a review ran or passed.</p>
+            : <ul>{view.feedback.references.map(item => <li key={`${item.kind}:${item.id}`}>
+              <a href={item.url} target="_blank" rel="noreferrer">{item.state === 'CHANGES_REQUESTED' ? 'Change request' : 'Comment'} #{item.id}</a>
+              {' · '}{item.reviewedHead === view.headSha ? 'Current revision' : `Earlier revision ${item.reviewedHead.slice(0, 12)}`}</li>)}</ul>}
+          {view.feedback.previousReferences.length > 0 && <details><summary>Older or outdated comments ({view.feedback.previousReferences.length})</summary>
+            <p>These have not been verified against this revision. Check the discussion before deciding whether a change is needed.</p>
+            <ul>{view.feedback.previousReferences.map(item => <li key={`${item.kind}:${item.id}`}><a href={item.url} target="_blank" rel="noreferrer">Comment #{item.id}</a>
+              {' · '}Reviewed {item.reviewedHead.slice(0, 12)}{item.outdated ? ' · Outdated location' : ''}</li>)}</ul></details>}
+        </div>}
         <details><summary>Evidence and coverage</summary>
           <p>{view.observedAt ? `Observed ${new Date(view.observedAt).toLocaleString()}. Refresh after changes.` : 'No current observation is available.'}</p>
           <ul>{view.evidence.map((item, index) => <li key={index}>{item.name} · {item.status} · {item.conclusion ?? 'Waiting'}</li>)}</ul>

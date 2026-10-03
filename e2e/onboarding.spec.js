@@ -1922,6 +1922,10 @@ test('a PR link scopes the agent task locally and invalid links cannot reach the
   expect(copied).toContain('Assess https://github.com/example/project/pull/7');
   expect(copied).toContain('who should act and one next action');
   expect(copied).toContain('Keep model review, parallel coordination and native task notifications optional');
+  await drawer.getByLabel('Include existing GitHub review feedback').check();
+  await expect(prompt).toHaveValue(/onboard example\/project 7 --with-feedback/);
+  await expect(prompt).toHaveValue(/Do not trigger a reviewer/);
+  await drawer.getByLabel('Include existing GitHub review feedback').uncheck();
   for (const invalid of ['https://secret@github.com/example/project/pull/7', 'https://github.com.evil.test/example/project/pull/7',
     'https://github.com/example/project/pull/7?token=secret']) {
     await input.fill(invalid); await expect(input).toHaveAttribute('aria-invalid', 'true');
@@ -1934,6 +1938,7 @@ test('a PR link scopes the agent task locally and invalid links cannot reach the
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Set up with your agent', exact: true }).click();
   await expect(page.getByLabel('GitHub pull request link')).toHaveValue('');
+  await expect(page.getByLabel('Include existing GitHub review feedback')).not.toBeChecked();
   expect(requests).toEqual(['session']); expect(externalRequests).toEqual([]);
 });
 
@@ -2194,3 +2199,42 @@ test('human decision preparation requires reasons and does not submit approval',
 });
 
 async function liveJson(...args) { await json(...args); return true; }
+
+test('existing GitHub feedback stays read-only, keeps older comments separate and disappears on failed refresh', async ({ page }) => {
+  const modes = [], mutations = []; let failed = false, empty = false;
+  await mockOnboardingLifetimes(page, (route, url) => {
+    if (route.request().method() !== 'GET') mutations.push(url.href);
+    const action = url.searchParams.get('action'), repository = url.searchParams.get('repository');
+    if (action === 'pulls') return liveJson(route, { repository, pulls: [{ number: 7, title: 'Use existing review' }] });
+    if (action === 'workspace') {
+      const mode = url.searchParams.get('mode'); modes.push(mode);
+      if (failed) return liveJson(route, { error: 'Feedback changed. Refresh this PR.' }, 503);
+      const view = liveView(repository);
+      if (mode === 'feedback') Object.assign(view, { status: 'feedback_observed', title: 'Check the existing GitHub feedback',
+        owner: 'Assigned coding agent', feedback: { limitation: 'Published GitHub feedback. Coverage and resolution are unknown.',
+          references: empty ? [] : [{ kind: 'review-comment', id: 2, reviewedHead: view.headSha, url: 'https://github.com/acme/first/pull/7#discussion_r2' }],
+          previousReferences: empty ? [] : [{ kind: 'review-comment', id: 3, reviewedHead: 'b'.repeat(40), outdated: true, url: 'https://github.com/acme/first/pull/7#discussion_r3' }] },
+        actions: { ...view.actions, primary: { kind: 'handoff', label: 'Copy task for your agent' },
+          handoff: 'Inspect existing feedback. Resume: changeplane onboard acme/first 7 --with-feedback --format compact' } });
+      return liveJson(route, view);
+    }
+  });
+  await page.goto('/'); await page.getByRole('radio', { name: /acme\/first/u }).click();
+  await page.getByRole('button', { name: 'Open live pull requests' }).click();
+  await page.getByRole('button', { name: /Use existing review/u }).click();
+  await page.getByLabel('Assessment', { exact: true }).selectOption('feedback');
+  await expect(page.getByRole('heading', { name: 'Existing GitHub feedback', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Comment #2', exact: true })).toHaveAttribute('href', 'https://github.com/acme/first/pull/7#discussion_r2');
+  await expect(page.getByRole('link', { name: 'Comment #3', exact: true })).not.toBeVisible();
+  await page.getByText('Older or outdated comments (1)', { exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Comment #3', exact: true })).toBeVisible();
+  await expect(page.locator('.live-result .primary-action')).toHaveText('Copy task for your agent');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  empty = true; await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
+  await expect(page.getByText('No published feedback references were found.', { exact: false })).toBeVisible();
+  failed = true; await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
+  await expect(page.locator('.live-result')).toHaveCount(0);
+  await expect(page.locator('.live-workspace [role="alert"]')).toContainText('Feedback changed');
+  expect(modes).toEqual(['evidence', 'feedback', 'feedback', 'feedback']); expect(mutations).toEqual([]);
+});
